@@ -80,7 +80,7 @@ kept encrypted in the server-side session.
 
 1. Run the new migration in the Supabase SQL editor (after all earlier ones):
    `supabase/migrations/20261009000000_admin_portal.sql`. It is idempotent and does not change
-   or delete existing data. Default loyalty earn rate stays 1 point per ₱50.
+   or delete existing data. Loyalty rules start Not set (no points) until the owner saves them.
 2. Give the website's database login a password (SQL editor; keep it out of Git):
    ```sql
    alter role melai_admin_portal with login password '<long random password>';

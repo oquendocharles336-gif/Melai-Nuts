@@ -362,3 +362,8 @@ existing email account of the same person.
    rule for `users/{uid}` must allow the phone provider (see the rules change
    proposed alongside this feature) and be deployed:
    `firebase deploy --only firestore:rules`.
+
+## Going live
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): first-time setup checklist, database, Edge Functions, Firebase,
+admin website (HTTPS, secure cookies, security headers) and app builds.
