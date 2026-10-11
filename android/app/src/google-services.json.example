@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "865090291609",
+    "project_id": "melai-nuts-app-2026",
+    "storage_bucket": "melai-nuts-app-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:865090291609:android:231a67991e6cea8e1db508",
+        "android_client_info": {
+          "package_name": "com.example.melai_nuts"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJcvp3_sPZ1-QoM35JojoHTrb3g7c9Ppo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
