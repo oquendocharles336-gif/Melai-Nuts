@@ -101,6 +101,8 @@ class OrderItem {
       variantLabel: (row['variant_label'] as String?) ?? 'Regular',
       quantity: row['quantity'] as int,
       unitPrice: (row['unit_price'] as num).toDouble(),
+      productId: row['product_id'] as String?,
+      variantId: row['variant_id'] as String?,
     );
   }
 }

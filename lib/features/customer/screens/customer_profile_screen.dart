@@ -11,6 +11,7 @@ import '../../notifications/screens/notification_center_screen.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
 import 'edit_profile_screen.dart';
 import 'saved_addresses_screen.dart';
+import 'favorites_screen.dart';
 
 /// "Account" tab — profile header, loyalty summary, contact info, and
 /// settings list (matches the prototype's Account & Settings screen,
@@ -284,6 +285,14 @@ class CustomerProfileScreen extends StatelessWidget {
                     ),
                   ),
                   const Divider(height: 1),
+                  _SettingsTile(
+                    icon: Icons.favorite_border_rounded,
+                    title: 'Favourites',
+                    subtitle: 'Products you saved',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const FavoritesScreen()),
+                    ),
+                  ),                  const Divider(height: 1),
                   _SettingsTile(
                     icon: Icons.assignment_return_outlined,
                     title: 'Refund History',

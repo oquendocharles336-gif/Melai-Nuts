@@ -54,6 +54,10 @@
                 <input class="light-input" id="expiry_alert_days" name="expiry_alert_days" type="number" min="1" max="365" step="1"
                        value="{{ old('expiry_alert_days', $s['expiry_alert_days'] ?? null) }}" placeholder="Not set">
                 <p class="note">Not set: no expiry push notifications are sent.</p></div>
+            <div class="field"><label for="low_stock_badge_qty">Show customers "Only N left" at or below (units)</label>
+                <input class="light-input" id="low_stock_badge_qty" name="low_stock_badge_qty" type="number" min="1" max="1000" step="1"
+                       value="{{ old('low_stock_badge_qty', $s['low_stock_badge_qty'] ?? null) }}" placeholder="Not set">
+                <p class="note">Uses the branch's real stock count. Not set: the app never shows it.</p></div>
             <button class="btn-solid" type="submit">Save settings</button>
         </form>
     </x-card>

@@ -13,14 +13,38 @@ import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import 'cart_screen.dart';
 
+/// Finds the live catalogue product/variant for a past order line: by the
+/// stored `product_id` / `variant_id` first (renamed products still match),
+/// then by exact name/label for lines from before those ids were kept.
+/// Returns null when the product is gone; a null variant when only the
+/// option is gone. Never swaps in a different option.
+({Product product, ProductVariant? variant})? matchOrderLine(OrderItem item, List<Product> catalog) {
+  Product? product;
+  ProductVariant? variant;
+  if (item.variantId != null) {
+    for (final p in catalog) {
+      for (final v in p.variants) {
+        if (v.id == item.variantId) {
+          product = p;
+          variant = v;
+        }
+      }
+    }
+  }
+  if (product == null && item.productId != null) {
+    for (final p in catalog) {
+      if (p.id == item.productId) product = p;
+    }
+  }
+  product ??= catalog.where((p) => p.name.toLowerCase() == item.productName.toLowerCase()).firstOrNull;
+  if (product == null) return null;
+  variant ??= product.variants.where((v) => v.label.toLowerCase() == item.variantLabel.toLowerCase()).firstOrNull;
+  return (product: product, variant: variant);
+}
+
 /// Outcome of trying to re-add one line from the original order: either it
 /// was added (optionally at a reduced quantity, if stock ran short) or it
-/// was skipped, with a real, specific reason the customer can see —
-/// `order_items` only stores a denormalized product name/variant label, so
-/// there's no id to look up directly, and re-adding blindly (an unmatched
-/// variant silently swapped for whichever one happens to be first, or an
-/// out-of-stock item added anyway) would misrepresent what's actually in
-/// the cart.
+/// was skipped, with a real, specific reason the customer can see.
 class _RepeatLineResult {
   final OrderItem item;
   final bool added;
@@ -54,28 +78,12 @@ class RepeatOrderScreen extends StatelessWidget {
   List<_RepeatLineResult> _repeat() {
     final results = <_RepeatLineResult>[];
     for (final item in order.items) {
-      Product? product;
-      for (final p in kProducts) {
-        // kProducts only ever holds active products for the currently
-        // selected branch (see ProductsRepository.loadCatalog), so simply
-        // not finding a match here already covers "no longer exists" and
-        // "no longer active" — no separate isActive check needed.
-        if (p.name.toLowerCase() == item.productName.toLowerCase()) {
-          product = p;
-          break;
-        }
-      }
+      final match = matchOrderLine(item, kProducts);
+      final product = match?.product;
+      final variant = match?.variant;
       if (product == null) {
         results.add(_RepeatLineResult(item: item, added: false, note: 'No longer available'));
         continue;
-      }
-
-      ProductVariant? variant;
-      for (final v in product.variants) {
-        if (v.label.toLowerCase() == item.variantLabel.toLowerCase()) {
-          variant = v;
-          break;
-        }
       }
       if (variant == null) {
         results.add(_RepeatLineResult(

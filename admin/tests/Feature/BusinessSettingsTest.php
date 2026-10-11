@@ -43,9 +43,10 @@ class BusinessSettingsTest extends TestCase
         $this->signedIn($owner)->put('/admin/business-settings', [
             'restock_threshold_default' => '12', 'stock_low_percent' => '40', 'stock_plenty_percent' => '80',
             'sales_low_percent' => '70', 'sales_high_percent' => '100', 'default_daily_sales_target' => '5000',
-            'healthy_margin_percent' => '45', 'expiry_alert_days' => '14',
+            'healthy_margin_percent' => '45', 'expiry_alert_days' => '14', 'low_stock_badge_qty' => '3',
         ])->assertRedirect(route('admin.business.index'));
         $this->assertSame(14, $this->db->settings['expiry_alert_days']);
+        $this->assertSame(3, $this->db->settings['low_stock_badge_qty']);
 
         $this->assertEquals(['restock_threshold_default' => 12, 'stock_low_ratio' => 0.4, 'stock_plenty_ratio' => 0.8,
             'sales_low_ratio' => 0.7, 'sales_high_ratio' => 1.0, 'default_daily_sales_target' => 5000.0, 'healthy_margin_percent' => 45.0],

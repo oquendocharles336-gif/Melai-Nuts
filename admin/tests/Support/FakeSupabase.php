@@ -36,7 +36,7 @@ class FakeSupabase extends SupabaseGateway
     public array $settings = [
         'restock_threshold_default' => null, 'stock_low_ratio' => null, 'stock_plenty_ratio' => null,
         'sales_low_ratio' => null, 'sales_high_ratio' => null, 'default_daily_sales_target' => null,
-        'healthy_margin_percent' => null, 'expiry_alert_days' => null, 'carried_over' => false,
+        'healthy_margin_percent' => null, 'expiry_alert_days' => null, 'low_stock_badge_qty' => null, 'carried_over' => false,
         'loyalty' => ['earn_pesos_per_point' => null, 'points_per_peso' => null, 'max_discount_percent' => null],
         'online_payment_enabled' => false, 'online_payment_disabled_message' => 'Online payment is temporarily unavailable.',
     ];

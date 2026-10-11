@@ -27,6 +27,7 @@ class BusinessSettingsController extends Controller
         'default_daily_sales_target' => ['default_daily_sales_target', 1],
         'healthy_margin_percent' => ['healthy_margin_percent', 1],
         'expiry_alert_days' => ['expiry_alert_days', 1],
+        'low_stock_badge_qty' => ['low_stock_badge_qty', 1],
     ];
 
     public function __construct(private SupabaseRepository $repo) {}
@@ -57,6 +58,7 @@ class BusinessSettingsController extends Controller
             'default_daily_sales_target' => ['nullable', 'numeric', 'gt:0', 'max:100000000'],
             'healthy_margin_percent' => ['nullable', 'numeric', 'gt:0', 'lt:100'],
             'expiry_alert_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'low_stock_badge_qty' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
         if (isset($data['stock_low_percent'], $data['stock_plenty_percent']) && $data['stock_low_percent'] >= $data['stock_plenty_percent']) {
             return back()->withInput()->withErrors(['stock_low_percent' => '"Low" must be below "Plenty".']);
@@ -70,7 +72,7 @@ class BusinessSettingsController extends Controller
             $v = $data[$field] ?? null;
             $values[$key] = $v === null || $v === '' ? null : round(((float) $v) / $div, 4);
         }
-        foreach (['restock_threshold_default', 'expiry_alert_days'] as $int) {
+        foreach (['restock_threshold_default', 'expiry_alert_days', 'low_stock_badge_qty'] as $int) {
             $values[$int] = $values[$int] === null ? null : (int) $values[$int];
         }
 

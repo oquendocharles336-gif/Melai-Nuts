@@ -21,6 +21,7 @@ import '../../data/repositories/driver_repository.dart';
 import '../../data/repositories/staff_repository.dart';
 import '../utils/app_error.dart';
 import 'push_service.dart';
+import '../../data/repositories/favorites_repository.dart';
 
 /// A user-facing authentication failure. The [message] is already written
 /// to be shown directly in a SnackBar/dialog — no FirebaseAuthException
@@ -758,6 +759,7 @@ class AuthService {
       await SyncService.instance.flushBeforeSignOut();
     }
     _currentProfile = null;
+    FavoritesRepository.instance.clear();
     // Drop the staff member's profile, branch, permissions and every hook
     // registered by later staff stores, synchronously, before anything awaits.
     StaffSessionStore.instance.clear();

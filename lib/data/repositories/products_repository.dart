@@ -8,6 +8,7 @@ import '../../core/utils/app_error.dart';
 import '../catalog_store.dart';
 import '../models/product.dart';
 import '../models/promotion.dart';
+import 'storefront_settings_repository.dart';
 
 /// Loads the public product catalog (categories, products, variants, and
 /// per-branch stock) from Supabase and keeps [kProducts]/[kProductCategories]
@@ -320,6 +321,10 @@ class ProductsRepository extends ChangeNotifier {
       }
     }
 
+    // "Only N left" is about one shop's shelf, so it is only shown for a chosen branch.
+    final badgeQty = branchId == null
+        ? null
+        : (await StorefrontSettingsRepository.instance.load()).lowStockBadgeQty;
     return productRows.map((row) {
       final id = row['id'] as String;
       return Product.fromRow(
@@ -330,6 +335,7 @@ class ProductsRepository extends ChangeNotifier {
             (branchesByProduct[id] ?? const <String>{}).toList()..sort(),
         totalStock: stockByProduct[id] ?? 0,
         unitsSoldLast30Days: salesCounts[id] ?? 0,
+        lowStockBadgeQty: badgeQty,
       );
     }).toList();
   }

@@ -47,6 +47,10 @@ class ProductVariant {
 
   bool get isOutOfStock => stockOnHand != null && stockOnHand! <= 0;
 
+  /// Units left when it is 1..[badgeQty] (the owner's "Only N left" setting),
+  /// otherwise null. Null [badgeQty] (Not set) never shows a badge.
+  int? onlyLeft(int? badgeQty) => Product.onlyLeftFor(stockOnHand, badgeQty);
+
   /// Builds a variant from a `product_variants` row, optionally folding in
   /// the stock on hand for one branch (summed from `branch_inventory`).
   factory ProductVariant.fromRow(Map<String, dynamic> row, {int? stockOnHand}) {
@@ -195,7 +199,18 @@ class Product {
   /// fabricated guess. Drives whether [ProductCard] lets the customer add
   /// this product to their cart.
   bool get isOutOfStock => stockLabel == 'Out of Stock';
-  bool get isLowStock => stockLabel == 'Low Stock';
+  bool get isLowStock => stockLabel.startsWith('Only ');
+
+  /// "Out of Stock" / "Only N left" / "In Stock" from the real stock count and the
+  /// owner's "Only N left" setting ([badgeQty] null = Not set: no badge).
+  static String stockLabelFor(int totalStock, int? badgeQty) {
+    if (totalStock <= 0) return 'Out of Stock';
+    final left = onlyLeftFor(totalStock, badgeQty);
+    return left == null ? 'In Stock' : 'Only $left left';
+  }
+
+  static int? onlyLeftFor(int? stock, int? badgeQty) =>
+      stock != null && badgeQty != null && stock > 0 && stock <= badgeQty ? stock : null;
 
   /// Foreground/background colors for [stockLabel], shared by every screen
   /// that shows it (Home, Catalog, Product Details) so "Out of Stock" is
@@ -224,6 +239,7 @@ class Product {
     required List<String> branchAvailability,
     required int totalStock,
     int unitsSoldLast30Days = 0,
+    int? lowStockBadgeQty,
   }) {
     final variants = variantRows
         .map((v) => ProductVariant.fromRow(v, stockOnHand: stockByVariantId[v['id']]))
@@ -237,9 +253,7 @@ class Product {
       originalPrice: (row['original_price'] as num?)?.toDouble(),
       rating: 0,
       reviewCount: 0,
-      stockLabel: totalStock <= 0
-          ? 'Out of Stock'
-          : (totalStock <= 10 ? 'Low Stock' : 'In Stock'),
+      stockLabel: stockLabelFor(totalStock, lowStockBadgeQty),
       description: (row['description'] as String?) ?? '',
       branchAvailability: branchAvailability,
       variants: variants,

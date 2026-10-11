@@ -13,6 +13,8 @@ import '../cart_controller.dart';
 import '../widgets/product_card.dart';
 import 'cart_screen.dart';
 import 'checkout_screen.dart';
+import '../../../data/repositories/storefront_settings_repository.dart';
+import '../widgets/favorite_button.dart';
 
 /// Customer-facing product details: variant/size picker, spice level,
 /// branch availability, Add to Cart and Buy Now (matches the prototype's
@@ -142,7 +144,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final product = widget.product;
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: const MelaiAppBar(title: 'Product Details', showBack: true),
+      appBar: MelaiAppBar(
+        title: 'Product Details',
+        showBack: true,
+        actions: [FavoriteButton(productId: widget.product.id, productName: widget.product.name)],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -488,6 +494,7 @@ class _VariantTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final left = variant.onlyLeft(StorefrontSettingsRepository.instance.current.lowStockBadgeQty);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -526,6 +533,10 @@ class _VariantTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (left != null) ...[
+              Text('Only $left left', style: AppTextStyles.labelSm.copyWith(color: AppColors.warning)),
+              const SizedBox(width: 10),
+            ],
             Text('₱${variant.price.toStringAsFixed(0)}', style: AppTextStyles.titleMd),
           ],
         ),
