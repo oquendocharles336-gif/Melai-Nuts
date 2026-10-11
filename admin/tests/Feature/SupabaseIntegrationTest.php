@@ -1005,8 +1005,7 @@ class SupabaseIntegrationTest extends TestCase
         $this->fb->set($this->fx['owner'], 'disabled', false);
 
         // Forged token (signed with another key) and a token of another account: rejected, nothing read.
-        $k = openssl_pkey_new(['private_key_bits' => 2048]);
-        openssl_pkey_export($k, $pem);
+        $pem = FakeFirebase::otherPrivateKeyPem();
         $forged = $this->fb->token($this->fx['owner'], $owner->email, false, [], $pem);
         $this->actingAs($owner)->withSession($this->fb->sessionFor($owner, idToken: $forged))->getJson('/dashboard/overview.json')->assertStatus(401);
         $other = $this->fb->token($this->fx['staff_a'], $owner->email);

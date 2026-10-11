@@ -48,8 +48,7 @@ class FirebaseTokenVerifierTest extends TestCase
 
     public function test_forged_signature_is_rejected(): void
     {
-        $other = openssl_pkey_new(['private_key_bits' => 2048]);
-        openssl_pkey_export($other, $pem);
+        $pem = FakeFirebase::otherPrivateKeyPem();
         $this->assertRejected($this->fb->token('uid-1', 'a@b.c', false, [], $pem), FirebaseAuthException::INVALID_TOKEN);
     }
 

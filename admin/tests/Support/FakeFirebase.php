@@ -54,6 +54,16 @@ class FakeFirebase
         return self::$keys;
     }
 
+    /** A fresh, unrelated RSA private key (PEM), e.g. to forge a token. Works on Windows too. */
+    public static function otherPrivateKeyPem(): string
+    {
+        $options = ['config' => self::opensslConfig()];
+        $key = openssl_pkey_new($options + ['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($key, $pem, null, $options);
+
+        return $pem;
+    }
+
     /** Path of a minimal OpenSSL config (test use only; holds no keys). */
     private static function opensslConfig(): string
     {
