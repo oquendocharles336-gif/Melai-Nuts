@@ -45,7 +45,7 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Owner Dashboard', style: AppTextStyles.labelLg),
-                Text('Laguna Enterprise Overview', style: AppTextStyles.bodySm),
+                Text('All branches', style: AppTextStyles.bodySm),
               ],
             ),
           ],

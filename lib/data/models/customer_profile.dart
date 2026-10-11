@@ -86,7 +86,7 @@ class CustomerAddress {
       phone: row['phone'] as String,
       line1: row['line1'] as String,
       city: row['city'] as String,
-      province: (row['province'] as String?) ?? 'Laguna',
+      province: (row['province'] as String?) ?? '',
       postalCode: (row['postal_code'] as String?) ?? '',
       isDefault: (row['is_default'] as bool?) ?? false,
       latitude: (row['latitude'] as num?)?.toDouble(),
@@ -94,5 +94,9 @@ class CustomerAddress {
     );
   }
 
-  String get fullAddress => '$line1, $city, $province $postalCode'.trim();
+  /// Only the parts that were entered (no stray commas for empty fields).
+  String get fullAddress {
+    final tail = [province, postalCode].where((p) => p.trim().isNotEmpty).join(' ');
+    return [line1, city, tail].where((p) => p.trim().isNotEmpty).join(', ');
+  }
 }

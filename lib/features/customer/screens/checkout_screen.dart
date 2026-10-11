@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../../core/config/payment_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -22,6 +21,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/customer_profile.dart';
 import '../../../data/repositories/orders_repository.dart';
 import '../../../data/repositories/customer_profile_repository.dart';
+import '../../../data/repositories/payment_settings_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../../payments/screens/online_payment_screen.dart';
@@ -49,9 +49,14 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
   _FulfillmentMethod _fulfillment = _FulfillmentMethod.pickup;
-  // Online payment is temporarily disabled (PaymentConfig): start on the cash
-  // option that fits the default fulfillment (pickup) instead.
-  _PaymentMethod _payment = PaymentConfig.onlinePaymentEnabled ? _PaymentMethod.online : _PaymentMethod.cash;
+  // Online payment is OFF by the owner's decision (PaymentConfig + the
+  // database switch): start on the cash option of the default fulfillment.
+  _PaymentMethod _payment = _PaymentMethod.cash;
+
+  /// The database's online-payment switch and message; [PaymentSettings.unknown]
+  /// (= off) until it has been read, or when it cannot be read.
+  PaymentSettings _paymentSettings = PaymentSettings.unknown;
+  bool get _onlineAllowed => _paymentSettings.onlineAllowed;
   final _notesController = TextEditingController();
   final _addressController = TextEditingController();
   final _contactController = TextEditingController();
@@ -75,6 +80,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     super.initState();
     final address = CustomerDataStore.instance.defaultAddress;
     if (address != null) _useAddress(address);
+    unawaited(_loadPaymentSettings());
+  }
+
+  Future<void> _loadPaymentSettings() async {
+    try {
+      final settings = await PaymentSettingsRepository.instance.fetch();
+      if (mounted) setState(() => _paymentSettings = settings);
+    } catch (e) {
+      // Unreadable switch = online payment stays off; the built-in text is shown.
+      debugPrint('payment_settings could not be read: $e');
+    }
   }
 
   void _useAddress(CustomerAddress address) {
@@ -201,11 +217,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
 
-    // Online payment is switched off for now (the database refuses it too).
-    if (_payment == _PaymentMethod.online && !PaymentConfig.onlinePaymentEnabled) {
+    // Online payment is off (owner decision; the database refuses it too).
+    if (_payment == _PaymentMethod.online && !_onlineAllowed) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text(PaymentConfig.onlinePaymentDisabledMessage)));
+        ..showSnackBar(SnackBar(content: Text(_paymentSettings.unavailableMessage)));
       return;
     }
 
@@ -450,15 +466,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
     // Cash on Delivery needs delivery and Cash on Counter Pickup needs
-    // pickup; if a fulfillment change made the choice invalid, fall back to
-    // online payment, which works for both — or, while online payment is
-    // disabled, to the cash option of the chosen fulfillment.
+    // pickup; if a fulfillment change made the choice invalid, switch to the
+    // cash option of the chosen fulfillment (online payment is never picked
+    // automatically).
     final cashForFulfillment = _fulfillment == _FulfillmentMethod.delivery ? _PaymentMethod.cod : _PaymentMethod.cash;
     if ((_fulfillment == _FulfillmentMethod.delivery && _payment == _PaymentMethod.cash) ||
         (_fulfillment == _FulfillmentMethod.pickup && _payment == _PaymentMethod.cod)) {
-      _payment = PaymentConfig.onlinePaymentEnabled ? _PaymentMethod.online : cashForFulfillment;
+      _payment = cashForFulfillment;
     }
-    if (_payment == _PaymentMethod.online && !PaymentConfig.onlinePaymentEnabled) {
+    if (_payment == _PaymentMethod.online && !_onlineAllowed) {
       _payment = cashForFulfillment;
     }
     final deliveryFee = _fulfillment == _FulfillmentMethod.delivery
@@ -477,24 +493,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Step 1 of 2 • Fulfillment & Payment', style: AppTextStyles.labelSm),
-                Text('50% Done', style: AppTextStyles.labelSm),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: const LinearProgressIndicator(
-                value: 0.5,
-                minHeight: 6,
-                backgroundColor: AppColors.border,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -531,14 +529,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.successBg,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text('Verified Patron', style: AppTextStyles.labelSm.copyWith(color: AppColors.success)),
-                  ),
                 ],
               ),
             ),
@@ -551,7 +541,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   child: _OptionCard(
                     icon: Icons.storefront_outlined,
                     title: 'Store Pickup',
-                    subtitle: 'Ready in 30 mins',
+                    subtitle: 'Pick up at the branch counter',
                     trailingLabel: 'FREE',
                     selected: _fulfillment == _FulfillmentMethod.pickup,
                     onTap: (branch == null || branch.supportsPickup)
@@ -567,7 +557,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     subtitle: (branch != null && !branch.supportsDelivery)
                         ? 'Not offered at this branch'
                         : 'Delivered by Melai',
-                    trailingLabel: '₱${(branch?.deliveryFee ?? 0).toStringAsFixed(2)}',
+                    trailingLabel: branch == null ? '—' : '₱${branch.deliveryFee.toStringAsFixed(2)}',
                     selected: _fulfillment == _FulfillmentMethod.delivery,
                     onTap: (branch == null || branch.supportsDelivery)
                         ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
@@ -680,18 +670,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SizedBox(height: AppSpacing.lg),
             Text('Payment Method', style: AppTextStyles.titleMd),
             const SizedBox(height: AppSpacing.sm),
-            _PaymentTile(
-              icon: Icons.account_balance_wallet_rounded,
-              title: 'Online Payment (GCash, Maya, Card)',
-              subtitle: PaymentConfig.onlinePaymentEnabled
-                  ? 'Pay securely on the HitPay payment page'
-                  : 'Temporarily unavailable — please pay in cash for now',
-              badge: PaymentConfig.onlinePaymentEnabled ? 'Fast' : 'Unavailable',
-              enabled: PaymentConfig.onlinePaymentEnabled,
-              selected: _payment == _PaymentMethod.online,
-              onTap: () => setState(() => _payment = _PaymentMethod.online),
-            ),
-            const SizedBox(height: 8),
+            // Online payment (HitPay) is hidden while it is off; the notice text
+            // comes from payment_settings.online_payment_disabled_message.
+            if (_onlineAllowed) ...[
+              _PaymentTile(
+                icon: Icons.account_balance_wallet_rounded,
+                title: 'Online Payment (GCash, Maya, Card)',
+                subtitle: 'Pay securely on the HitPay payment page',
+                selected: _payment == _PaymentMethod.online,
+                onTap: () => setState(() => _payment = _PaymentMethod.online),
+              ),
+              const SizedBox(height: 8),
+            ] else ...[
+              _OnlinePaymentUnavailableNotice(message: _paymentSettings.unavailableMessage),
+              const SizedBox(height: 8),
+            ],
             if (_fulfillment == _FulfillmentMethod.delivery)
               _PaymentTile(
                 icon: Icons.delivery_dining_rounded,
@@ -759,7 +752,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                   _SummaryLine(
                     'Fulfillment Fee',
-                    deliveryFee == 0 ? '₱0.00 (Store Pickup)' : '₱${deliveryFee.toStringAsFixed(0)}',
+                    _fulfillment == _FulfillmentMethod.pickup ? '₱0.00 (Store Pickup)' : '₱${deliveryFee.toStringAsFixed(2)}',
                     color: AppColors.success,
                   ),
                   const Divider(height: 20),
@@ -912,75 +905,90 @@ class _OptionCard extends StatelessWidget {
   }
 }
 
+/// Shown in place of the online-payment option while it is off.
+class _OnlinePaymentUnavailableNotice extends StatelessWidget {
+  final String message;
+
+  const _OnlinePaymentUnavailableNotice({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: 'Online payment unavailable. $message',
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline_rounded, color: AppColors.textSecondary),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message, style: AppTextStyles.bodySm)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PaymentTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final String? badge;
   final bool selected;
   final VoidCallback onTap;
-
-  /// False shows the option greyed out and not selectable (e.g. online
-  /// payment while it is temporarily disabled).
-  final bool enabled;
 
   const _PaymentTile({
     required this.icon,
     required this.title,
     required this.subtitle,
-    this.badge,
     required this.selected,
     required this.onTap,
-    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
-      opacity: enabled ? 1 : 0.5,
-      child: _tile(),
-    );
-  }
-
-  Widget _tile() {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-            ),
-            const SizedBox(width: 10),
-            Icon(icon, color: AppColors.darkBrown),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: AppTextStyles.labelLg),
-                  Text(subtitle, style: AppTextStyles.bodySm),
-                ],
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$title. $subtitle',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
               ),
-            ),
-            if (badge != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.warningBg,
-                  borderRadius: BorderRadius.circular(20),
+              const SizedBox(width: 10),
+              Icon(icon, color: AppColors.darkBrown),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: AppTextStyles.labelLg),
+                    Text(subtitle, style: AppTextStyles.bodySm),
+                  ],
                 ),
-                child: Text(badge!, style: AppTextStyles.labelSm.copyWith(color: AppColors.warning)),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1048,7 +1056,7 @@ class _DeliveryPinReview extends StatelessWidget {
               pin: pin,
               pinLabel: 'Deliver here',
               branch: DeliveryMap.point(branchLatitude, branchLongitude),
-              branchLabel: branchName ?? 'Branch',
+              branchLabel: branchName ?? '—',
               height: 170,
             ),
           ],

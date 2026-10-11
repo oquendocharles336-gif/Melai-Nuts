@@ -191,7 +191,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(active.riderName ?? 'Rider', style: AppTextStyles.labelLg),
+                                    Text(active.riderName ?? '—', style: AppTextStyles.labelLg),
                                     Text('En route from ${active.branch}', style: AppTextStyles.bodySm),
                                   ],
                                 ),

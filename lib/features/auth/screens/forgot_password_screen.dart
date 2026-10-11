@@ -131,7 +131,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     const SizedBox(height: 16),
                     const InfoBanner(
                       text:
-                      'A verification code will be dispatched to your email for Laguna branch personnel verification.',
+                      'We will email you a link to reset your password.',
                     ),
                     const SizedBox(height: 20),
                     PrimaryButton(

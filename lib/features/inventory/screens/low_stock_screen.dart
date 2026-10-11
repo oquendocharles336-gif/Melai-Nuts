@@ -67,19 +67,20 @@ class LowStockScreen extends StatelessWidget {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'Current: ${item.quantity} / Restock level: ${item.restockThreshold}',
+                                'Current: ${item.quantity} / Restock level: ${item.restockThreshold ?? 'not set'}',
                                 style: AppTextStyles.bodySm,
                               ),
-                              Text(
-                                'Suggested: +${item.recommendedRestockQty}',
-                                style: AppTextStyles.labelLg.copyWith(color: AppColors.success),
-                              ),
+                              if (item.unitsBelowRestockLevel > 0)
+                                Text(
+                                  '${item.unitsBelowRestockLevel} below level',
+                                  style: AppTextStyles.labelLg.copyWith(color: AppColors.error),
+                                ),
                             ],
                           ),
                           if (store.canManageInventory) ...[
                             const SizedBox(height: 10),
                             PrimaryButton(
-                              label: 'Restock +${item.recommendedRestockQty}',
+                              label: 'Receive stock',
                               icon: Icons.add_circle_outline_rounded,
                               onPressed: () => Navigator.of(context)
                                   .pushNamed(AppRoutes.inventoryReceive, arguments: item),

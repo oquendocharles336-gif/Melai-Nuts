@@ -27,9 +27,11 @@ class LoyaltyRepository {
   /// (`loyalty_cart_settings.earn_pesos_per_point`, read through the public
   /// `get_loyalty_earn_rate` function). The database applies the same value
   /// when it computes an order's points, so the text shown always matches.
-  Future<double> fetchEarnPesosPerPoint() async {
+  /// [EarnRate.pesosPerPoint] is null when the owner has not set a rate
+  /// ("Not set": orders earn no points) — no value is invented here.
+  Future<EarnRate> fetchEarnPesosPerPoint() async {
     final result = await _client.rpc('get_loyalty_earn_rate');
-    return (result as num?)?.toDouble() ?? 50;
+    return EarnRate.fromRpc(result);
   }
 
   Future<List<LoyaltyPointTransaction>> fetchTransactions(String firebaseUid) async {
@@ -53,4 +55,20 @@ class LoyaltyRepository {
     final result = await _client.rpc('redeem_reward', params: {'p_reward_id': rewardId});
     return result as int;
   }
+}
+
+/// The owner's loyalty earn rate (pesos spent per point), or null = Not set.
+class EarnRate {
+  final double? pesosPerPoint;
+
+  const EarnRate(this.pesosPerPoint);
+
+  /// `get_loyalty_earn_rate()` answers a number, or NULL when not set. A value
+  /// below 1 is not a valid rate (the database refuses to store one).
+  factory EarnRate.fromRpc(Object? result) {
+    final v = result is num ? result.toDouble() : (result is String ? double.tryParse(result) : null);
+    return EarnRate((v == null || v < 1) ? null : v);
+  }
+
+  bool get isSet => pesosPerPoint != null;
 }

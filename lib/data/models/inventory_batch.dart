@@ -66,7 +66,8 @@ class InventoryBatch {
   final DateTime receivedDate;
   final DateTime expirationDate;
   final int quantity;
-  final int restockThreshold;
+  /// null = no restock level set (see InventoryItem.restockThreshold).
+  final int? restockThreshold;
 
   final String branchId;
   final String variantId;
@@ -83,7 +84,7 @@ class InventoryBatch {
     required this.receivedDate,
     required this.expirationDate,
     required this.quantity,
-    this.restockThreshold = 20,
+    this.restockThreshold,
     this.branchId = '',
     this.variantId = '',
     this.variantLabel = '',
@@ -93,7 +94,7 @@ class InventoryBatch {
   factory InventoryBatch.fromJson(
     Map<String, dynamic> j, {
     required String variantLabel,
-    required int restockThreshold,
+    required int? restockThreshold,
     required int variantStock,
   }) {
     return InventoryBatch(
@@ -129,9 +130,15 @@ class InventoryBatch {
 
   int get _stock => variantStock ?? quantity;
 
-  bool get isLowStock => _stock <= restockThreshold;
+  /// At or below the variant's restock level; never true while none is set.
+  bool get isLowStock {
+    final t = restockThreshold;
+    return t != null && _stock <= t;
+  }
 
-  /// A simple "top up to 2x threshold" restock suggestion.
-  int get recommendedRestockQty =>
-      isLowStock ? (restockThreshold * 2 - _stock).clamp(0, 999999) : 0;
+  /// Units below the restock level (0 when above it or when none is set).
+  int get unitsBelowRestockLevel {
+    final t = restockThreshold;
+    return t == null ? 0 : (t - _stock).clamp(0, 999999);
+  }
 }

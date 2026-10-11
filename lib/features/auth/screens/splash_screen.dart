@@ -109,7 +109,7 @@ class _SplashScreenState extends State<SplashScreen> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        'Fresh-roasted nuts from your nearest Laguna branch.',
+                        'Fresh-roasted nuts from your Melai Nuts branch.',
                         textAlign: TextAlign.center,
                         style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
                       ),
@@ -168,7 +168,7 @@ class _SplashScreenState extends State<SplashScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Melai Nuts Retailing • Calamba • Los Baños • Santa Cruz',
+                        'Melai Nuts Retailing',
                         textAlign: TextAlign.center,
                         style: AppTextStyles.bodySm,
                       ),

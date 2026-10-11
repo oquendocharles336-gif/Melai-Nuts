@@ -33,7 +33,7 @@ class InventoryListScreen extends StatelessWidget {
                 onRetry: store.refreshInventory,
                 emptyIcon: Icons.inventory_2_outlined,
                 emptyTitle: 'No products yet.',
-                emptyMessage: 'Products added to the catalog will appear here.',
+                emptyMessage: 'Add products under Products, then record the real count with Receive Stock.',
                 builder: (context) => ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(AppSpacing.md),

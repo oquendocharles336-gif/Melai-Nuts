@@ -131,7 +131,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     const SizedBox(height: 4),
                     Text('Authorized Access Node', style: AppTextStyles.titleMd),
                     Text(
-                      'Laguna Branch Portal',
+                      'Melai Nuts',
                       style: AppTextStyles.bodySm,
                     ),
                   ],

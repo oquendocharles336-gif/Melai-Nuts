@@ -116,7 +116,7 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Laguna Branch Network',
+                                'Melai Nuts',
                                 style: AppTextStyles.bodySm,
                               ),
                             ],
@@ -159,7 +159,7 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                                 ),
                                 const TextSpan(
                                   text:
-                                      'All other active sessions on Laguna branch handheld terminals have been securely logged out.',
+                                      'Sign in again with your new password on every device you use.',
                                 ),
                               ],
                             ),

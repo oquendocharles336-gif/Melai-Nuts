@@ -176,7 +176,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         Expanded(
                           child: Text(
-                            'I agree to the Melai Nuts Laguna Terms of Service and Privacy Policy.',
+                            'I agree to the Melai Nuts Terms of Service and Privacy Policy.',
                             style: AppTextStyles.bodySm,
                           ),
                         ),

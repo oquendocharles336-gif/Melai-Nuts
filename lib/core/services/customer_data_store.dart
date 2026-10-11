@@ -80,8 +80,9 @@ class CustomerDataStore extends ChangeNotifier {
 
   int pointsBalance = 0;
 
-  /// Pesos per point earned (owner setting; 50 until the server says otherwise).
-  double earnPesosPerPoint = 50;
+  /// Pesos per point earned (owner setting); null = Not set (orders earn no
+  /// points), and also until the server has answered. Never invented here.
+  double? earnPesosPerPoint;
   CustomerProfile? profile;
   List<CustomerAddress> addresses = [];
 
@@ -292,8 +293,9 @@ class CustomerDataStore extends ChangeNotifier {
       }
       final balance = results[1] as int?;
       if (balance != null) pointsBalance = balance;
-      final earnRate = results[9] as double?;
-      if (earnRate != null && earnRate >= 1) earnPesosPerPoint = earnRate;
+      // null = the request failed (keep the last value); EarnRate(null) = Not set.
+      final earnRate = results[9] as EarnRate?;
+      if (earnRate != null) earnPesosPerPoint = earnRate.pesosPerPoint;
       final txs = results[2] as List<LoyaltyPointTransaction>?;
       if (txs != null) {
         loyaltyTransactions
@@ -638,7 +640,7 @@ class CustomerDataStore extends ChangeNotifier {
     _loading = false;
     _error = null;
     pointsBalance = 0;
-    earnPesosPerPoint = 50;
+    earnPesosPerPoint = null;
     profile = null;
     addresses = [];
     lastSyncedAt = null;

@@ -617,7 +617,7 @@ class AppRoutes {
           builder: (_) => PaymentScreen(
             orderId: args['orderId'] as String,
             amount: args['amount'] as double,
-            initialMethod: args['method'] as PaymentMethod? ?? PaymentMethod.gcash,
+            initialMethod: args['method'] as PaymentMethod? ?? PaymentMethod.cash,
           ),
         );
       case paymentStatus:

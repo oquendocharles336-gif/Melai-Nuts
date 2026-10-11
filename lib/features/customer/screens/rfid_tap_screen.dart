@@ -28,7 +28,7 @@
       final profile = CustomerDataStore.instance.profile;
       final name = (profile != null && profile.fullName.isNotEmpty)
           ? profile.fullName
-          : (AuthService.instance.currentProfile?.name ?? 'Customer');
+          : (AuthService.instance.currentProfile?.name ?? '—');
       final rawCard = profile?.rfidCardNumber?.trim();
       final hasCard = rawCard != null && rawCard.isNotEmpty;
       final cardNumber = hasCard ? rawCard : 'No card linked';

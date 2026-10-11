@@ -35,7 +35,7 @@ class DeliverableOrder {
 
   factory DeliverableOrder.fromJson(Map<String, dynamic> j) => DeliverableOrder(
         orderId: j['order_id'] as String,
-        customerName: (j['customer_name'] as String?) ?? 'Customer',
+        customerName: (j['customer_name'] as String?) ?? '—',
         address: (j['address'] as String?) ?? 'Address not provided',
         items: ((j['items'] as List?) ?? const []).map((e) => e.toString()).toList(),
         latitude: (j['latitude'] as num?)?.toDouble(),
@@ -70,7 +70,7 @@ class BranchDriver {
 
   factory BranchDriver.fromJson(Map<String, dynamic> j) => BranchDriver(
         firebaseUid: j['firebase_uid'] as String,
-        fullName: (j['full_name'] as String?) ?? 'Driver',
+        fullName: (j['full_name'] as String?) ?? '—',
         phone: j['phone'] as String?,
         branchId: j['branch_id'] as String?,
         vehicle: j['vehicle'] as String?,
@@ -116,7 +116,7 @@ class DriverPosition {
       branchId: j['branch_id'] as String?,
       branch: (j['branch'] as String?) ?? '',
       driverUid: j['driver_uid'] as String?,
-      driverName: (j['driver_name'] as String?) ?? 'Driver',
+      driverName: (j['driver_name'] as String?) ?? '—',
       driverStatus: j['driver_status'] as String?,
       latitude: lat!,
       longitude: lng!,

@@ -594,7 +594,7 @@ class _LiveDriverCardState extends State<_LiveDriverCard> {
     final branch = _m(d['branch']);
     return DeliveryMap(
       branch: DeliveryMap.point(branch?['lat'] as num?, branch?['lng'] as num?),
-      branchLabel: (branch?['name'] as String?) ?? 'Branch',
+      branchLabel: (branch?['name'] as String?) ?? '—',
       pin: _destination(d),
       pinLabel: 'Your delivery pin',
       driver: loc == null ? null : DeliveryMap.point(loc['lat'] as num?, loc['lng'] as num?),

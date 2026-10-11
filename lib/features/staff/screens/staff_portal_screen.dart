@@ -320,7 +320,7 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                   onRetry: store.refreshInventory,
                   emptyIcon: Icons.point_of_sale_outlined,
                   emptyTitle: query.isEmpty ? 'No products to sell.' : 'No products match your search.',
-                  emptyMessage: query.isEmpty ? 'Products added to the catalog will appear here.' : null,
+                  emptyMessage: query.isEmpty ? 'This branch has no products in stock yet. Add products under Products, then record stock with Receive Stock.' : null,
                   builder: (context) => _grid(items),
                 ),
               ),

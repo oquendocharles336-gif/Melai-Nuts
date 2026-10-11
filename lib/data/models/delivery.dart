@@ -155,7 +155,7 @@ class DeliveryStop {
   factory DeliveryStop.fromJson(Map<String, dynamic> j) {
     return DeliveryStop(
       id: j['id'] as String,
-      customerName: (j['customer_name'] as String?) ?? 'Customer',
+      customerName: (j['customer_name'] as String?) ?? '—',
       address: (j['address'] as String?) ?? 'Address not provided',
       orderId: j['order_id'] as String,
       items: ((j['items'] as List?) ?? const []).map((e) => e.toString()).toList(),

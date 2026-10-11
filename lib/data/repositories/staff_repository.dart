@@ -169,7 +169,7 @@ class StaffRepository {
         InventoryBatch.fromJson(
           b,
           variantLabel: (itemByVariant[b['variant_id']]?['variant_label'] as String?) ?? '',
-          restockThreshold: (itemByVariant[b['variant_id']]?['restock_threshold'] as num?)?.toInt() ?? 20,
+          restockThreshold: (itemByVariant[b['variant_id']]?['restock_threshold'] as num?)?.toInt(),
           variantStock: (itemByVariant[b['variant_id']]?['quantity'] as num?)?.toInt() ?? 0,
         ),
     ];
@@ -191,7 +191,7 @@ class StaffRepository {
           categoryId: (r['category_id'] as String?) ?? '',
           price: (r['price'] as num?)?.toDouble() ?? 0,
           quantity: (r['quantity'] as num?)?.toInt() ?? 0,
-          restockThreshold: (r['restock_threshold'] as num?)?.toInt() ?? 20,
+          restockThreshold: (r['restock_threshold'] as num?)?.toInt(), // null = Not set
           batchedQuantity: (r['batched_quantity'] as num?)?.toInt() ?? 0,
           branch: branchName,
           branchId: resolvedBranch,

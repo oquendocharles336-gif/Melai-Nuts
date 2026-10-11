@@ -466,7 +466,7 @@ class DeliveryPinCard extends StatelessWidget {
               pin: point,
               pinLabel: p?.recipientName ?? 'Customer pin',
               branch: branch,
-              branchLabel: p?.branchName ?? 'Branch',
+              branchLabel: p?.branchName ?? '—',
               height: 200,
             )
           else

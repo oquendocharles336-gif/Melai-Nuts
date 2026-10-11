@@ -157,12 +157,13 @@ class BatchDetailsScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (batch.isLowStock)
-                    _DetailRow(
-                      label: 'Recommended Restock',
-                      value: '+${batch.recommendedRestockQty} packs',
-                      valueColor: AppColors.success,
-                    ),
+                  _DetailRow(
+                    label: 'Restock level',
+                    value: batch.restockThreshold == null
+                        ? 'Not set'
+                        : '${batch.restockThreshold}${batch.unitsBelowRestockLevel > 0 ? ' (${batch.unitsBelowRestockLevel} below)' : ''}',
+                    valueColor: batch.isLowStock ? AppColors.error : null,
+                  ),
                 ],
               ),
             ),

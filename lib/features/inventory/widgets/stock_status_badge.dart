@@ -17,7 +17,7 @@ class StockStatusBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
       child: Text(
-        isLowStock ? 'Low Stock' : 'Healthy',
+        isLowStock ? 'Low Stock' : 'In stock',
         style: AppTextStyles.labelSm.copyWith(color: color),
       ),
     );

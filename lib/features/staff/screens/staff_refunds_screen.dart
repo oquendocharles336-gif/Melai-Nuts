@@ -175,7 +175,7 @@ class _RefundCardState extends State<_RefundCard> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${r.customerName ?? 'Customer'} • ${peso(r.amount)}'
+            '${r.customerName ?? '—'} • ${peso(r.amount)}'
             '${r.isPartial == true && r.orderTotal != null ? ' of ${peso(r.orderTotal!)} (partial)' : ''} via ${r.paymentMethod}',
             style: AppTextStyles.bodyMd,
           ),

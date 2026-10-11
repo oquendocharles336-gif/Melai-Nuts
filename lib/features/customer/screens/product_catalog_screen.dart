@@ -236,7 +236,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                     emptyTitle: _selectedCategory == null
                         ? 'No products yet.'
                         : 'No products in this category yet.',
-                    emptyMessage: 'Check back soon for artisanal nut batches.',
+                    emptyMessage: 'This branch has nothing for sale yet. Try another branch, or check back after the shop adds its products.',
                     loadingMessage: 'Loading products...',
                     builder: (context) => RefreshIndicator(
                       onRefresh: _reload,

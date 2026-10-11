@@ -364,11 +364,11 @@ class _RunSummary extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(r?.id ?? p?.deliveryId ?? 'Run', style: AppTextStyles.headlineSm),
+        Text(r?.id ?? p?.deliveryId ?? '—', style: AppTextStyles.headlineSm),
         const SizedBox(height: 4),
         Text(
           [
-            r?.riderName ?? p?.driverName ?? 'Driver',
+            r?.riderName ?? p?.driverName ?? '—',
             if (r != null) _driverStatusLabel(r.driverStatus),
             r?.branch ?? p?.branch ?? '',
             if ((r?.vehicle ?? '').isNotEmpty) r!.vehicle,

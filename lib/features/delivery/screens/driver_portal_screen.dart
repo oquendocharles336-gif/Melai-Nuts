@@ -141,7 +141,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Driver', style: AppTextStyles.labelLg),
-                  Text(_context?.branchName ?? 'Melai Nuts', style: AppTextStyles.bodySm, overflow: TextOverflow.ellipsis),
+                  Text(_context?.branchName ?? '—', style: AppTextStyles.bodySm, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
@@ -577,7 +577,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(ctx.fullName ?? 'Driver', style: AppTextStyles.headlineSm),
+              Text(ctx.fullName ?? '—', style: AppTextStyles.headlineSm),
               const SizedBox(height: AppSpacing.xs),
               Text(ctx.email ?? '', style: AppTextStyles.bodyMd),
               if ((ctx.phone ?? '').isNotEmpty) Text(ctx.phone!, style: AppTextStyles.bodyMd),

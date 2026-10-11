@@ -80,10 +80,9 @@ class _ReceiveFormState extends State<_ReceiveForm> {
     super.initState();
     final item = widget.initialItem;
     _variantId = item?.variantId;
-    _qtyController = TextEditingController(
-      text: item != null && item.recommendedRestockQty > 0 ? '${item.recommendedRestockQty}' : '',
-    );
-    _thresholdController = TextEditingController(text: item == null ? '' : '${item.restockThreshold}');
+    // Staff type the real quantity received; nothing is pre-filled.
+    _qtyController = TextEditingController();
+    _thresholdController = TextEditingController(text: item?.restockThreshold?.toString() ?? '');
   }
 
   @override
@@ -192,7 +191,7 @@ class _ReceiveFormState extends State<_ReceiveForm> {
               _variantId = v;
               _assignExisting = false;
               final chosen = v == null ? null : widget.store.itemByVariant(v);
-              if (chosen != null) _thresholdController.text = '${chosen.restockThreshold}';
+              if (chosen != null) _thresholdController.text = chosen.restockThreshold?.toString() ?? '';
             }),
             validator: (v) => v == null ? 'Please choose a product' : null,
           ),

@@ -205,7 +205,7 @@ class _CartScreenState extends State<CartScreen> {
                     _SummaryRow('Est. Delivery Fee', '₱${cart.deliveryFee.toStringAsFixed(0)}'),
                     const Divider(height: 20),
                     _SummaryRow('Total Payable', '₱${cart.total.toStringAsFixed(0)}', isTotal: true),
-                    Text('Includes 12% Philippine VAT', style: AppTextStyles.bodySm),
+                    Text('The final total is confirmed by the branch when you place the order.', style: AppTextStyles.bodySm),
                   ],
                 ),
               ),

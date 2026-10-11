@@ -90,7 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            Center(child: Text('Melai Nuts Retailing • v1.0.0', style: AppTextStyles.bodySm)),
+            Center(child: Text('Melai Nuts Retailing', style: AppTextStyles.bodySm)),
           ],
         ),
       ),

@@ -9,6 +9,8 @@ import '../../../core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
 import '../product_variant_saver.dart';
+import '../../../data/repositories/business_settings_repository.dart';
+import '../widgets/margin_indicator.dart';
 
 /// "Manage Variants" — one card per packaging tier with SKU, COGS/SRP,
 /// a margin gauge, and stock on hand. Add, edit, duplicate and remove all
@@ -26,6 +28,24 @@ class ProductVariantsScreen extends StatefulWidget {
 
 class _ProductVariantsScreenState extends State<ProductVariantsScreen> {
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The owner's healthy-margin line (null = no rating) for the margin gauges.
+    BusinessSettingsRepository.instance.current.addListener(_onSettings);
+    BusinessSettingsRepository.instance.load();
+  }
+
+  void _onSettings() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    BusinessSettingsRepository.instance.current.removeListener(_onSettings);
+    super.dispose();
+  }
 
   Product? get _product {
     for (final p in kProducts) {
@@ -371,7 +391,21 @@ class _VariantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final healthy = variant.marginPercent >= 55;
+    // No cost price = no margin to show; rated only against the owner's line.
+    final hasCost = variant.costPrice != null;
+    final rating = hasCost
+        ? rateMargin(variant.marginPercent, BusinessSettingsRepository.instance.current.value.healthyMarginPercent)
+        : null;
+    final Color gaugeColor = switch (rating) {
+      MarginRating.healthy => AppColors.success,
+      MarginRating.low => AppColors.warning,
+      null => AppColors.textSecondary,
+    };
+    final String ratingLabel = switch (rating) {
+      MarginRating.healthy => ' Healthy',
+      MarginRating.low => ' Review',
+      null => '',
+    };
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -423,7 +457,7 @@ class _VariantCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('COGS: ₱${(variant.costPrice ?? 0).toStringAsFixed(2)}', style: AppTextStyles.bodySm),
+              Text(hasCost ? 'COGS: ₱${variant.costPrice!.toStringAsFixed(2)}' : 'COGS: not set', style: AppTextStyles.bodySm),
               Text('SRP: ₱${variant.price.toStringAsFixed(2)}', style: AppTextStyles.labelLg.copyWith(color: AppColors.primary)),
             ],
           ),
@@ -433,8 +467,8 @@ class _VariantCard extends StatelessWidget {
             children: [
               Text('Margin Gauge', style: AppTextStyles.bodySm),
               Text(
-                '${variant.marginPercent.toStringAsFixed(1)}% ${healthy ? 'Healthy' : 'Review'}',
-                style: AppTextStyles.labelSm.copyWith(color: healthy ? AppColors.success : AppColors.warning),
+                hasCost ? '${variant.marginPercent.toStringAsFixed(1)}%$ratingLabel' : 'Needs a cost price',
+                style: AppTextStyles.labelSm.copyWith(color: gaugeColor),
               ),
             ],
           ),
@@ -442,14 +476,15 @@ class _VariantCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
-              value: (variant.marginPercent / 100).clamp(0, 1),
+              value: hasCost ? (variant.marginPercent / 100).clamp(0, 1) : 0,
               minHeight: 6,
               backgroundColor: AppColors.border,
-              color: healthy ? AppColors.success : AppColors.warning,
+              color: gaugeColor,
             ),
           ),
           const SizedBox(height: 6),
-          Text('Net Profit: ₱${variant.netProfit.toStringAsFixed(2)} / pack', style: AppTextStyles.bodySm),
+          Text(hasCost ? 'Net Profit: ₱${variant.netProfit.toStringAsFixed(2)} / pack' : 'Net Profit: needs a cost price',
+              style: AppTextStyles.bodySm),
           if (variant.stockOnHand != null) ...[
             const Divider(height: 20),
             Row(

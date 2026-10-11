@@ -16,7 +16,9 @@ class InventoryItem {
   final String categoryId;
   final double price;
   final int quantity;
-  final int restockThreshold;
+  /// Restock level: the item's own threshold, else the owner's fallback
+  /// (business settings); null = Not set (only "out of stock" is flagged).
+  final int? restockThreshold;
   final int batchedQuantity;
   final String? branch;
   final String branchId;
@@ -48,14 +50,24 @@ class InventoryItem {
   bool get isOutOfStock => quantity <= 0;
 
   /// Low but not empty (empty is reported separately as out of stock).
-  bool get isLowStock => quantity > 0 && quantity <= restockThreshold;
+  /// Never true while no restock level is set.
+  bool get isLowStock {
+    final t = restockThreshold;
+    return t != null && quantity > 0 && quantity <= t;
+  }
 
-  bool get needsRestock => quantity <= restockThreshold;
+  /// Out of stock, or at / below its restock level.
+  bool get needsRestock => isOutOfStock || isLowStock;
 
   int get unassignedQuantity => (quantity - batchedQuantity).clamp(0, 999999);
 
-  int get recommendedRestockQty =>
-      needsRestock ? (restockThreshold * 2 - quantity).clamp(0, 999999) : 0;
+  /// Units below the restock level (0 when above it or when no level is set).
+  /// Purely derived from real numbers; no reorder rule is invented here (the
+  /// demand-based suggestion is `staff_reorder_suggestions` in the database).
+  int get unitsBelowRestockLevel {
+    final t = restockThreshold;
+    return t == null ? 0 : (t - quantity).clamp(0, 999999);
+  }
 
   /// The most urgent FEFO tier among this item's batches (HIGH beats
   /// MEDIUM beats LOW), used to badge the item in list screens.

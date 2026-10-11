@@ -69,7 +69,12 @@ class InventoryProductDetailsScreen extends StatelessWidget {
                           children: [
                             Text(item.displayName, style: AppTextStyles.titleMd),
                             if (item.sku.isNotEmpty) Text('SKU ${item.sku}', style: AppTextStyles.bodySm),
-                            Text('Restock at ${item.restockThreshold} or fewer', style: AppTextStyles.bodySm),
+                            Text(
+                              item.restockThreshold == null
+                                  ? 'Restock level not set'
+                                  : 'Restock at ${item.restockThreshold} or fewer',
+                              style: AppTextStyles.bodySm,
+                            ),
                           ],
                         ),
                       ),

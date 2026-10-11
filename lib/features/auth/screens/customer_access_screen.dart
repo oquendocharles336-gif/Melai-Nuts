@@ -161,7 +161,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Sign in or sign up to unlock real-time inventory from your closest Laguna branch and enjoy quick checkout.',
+                      'Sign in or sign up to see live stock at your branch and check out quickly.',
                       style: AppTextStyles.bodyMd,
                     ),
                     const SizedBox(height: 16),
@@ -206,7 +206,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                         controller: _phoneController,
                         prefixIcon: Icons.phone_outlined,
                         keyboardType: TextInputType.phone,
-                        helperText: 'Used for GCash & delivery rider SMS updates.',
+                        helperText: 'Used for order and delivery updates.',
                         validator: ValidationUtils.validatePhone,
                       ),
                       const SizedBox(height: 14),
@@ -237,7 +237,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       icon: Icons.contactless_rounded,
                       title: 'Physical RFID Member Card Support',
                       text:
-                          'Have a Melai Nuts RFID Loyalty Card from Calamba, Los Baños, or Santa Cruz branches? You can link your physical card number during checkout or via in-store tap.',
+                          'Have a Melai Nuts RFID loyalty card? Branch staff can link it to your account when you tap it at the counter.',
                     ),
                     const SizedBox(height: 14),
                     if (!_isSignIn)
@@ -251,7 +251,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                           ),
                           Expanded(
                             child: Text(
-                              'I agree to the Melai Nuts Laguna Customer Terms of Service and consent to receiving order tracking notifications via SMS.',
+                              'I agree to the Melai Nuts Customer Terms of Service and to receiving order updates.',
                               style: AppTextStyles.bodySm,
                             ),
                           ),

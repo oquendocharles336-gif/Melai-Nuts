@@ -317,7 +317,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _phoneController,
                         prefixIcon: Icons.phone_outlined,
                         keyboardType: TextInputType.phone,
-                        helperText: 'Used for GCash & delivery rider SMS updates.',
+                        helperText: 'Used for order and delivery updates.',
                         validator: ValidationUtils.validatePhone,
                       ),
                       const SizedBox(height: 14),
@@ -342,7 +342,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         icon: Icons.contactless_rounded,
                         title: 'Physical RFID Member Card Support',
                         text:
-                            'Have a Melai Nuts RFID Loyalty Card from Calamba, Los Baños, or Santa Cruz branches? You can link your physical card number during checkout or via in-store tap.',
+                            'Have a Melai Nuts RFID loyalty card? Branch staff can link it to your account when you tap it at the counter.',
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -355,7 +355,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           Expanded(
                             child: Text(
-                              'I agree to the Melai Nuts Laguna Customer Terms of Service and consent to receiving order tracking notifications via SMS.',
+                              'I agree to the Melai Nuts Customer Terms of Service and to receiving order updates.',
                               style: AppTextStyles.bodySm,
                             ),
                           ),

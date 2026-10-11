@@ -36,7 +36,7 @@ class CustomerProfileScreen extends StatelessWidget {
     final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email ?? '';
     final name = (profile?.fullName.isNotEmpty ?? false)
         ? profile!.fullName
-        : (AuthService.instance.currentProfile?.name ?? 'Customer');
+        : (AuthService.instance.currentProfile?.name ?? '—');
     final phone = profile?.phone ?? '';
     final points = CustomerDataStore.instance.pointsBalance;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
@@ -165,7 +165,12 @@ class CustomerProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Golden Kernel Rewards', style: AppTextStyles.titleMd),
-                        Text('$points pts • Earn 1 pt per ₱${_peso(store.earnPesosPerPoint)} spent', style: AppTextStyles.bodySm),
+                        Text(
+                          store.earnPesosPerPoint == null
+                              ? '$points pts • Earn rate not set yet'
+                              : '$points pts • Earn 1 pt per ₱${_peso(store.earnPesosPerPoint!)} spent',
+                          style: AppTextStyles.bodySm,
+                        ),
                         // Points the database took back because an order was (partly) refunded.
                         Builder(builder: (context) {
                           final reversed = store.loyaltyTransactions

@@ -73,7 +73,7 @@ class ProductManagementBody extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Artisanal Peanut Lines & Margin Health', style: AppTextStyles.titleMd),
+                        Text('Products & margins', style: AppTextStyles.titleMd),
                         Text('${kBranches.length} branch${kBranches.length == 1 ? '' : 'es'}', style: AppTextStyles.bodySm),
                       ],
                     ),

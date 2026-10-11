@@ -10,6 +10,7 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
+import '../widgets/margin_indicator.dart';
 
 /// "Add New Product" — matches the prototype's multi-section wizard
 /// (Media, Basic Info, Pricing & Cost, Variants, Branch Availability),
@@ -178,26 +179,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _margin >= 50 ? AppColors.successBg : AppColors.warningBg,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(_margin >= 50 ? Icons.check_circle : Icons.info_outline_rounded,
-                              size: 18, color: _margin >= 50 ? AppColors.success : AppColors.warning),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Margin: ${_margin.toStringAsFixed(1)}% (₱${(_srp - _cogs).toStringAsFixed(2)} profit/unit)',
-                              style: AppTextStyles.labelMd.copyWith(color: _margin >= 50 ? AppColors.success : AppColors.warning),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    MarginIndicator(marginPercent: _margin, profitPerUnit: _srp - _cogs),
                   ],
                 ),
               ),

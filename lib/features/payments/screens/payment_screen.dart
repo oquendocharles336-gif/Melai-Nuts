@@ -34,7 +34,7 @@ class PaymentScreen extends StatefulWidget {
     super.key,
     required this.orderId,
     required this.amount,
-    this.initialMethod = PaymentMethod.gcash,
+    this.initialMethod = PaymentMethod.cash,
   });
 
   @override

@@ -159,7 +159,7 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                         children: [
                           Text('Tap RFID Card at Store Counter', style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
                           Text(
-                            'Instant scan at checkout in Santa Cruz, Calamba, & Los Baños',
+                            'Tap your card at the counter of any Melai Nuts branch',
                             style: AppTextStyles.bodySm,
                           ),
                         ],

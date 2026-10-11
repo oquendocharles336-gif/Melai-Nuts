@@ -805,6 +805,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                             emptyTitle: _selectedCategoryId == null
                                 ? 'No products available yet.'
                                 : 'No products in this category yet.',
+                            emptyMessage: 'Try another branch or category.',
                             builder: (_) => const SizedBox.shrink(),
                           ),
                         );

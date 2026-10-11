@@ -10,6 +10,7 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
+import '../widgets/margin_indicator.dart';
 
 /// Editable pricing form for one product's variants — live margin
 /// recalculation as COGS/SRP change. "Save Pricing" writes the prices to
@@ -154,7 +155,6 @@ class _PricingRowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final healthy = row.margin >= 50;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -192,25 +192,7 @@ class _PricingRowCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: healthy ? AppColors.successBg : AppColors.warningBg,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Icon(healthy ? Icons.check_circle : Icons.warning_amber_rounded, size: 16, color: healthy ? AppColors.success : AppColors.warning),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Margin ${row.margin.toStringAsFixed(1)}% • Profit ₱${(row.srpValue - row.cogsValue).toStringAsFixed(2)}/pack',
-                    style: AppTextStyles.labelMd.copyWith(color: healthy ? AppColors.success : AppColors.warning),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          MarginIndicator(marginPercent: row.margin, profitPerUnit: row.srpValue - row.cogsValue, unitLabel: 'pack'),
         ],
       ),
     );
