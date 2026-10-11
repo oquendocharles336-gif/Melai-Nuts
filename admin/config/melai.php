@@ -36,6 +36,12 @@ return [
     // shown at once for up to stale_seconds while the browser fetches the new one in the background.
     // Reports cover whole past days, so they stay fresh longer. Any change made through this website
     // invalidates everything immediately.
+    // Security headers (App\Http\Middleware\SecurityHeaders). HSTS is only sent over HTTPS.
+    'security' => [
+        'csp' => (bool) env('SECURITY_CSP', true),
+        'hsts' => (bool) env('SECURITY_HSTS', true),
+    ],
+
     'cache' => [
         'stale_seconds' => (int) env('MELAI_CACHE_STALE_SECONDS', 300),
         'reports_seconds' => (int) env('MELAI_REPORTS_CACHE_SECONDS', 120),

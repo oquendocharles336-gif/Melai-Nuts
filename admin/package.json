@@ -3,8 +3,9 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "vite build",
-        "dev": "vite"
+        "build": "vite build && node scripts/vendor-ocr.mjs",
+        "dev": "vite",
+        "vendor:ocr": "node scripts/vendor-ocr.mjs"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
@@ -16,6 +17,9 @@
     },
     "dependencies": {
         "@alpinejs/focus": "^3.14.9",
-        "alpinejs": "^3.17.4"
+        "alpinejs": "^3.17.4",
+        "tesseract.js": "5.1.1",
+        "tesseract.js-core": "5.1.1",
+        "@tesseract.js-data/eng": "1.0.0"
     }
 }

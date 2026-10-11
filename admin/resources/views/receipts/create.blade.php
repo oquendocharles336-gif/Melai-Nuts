@@ -36,7 +36,12 @@
     <p class="muted" style="margin-bottom:0">Nothing is added to stock yet. On the next page you check every line, then approve.</p>
 </form>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+{{-- Self-hosted OCR (scripts/vendor-ocr.mjs, run by `npm run build`); never loaded from a CDN. --}}
+@php($ocrBase = 'vendor/tesseract')
+@if (file_exists(public_path($ocrBase.'/tesseract.min.js')))
+<script src="{{ asset($ocrBase.'/tesseract.min.js') }}"></script>
+@endif
+<script>window.MELAI_OCR = { workerPath: @json(asset($ocrBase.'/worker.min.js')), corePath: @json(asset($ocrBase.'/core')), langPath: @json(asset($ocrBase.'/lang')) };</script>
 <script>
 (function () {
     var input = document.getElementById('photo'), preview = document.getElementById('preview');
@@ -72,12 +77,13 @@
     }
 
     btn.addEventListener('click', async function () {
-        if (typeof Tesseract === 'undefined') { setStatus('OCR could not load (no internet?). Type or paste the text instead.', 'low'); return; }
+        if (typeof Tesseract === 'undefined') { setStatus('OCR is not installed on this server (run npm run build). Type or paste the text instead.', 'low'); return; }
         btn.disabled = true;
         setStatus('Starting OCR…', 'average');
         try {
             if (!preview.complete) await new Promise(function (r) { preview.onload = r; });
-            var worker = await Tesseract.createWorker('eng', 1, { logger: function (m) {
+            var worker = await Tesseract.createWorker('eng', 1, { workerPath: window.MELAI_OCR.workerPath, corePath: window.MELAI_OCR.corePath,
+                langPath: window.MELAI_OCR.langPath, workerBlobURL: false, logger: function (m) {
                 if (m.status === 'recognizing text') setStatus('Reading… ' + Math.round(m.progress * 100) + '%', 'average');
             } });
             var res = await worker.recognize(prepare(preview));

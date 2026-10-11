@@ -22,3 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Self-hosted OCR, copied by scripts/vendor-ocr.mjs during npm run build
+/public/vendor/tesseract
