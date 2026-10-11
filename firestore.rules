@@ -1,0 +1,157 @@
+rules_version = '2';
+
+// =============================================================================
+// Melai Nuts — Firestore Security Rules  (server-side authorization)
+//
+// These rules are THE security boundary. Flutter route guards, hidden buttons
+// and cached roles are UX only: a modified app can skip them, but it cannot
+// skip these rules. Identity comes from Firebase Auth (request.auth); the role,
+// branch and active flag come from the server-stored profile at users/{uid} —
+// never from anything the client sends.
+//
+// Roles (existing): customer, staff, owner, delivery. Owner is a superset of
+// staff, as in the previous rules. Default for anything not matched: DENY.
+//
+// COLLECTIONS
+//   users  -> the ONLY Firestore collection the app uses (auth profile / role).
+//             Rules are exact; see below.
+//   anything else (products, inventory, orders, deliveries, refunds, ...)
+//          -> DENIED to everyone, including owners. Business data lives in
+//             Supabase Postgres (RLS + SECURITY DEFINER functions); the app
+//             never reads or writes these in Firestore. Leaving live rules on
+//             unused collections only gave signed-in users a place to write
+//             junk, and the old refunds rule let ANY staff member read every
+//             branch's refunds. The previous rules are archived, with the
+//             fixes needed before reuse, in docs/firestore-dormant-collections.md.
+//             Do not re-open a collection without adding tests for it.
+//
+// ACCOUNT DEACTIVATION: `isActive: false` here only stops Firestore access. To
+// actually cut an account off (Supabase access, new sign-ins, existing
+// sessions) use functions/deactivate-user.js; the sign-in blocking function in
+// functions/index.js refuses sign-in for any user whose profile is inactive.
+//
+// DEPLOY:  firebase deploy --only firestore:rules   (firebase.json points here)
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- helpers
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function myProfilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    // Server-stored profile of the caller (Firestore de-duplicates repeated
+    // get() calls of the same document within one request).
+    function me() {
+      return get(myProfilePath()).data;
+    }
+
+    // Signed in, has a profile, and has NOT been deactivated. A deactivated
+    // user keeps a valid Firebase session but loses every privilege here.
+    function activeUser() {
+      return signedIn() && exists(myProfilePath()) && me().get('isActive', true) == true;
+    }
+
+    function hasRole(role) {
+      return activeUser() && me().role == role;
+    }
+
+    function isOwner()    { return hasRole('owner'); }
+
+    function validRole(role) {
+      return role in ['customer', 'staff', 'owner', 'delivery'];
+    }
+
+    // Fields that may exist on a users/{uid} document (mirrors AppUser).
+    function profileFieldsOk(d) {
+      return d.keys().hasOnly(['email', 'name', 'role', 'phone', 'branch', 'isActive', 'createdAt']) &&
+             d.keys().hasAll(['email', 'name', 'role']) &&
+             d.email is string && d.email.size() <= 254 &&
+             d.name is string && d.name.size() >= 1 && d.name.size() <= 100 &&
+             validRole(d.role) &&
+             d.get('isActive', true) is bool &&
+             (d.get('phone', null) == null ||
+                (d.phone is string && d.phone.size() <= 20)) &&
+             (d.get('branch', null) == null ||
+                (d.branch is string && d.branch.size() <= 60));
+    }
+
+    // Brand-new profile: all fields present, active, server-stamped.
+    function newProfileOk(d) {
+      return profileFieldsOk(d) &&
+             d.keys().hasAll(['isActive', 'createdAt']) &&
+             d.isActive == true &&
+             d.createdAt == request.time;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ------------------------------------------------------------------ users
+    match /users/{userId} {
+      // Own profile (also lets a deactivated user be told why), or Owner.
+      allow read: if isSelf(userId) || isOwner();
+
+      // Self-registration: ONLY a customer profile, bound to the caller's own
+      // Firebase identity and email, no branch, active — and ONLY once Firebase
+      // reports that email as VERIFIED. A client cannot set email_verified: it
+      // is set by Firebase (verification link) or by the backend via the Admin
+      // SDK after it checks the emailed code. This is what makes "only a real
+      // email can register" enforceable server-side. Nobody can register
+      // themselves as staff / owner / delivery.
+      // Owner: may provision staff / owner / delivery (and customer) profiles.
+      allow create: if newProfileOk(request.resource.data) && (
+        (isSelf(userId) &&
+          request.auth.token.email_verified == true &&
+          request.resource.data.role == 'customer' &&
+          request.resource.data.get('branch', null) == null &&
+          request.resource.data.email.lower() == request.auth.token.email.lower())
+        ||
+        // Phone-number sign-up (SMS OTP): Firebase itself verified the number,
+        // so there is no email. Still ONLY a customer profile, no branch, with
+        // an empty email and the phone equal to the number Firebase verified.
+        (isSelf(userId) &&
+          request.auth.token.firebase.sign_in_provider == 'phone' &&
+          request.auth.token.phone_number is string &&
+          request.resource.data.role == 'customer' &&
+          request.resource.data.get('branch', null) == null &&
+          request.resource.data.email == '' &&
+          request.resource.data.get('phone', null) == request.auth.token.phone_number)
+        ||
+        (isOwner() &&
+          (!(request.resource.data.role in ['staff', 'delivery']) ||
+            request.resource.data.get('branch', null) != null))
+      );
+
+      // Self: only name / phone, and only while active. Cannot touch role,
+      // branch, isActive, email or createdAt (blocks self-promotion, branch
+      // hopping and self-reactivation after deactivation).
+      // Owner: may edit name / phone / branch / role / isActive.
+      allow update: if profileFieldsOk(request.resource.data) && (
+        (isSelf(userId) && activeUser() &&
+          changedKeys().hasOnly(['name', 'phone']))
+        ||
+        (isOwner() &&
+          changedKeys().hasOnly(['name', 'phone', 'branch', 'role', 'isActive']))
+      );
+
+      allow delete: if isOwner();
+    }
+
+    // ---------------------------------------------------------- default: deny
+    // Every collection other than `users` (see header) lands here.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

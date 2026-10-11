@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "melai_nuts (debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--dart-define-from-file=env/firebase.json",
+        "--dart-define-from-file=env/supabase.json"
+      ]
+    }
+  ]
+}

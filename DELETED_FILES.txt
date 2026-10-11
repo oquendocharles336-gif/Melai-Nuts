@@ -1,0 +1,32 @@
+Delete these files/folders from your copy of the project (they were removed in this change):
+
+admin/app/Http/Controllers/WebhookController.php        (PayMongo webhook, demo mode only)
+admin/app/Http/Requests/UpdateLoyaltySettingsRequest.php (demo-mode loyalty settings form)
+admin/app/Models/LoyaltyEntry.php                        (local copy of points, demo mode)
+admin/app/Models/LoyaltySetting.php                      (local copy of loyalty rules, demo mode)
+admin/app/Models/OrderOverride.php                       (local copy of refunds / cash paid, demo mode)
+admin/app/Services/Data/FirestoreDataSource.php          (legacy, unused)
+admin/app/Services/Data/MockDataSource.php               (moved to admin/tests/Support/MockDataSource.php)
+admin/app/Services/LoyaltyService.php                    (local points ledger, demo mode)
+admin/app/Services/PayMongo/                             (simulated PayMongo refunds)
+admin/tests/Feature/LoyaltyTest.php                      (tested the removed demo flows)
+admin/tests/Feature/PaymentTest.php                      (tested the removed demo flows)
+admin/tests/Feature/RefundTest.php                       (tested the removed demo flows)
+lib/core/widgets/portal_placeholder_screen.dart          (unused "coming soon" screen)
+lib/data/dummy_data/                                     (moved to lib/data/views/branch_deliveries.dart)
+lib/features/delivery/screens/delivery_portal_screen.dart  (unreachable legacy rider portal, simulated route engine)
+lib/features/delivery/screens/delivery_profile_screen.dart (only used by the portal above)
+
+PowerShell, from the project folder:
+  Remove-Item -Recurse -Force admin\app\Http\Controllers\WebhookController.php, admin\app\Http\Requests\UpdateLoyaltySettingsRequest.php, admin\app\Models\LoyaltyEntry.php, admin\app\Models\LoyaltySetting.php, admin\app\Models\OrderOverride.php, admin\app\Services\Data\FirestoreDataSource.php, admin\app\Services\Data\MockDataSource.php, admin\app\Services\LoyaltyService.php, admin\app\Services\PayMongo, admin\tests\Feature\LoyaltyTest.php, admin\tests\Feature\PaymentTest.php, admin\tests\Feature\RefundTest.php, lib\core\widgets\portal_placeholder_screen.dart, lib\data\dummy_data, lib\features\delivery\screens\delivery_portal_screen.dart, lib\features\delivery\screens\delivery_profile_screen.dart
+
+Also removed on 2026-10-13 (automatic link at sign-in, real data only):
+
+admin/app/Http/Controllers/AccountLinkController.php    (manual "Link my app account" page)
+admin/resources/views/account/                           (its view)
+admin/tests/Feature/Configuredownertest.php              (never ran: wrong file name; tested a removed bypass)
+supabase/seed/                                           (dev_demo_catalog.sql: invented demo catalog)
+
+PowerShell, from the project folder:
+  Remove-Item -Recurse -Force admin\app\Http\Controllers\AccountLinkController.php, admin\resources\views\account, admin\tests\Feature\Configuredownertest.php, supabase\seed
+Then, in admin\: composer dump-autoload

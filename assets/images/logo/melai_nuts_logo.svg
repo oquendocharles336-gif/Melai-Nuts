@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="peanutGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d9822b" />
+      <stop offset="100%" stop-color="#8c4314" />
+    </linearGradient>
+    <linearGradient id="leafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4e8c3b" />
+      <stop offset="100%" stop-color="#2d5e1e" />
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="92" fill="#fff8f4" stroke="#a06235" stroke-width="4"/>
+  <circle cx="100" cy="100" r="84" fill="none" stroke="#e8d5c4" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <!-- Peanut shell silhouette -->
+  <path d="M78 68 C64 78 62 100 74 116 C66 128 68 144 86 150 C104 156 122 144 126 128 C138 116 136 94 122 78 C108 64 88 60 78 68 Z" fill="url(#peanutGrad)" />
+  <path d="M84 76 C76 84 76 96 84 106 C80 116 82 128 94 134 C106 140 118 132 120 120 C128 110 126 94 116 84 C104 74 90 70 84 76 Z" fill="#b9621b" opacity="0.4"/>
+  <!-- Leaf accent -->
+  <path d="M124 64 C138 52 152 56 156 68 C156 82 142 86 128 80 Z" fill="url(#leafGrad)"/>
+  <path d="M128 80 Q142 70 156 68" stroke="#a8d672" stroke-width="2" fill="none"/>
+  <!-- Nut texture dots/dimples -->
+  <circle cx="88" cy="92" r="3" fill="#69300d" opacity="0.6"/>
+  <circle cx="112" cy="98" r="2.5" fill="#69300d" opacity="0.6"/>
+  <circle cx="96" cy="124" r="3.5" fill="#69300d" opacity="0.6"/>
+  <circle cx="108" cy="132" r="2.5" fill="#69300d" opacity="0.6"/>
+  <circle cx="102" cy="80" r="2" fill="#ffdd99" opacity="0.8"/>
+  <circle cx="114" cy="118" r="2" fill="#ffdd99" opacity="0.8"/>
+</svg>

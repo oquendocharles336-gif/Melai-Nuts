@@ -1,0 +1,8 @@
+Delete these from your copy of the project (removed in this change; unzipping does not remove them):
+Melai-Nuts-master/admin/resources/views/ops/deliveries.blade.php
+Melai-Nuts-master/admin/resources/views/ops/driver-tracking.blade.php
+
+Then run, in admin/: composer dump-autoload, npm run build (ui.js / melai.css changed)
+and apply supabase/migrations/20261016000000_delivery_pins_app_only.sql.
+In the app: flutter pub get, flutter analyze, flutter test.
+Report: docs/DELIVERY_APP_ONLY_REPORT.md

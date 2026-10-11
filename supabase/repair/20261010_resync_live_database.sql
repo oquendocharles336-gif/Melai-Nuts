@@ -1,0 +1,10954 @@
+-- =============================================================================
+-- Melai Nuts — one-time repair of the LIVE Supabase database (2026-10-10)
+-- =============================================================================
+-- WHY
+--   An audit of the live project (Melai-Nuts-Retail) found it out of sync with
+--   supabase/migrations/:
+--     * 8 migrations were never applied (plus the new 20261012000000): product_sales_30d, delivery_module,
+--       owner_delete_staff_member, customer_delivery_tracking, cod_and_hitpay,
+--       pos_shifts_voids_returns, driver_module, analytics_forecasting.
+--       -> the admin website's Deliveries, Driver Tracking, Cash Drawer, Reports
+--          and Forecast pages fail, and so do the matching app screens.
+--     * supabase/schema.sql was run AGAIN after the migrations. That put back the
+--       old place_order / cart pricing / notification functions and the public
+--       product_variants.cost_price column, undoing parts of
+--       20260928000000_customer_security_hardening.sql.
+--
+-- WHAT THIS DOES
+--   Re-runs every migration, in order (each file was written to be re-runnable
+--   and runs in its own transaction). No business rows are deleted. The only data
+--   changes are the ones the migrations themselves document (e.g. cost prices move
+--   from product_variants.cost_price to the private product_variant_costs table —
+--   on the live project that column is empty).
+--
+--   Tested on a local copy that reproduces the live database's exact state:
+--   the result is identical (functions, columns, policies, grants) to a database
+--   built from schema.sql + all migrations, and all supabase/tests/*.sql and the
+--   admin website's integration tests pass on it.
+--
+-- HOW TO RUN
+--   Supabase dashboard > SQL Editor > paste this whole file > Run.
+--   (Or: psql "<postgres connection string>" -v ON_ERROR_STOP=1 -f this-file.)
+--   App calls may fail for the few seconds it runs; run it when the shop is quiet.
+--
+-- AFTERWARDS (separate, see INTEGRATION.md):
+--   1. Register the owner once (real Firebase UID from Firebase console >
+--      Authentication > Users):
+--        insert into public.staff_members (firebase_uid, full_name, email, role, account_status)
+--        values ('<owner firebase uid>', '<owner full name>', '<owner email>', 'owner', 'active');
+--   2. Let the website's database login sign in (it currently has NOLOGIN):
+--        alter role melai_admin_portal with login password '<long random password>';
+--      and put the same password in admin/.env (SUPABASE_DB_PASSWORD).
+--   NEVER run supabase/schema.sql on this project again: it is for new, empty projects.
+-- =============================================================================
+
+
+
+-- >>>>>>>>>> 20260928000000_customer_security_hardening.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20260928000000
+-- Customer-side security hardening, integrity fixes and indexes
+-- =============================================================================
+-- RUN ORDER:  supabase/schema.sql  ->  this file  ->  supabase/tests/*.sql
+-- Safe to re-run (idempotent) and atomic (one transaction: all or nothing).
+--
+-- This builds ON the existing schema (no duplicate tables). What it fixes:
+--
+--  SECURITY
+--   1. Customers could WRITE payment / refund / cart rows straight through the
+--      Data API. Every money- or points-affecting write now goes through a
+--      server-side function; the customer roles get read-only table access.
+--   2. notify_customer() (SECURITY DEFINER) was executable by anyone, letting
+--      any caller inject notifications into any customer's inbox. All function
+--      EXECUTE grants are now explicit allow-lists.
+--   3. Profile creation now requires a *verified* email that matches the token
+--      (enforces at the database what the Firestore rules already enforce).
+--   4. Product cost price (COGS) was publicly readable; moved to a private table.
+--   5. Column-level privileges: customers can edit only name/phone/default
+--      branch on their profile, and only `read` on a notification.
+--   6. Policies are scoped `TO authenticated` (fail-closed) instead of PUBLIC.
+--
+--  INTEGRITY
+--   7. Refund submission was BROKEN (a trigger wrote to a table with no INSERT
+--      policy). Replaced by request_refund(): the server checks ownership,
+--      eligibility and computes the amount; the client cannot choose it.
+--   8. Loyalty points were awarded when an order was merely PLACED, so a
+--      customer could farm points with cash orders they never collect. Points
+--      are now awarded when the order is COMPLETED, returned when a redeemed
+--      order is cancelled, and clawed back when an order is refunded.
+--   9. Cancelling an order now restores stock, redeemed points and the voucher.
+--  10. One payment per order (unique index); duplicates made the Flutter
+--      `.maybeSingle()` payment lookup throw.
+--  11. voucher_usage + per_customer_limit: per-customer voucher accounting.
+--  12. orders/refund_requests added to the realtime publication (the app
+--      streams both; without this live tracking never updates).
+--
+--  PERFORMANCE
+--  13. Indexes for firebase_uid, order/branch/product/category ids, status and
+--      created_at (none existed apart from primary/unique keys).
+--
+-- NOTE: after this migration new tables are NOT auto-exposed to the Data API
+-- (default privileges are revoked below, fail-closed). When you add a table the
+-- app must read, `grant` it explicitly and add a policy.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 0. Helpers
+-- -----------------------------------------------------------------------------
+
+-- True only when the Firebase ID token says the email address was verified.
+-- Firebase sets `email_verified`; a client cannot forge it.
+create or replace function public.jwt_email_verified()
+returns boolean
+language sql
+stable
+as $$
+  select coalesce(nullif(auth.jwt() ->> 'email_verified', '')::boolean, false)
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 1. New structures
+-- -----------------------------------------------------------------------------
+
+-- 1a. Cost of goods sold, moved out of the publicly-readable product_variants.
+--     RLS is enabled with NO policy: only the service role / table owner (future
+--     staff & owner tooling on a trusted backend) can read or write it.
+create table if not exists public.product_variant_costs (
+  variant_id uuid primary key references public.product_variants(id) on delete cascade,
+  cost_price numeric(10, 2) not null check (cost_price >= 0),
+  updated_at timestamptz not null default now()
+);
+alter table public.product_variant_costs enable row level security;
+
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'product_variants' and column_name = 'cost_price') then
+    insert into public.product_variant_costs (variant_id, cost_price)
+    select id, cost_price from public.product_variants
+    where cost_price is not null and cost_price >= 0
+    on conflict (variant_id) do nothing;
+    alter table public.product_variants drop column cost_price;
+  end if;
+end $$;
+
+-- 1b. Order lines remember which product/variant they came from, so a cancelled
+--     order can put stock back (previously only the display name was kept).
+alter table public.order_items
+  add column if not exists product_id uuid references public.products(id) on delete set null;
+alter table public.order_items
+  add column if not exists variant_id uuid references public.product_variants(id) on delete set null;
+
+-- Best-effort backfill for orders placed before this migration (exact matches only).
+update public.order_items oi
+set product_id = p.id
+from public.products p
+where oi.product_id is null and p.name = oi.product_name;
+
+update public.order_items oi
+set variant_id = v.id
+from public.product_variants v
+where oi.variant_id is null and oi.product_id = v.product_id and v.label = oi.variant_label;
+
+-- 1c. Loyalty ledger: say WHY a row exists so triggers can be idempotent.
+alter table public.loyalty_transactions add column if not exists source text;
+alter table public.loyalty_transactions drop constraint if exists loyalty_transactions_source_check;
+alter table public.loyalty_transactions add constraint loyalty_transactions_source_check
+  check (source is null or source in ('order_earn', 'order_redeem', 'order_return', 'order_clawback'));
+
+update public.loyalty_transactions set source = 'order_earn'
+where source is null and type = 'earn' and order_id is not null;
+update public.loyalty_transactions set source = 'order_redeem'
+where source is null and type = 'redeem' and order_id is not null;
+
+create unique index if not exists loyalty_tx_one_earn_per_order
+  on public.loyalty_transactions (order_id) where source = 'order_earn';
+
+-- 1d. Per-customer voucher accounting. `per_customer_limit` NULL = unlimited
+--     (preserves current behaviour); set it (e.g. 1) on welcome/one-time codes.
+alter table public.vouchers
+  add column if not exists per_customer_limit int
+  check (per_customer_limit is null or per_customer_limit > 0);
+
+create table if not exists public.voucher_usage (
+  id uuid primary key default gen_random_uuid(),
+  voucher_id uuid not null references public.vouchers(id),
+  firebase_uid text not null references public.customer_profiles(firebase_uid),
+  order_id text not null references public.orders(id) on delete cascade,
+  discount_amount numeric(10, 2) not null check (discount_amount >= 0),
+  created_at timestamptz not null default now(),
+  unique (order_id)
+);
+alter table public.voucher_usage enable row level security;
+
+-- -----------------------------------------------------------------------------
+-- 2. Integrity constraints
+-- -----------------------------------------------------------------------------
+
+-- Duplicate PENDING payments (created by the old client-side insert on top of
+-- the one place_order already makes) are removed, keeping the earliest.
+delete from public.payments p
+using public.payments keep
+where p.order_id = keep.order_id
+  and p.id <> keep.id
+  and p.status = 'pending'
+  and (keep.created_at < p.created_at or (keep.created_at = p.created_at and keep.id < p.id));
+
+do $$
+begin
+  create unique index if not exists payments_one_per_order on public.payments (order_id);
+exception when unique_violation then
+  raise warning 'payments_one_per_order NOT created: some order still has several non-pending payments. Resolve them manually and re-run.';
+end $$;
+
+do $$
+begin
+  create unique index if not exists refund_requests_one_open_per_order
+    on public.refund_requests (order_id) where (status <> 'rejected');
+exception when unique_violation then
+  raise warning 'refund_requests_one_open_per_order NOT created: an order has several open refunds. Resolve manually and re-run.';
+end $$;
+
+do $$
+begin
+  create unique index if not exists customer_profiles_rfid_key
+    on public.customer_profiles (rfid_card_number) where (rfid_card_number is not null);
+exception when unique_violation then
+  raise warning 'customer_profiles_rfid_key NOT created: an RFID card is linked to several customers. Resolve manually and re-run.';
+end $$;
+
+do $$
+begin
+  create unique index if not exists vouchers_code_upper_key on public.vouchers (upper(code));
+exception when unique_violation then
+  raise warning 'vouchers_code_upper_key NOT created: voucher codes differ only by letter case.';
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Indexes  (customer/firebase uid, order, branch, product, category,
+--              status, created_at). Primary/unique keys already cover their
+--              own columns; these cover the app's real access paths.
+-- -----------------------------------------------------------------------------
+
+-- customers
+create index if not exists customer_profiles_default_branch_idx on public.customer_profiles (default_branch_id);
+create index if not exists customer_addresses_uid_idx           on public.customer_addresses (firebase_uid);
+
+-- catalog
+create index if not exists product_categories_active_sort_idx   on public.product_categories (sort_order) where is_active;
+create index if not exists products_category_idx                on public.products (category_id);
+create index if not exists products_active_idx                  on public.products (name) where is_active;
+create index if not exists products_featured_idx                on public.products (name) where is_active and is_featured;
+create index if not exists products_created_idx                 on public.products (created_at desc);
+create index if not exists products_name_idx                    on public.products (name);      -- get_popular_products joins on name
+create index if not exists product_variants_product_idx         on public.product_variants (product_id, sort_order);
+create index if not exists branch_inventory_product_idx         on public.branch_inventory (product_id);
+create index if not exists branch_inventory_variant_idx         on public.branch_inventory (variant_id);
+create index if not exists rewards_active_idx                   on public.rewards (points_required) where is_active;
+create index if not exists promotions_active_idx                on public.promotions (sort_order) where is_active;
+
+-- carts
+create index if not exists carts_uid_status_idx                 on public.carts (firebase_uid, status);
+create index if not exists carts_branch_idx                     on public.carts (branch_id);
+create index if not exists cart_items_cart_idx                  on public.cart_items (cart_id);
+create index if not exists cart_items_product_idx               on public.cart_items (product_id);
+create index if not exists cart_items_variant_idx               on public.cart_items (variant_id);
+
+-- orders
+create index if not exists orders_uid_created_idx               on public.orders (firebase_uid, created_at desc);
+create index if not exists orders_branch_idx                    on public.orders (branch_id);
+create index if not exists orders_status_idx                    on public.orders (status);
+create index if not exists orders_created_idx                   on public.orders (created_at desc);
+create index if not exists orders_delivery_address_idx          on public.orders (delivery_address_id);
+create index if not exists order_items_order_idx                on public.order_items (order_id);
+create index if not exists order_items_product_idx              on public.order_items (product_id);
+create index if not exists order_items_variant_idx              on public.order_items (variant_id);
+create index if not exists order_status_events_order_idx        on public.order_status_events (order_id, created_at);
+
+-- payments
+create index if not exists payments_uid_created_idx             on public.payments (firebase_uid, created_at desc);
+create index if not exists payments_status_idx                  on public.payments (status);
+
+-- refunds
+create index if not exists refund_requests_uid_created_idx      on public.refund_requests (firebase_uid, created_at desc);
+create index if not exists refund_requests_order_idx            on public.refund_requests (order_id);
+create index if not exists refund_requests_status_idx           on public.refund_requests (status);
+create index if not exists refund_items_refund_idx              on public.refund_items (refund_request_id);
+create index if not exists refund_status_events_refund_idx      on public.refund_status_events (refund_request_id, created_at);
+
+-- loyalty
+create index if not exists loyalty_tx_uid_created_idx           on public.loyalty_transactions (firebase_uid, created_at desc);
+create index if not exists loyalty_tx_order_idx                 on public.loyalty_transactions (order_id);
+create index if not exists reward_redemptions_uid_idx           on public.reward_redemptions (firebase_uid, created_at desc);
+create index if not exists reward_redemptions_reward_idx        on public.reward_redemptions (reward_id);
+
+-- vouchers
+create index if not exists vouchers_active_idx                  on public.vouchers (is_active);
+create index if not exists voucher_usage_uid_idx                on public.voucher_usage (firebase_uid);
+create index if not exists voucher_usage_voucher_idx            on public.voucher_usage (voucher_id, firebase_uid);
+
+-- notifications
+create index if not exists notifications_uid_created_idx        on public.notifications (firebase_uid, created_at desc);
+create index if not exists notifications_unread_idx             on public.notifications (firebase_uid) where not read;
+
+-- -----------------------------------------------------------------------------
+-- 4. Trigger / lifecycle fixes
+-- -----------------------------------------------------------------------------
+
+-- 4a. These two history triggers fired as the CALLING customer and wrote to
+--     tables that (correctly) have no customer INSERT policy, which made every
+--     refund request fail. History rows are system-written: run as owner.
+create or replace function public.log_order_status_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if (tg_op = 'INSERT') then
+    insert into public.order_status_events (order_id, status, note)
+    values (new.id, new.status, 'Order placed');
+  elsif (new.status is distinct from old.status) then
+    insert into public.order_status_events (order_id, status, note)
+    values (new.id, new.status, null);
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.log_refund_status_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if (tg_op = 'INSERT') then
+    insert into public.refund_status_events (refund_request_id, status, note)
+    values (new.id, new.status, 'Request submitted');
+  elsif (new.status is distinct from old.status) then
+    insert into public.refund_status_events (refund_request_id, status, note)
+    values (new.id, new.status, null);
+  end if;
+  return new;
+end;
+$$;
+
+-- 4b. Points are earned when the order is COMPLETED (fulfilled), not when it is
+--     placed. Idempotent: the ledger's unique index allows one 'order_earn' per order.
+drop trigger if exists orders_award_points on public.orders;
+drop function if exists public.award_order_points();
+
+create or replace function public.award_points_on_completion()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.points_earned > 0 and not exists (
+       select 1 from public.loyalty_transactions t
+       where t.order_id = new.id and t.source = 'order_earn') then
+    insert into public.loyalty_accounts (firebase_uid, points_balance, lifetime_points)
+    values (new.firebase_uid, new.points_earned, new.points_earned)
+    on conflict (firebase_uid) do update
+      set points_balance  = public.loyalty_accounts.points_balance  + excluded.points_balance,
+          lifetime_points = public.loyalty_accounts.lifetime_points + excluded.lifetime_points;
+
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (new.firebase_uid, 'earn', new.points_earned, 'Order ' || new.id, new.id, 'order_earn');
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_award_points_on_completion on public.orders;
+create trigger orders_award_points_on_completion
+  after update of status on public.orders
+  for each row
+  when (new.status = 'completed' and old.status is distinct from new.status)
+  execute function public.award_points_on_completion();
+
+-- 4c. Cancelling an order that was never fulfilled puts everything back.
+create or replace function public.reverse_order_on_cancel()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_line record;
+  v_points int;
+  v_voucher_id uuid;
+begin
+  -- Only undo orders that never reached the customer.
+  if old.status in ('completed', 'refundRequested', 'refunded') then
+    return new;
+  end if;
+
+  if new.branch_id is not null then
+    for v_line in
+      select product_id, variant_id, quantity from public.order_items
+      where order_id = new.id and product_id is not null and variant_id is not null
+    loop
+      update public.branch_inventory
+      set quantity = quantity + v_line.quantity
+      where branch_id = new.branch_id
+        and product_id = v_line.product_id
+        and variant_id = v_line.variant_id;
+    end loop;
+  end if;
+
+  select coalesce(-sum(points), 0) into v_points
+  from public.loyalty_transactions
+  where order_id = new.id and source = 'order_redeem';
+
+  if v_points > 0 and not exists (
+       select 1 from public.loyalty_transactions t
+       where t.order_id = new.id and t.source = 'order_return') then
+    insert into public.loyalty_accounts (firebase_uid, points_balance)
+    values (new.firebase_uid, v_points)
+    on conflict (firebase_uid) do update
+      set points_balance = public.loyalty_accounts.points_balance + excluded.points_balance;
+
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (new.firebase_uid, 'earn', v_points,
+            'Points returned - order ' || new.id || ' cancelled', new.id, 'order_return');
+  end if;
+
+  delete from public.voucher_usage where order_id = new.id returning voucher_id into v_voucher_id;
+  if v_voucher_id is not null then
+    update public.vouchers set used_count = greatest(used_count - 1, 0) where id = v_voucher_id;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_reverse_on_cancel on public.orders;
+create trigger orders_reverse_on_cancel
+  after update of status on public.orders
+  for each row
+  when (new.status = 'cancelled' and old.status is distinct from new.status)
+  execute function public.reverse_order_on_cancel();
+
+-- 4d. A completed refund reverses the points that order earned (never below 0)
+--     and marks a successful payment as refunded.
+create or replace function public.finalize_order_refund()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_earned int;
+  v_take int;
+begin
+  select coalesce(sum(points), 0) into v_earned
+  from public.loyalty_transactions
+  where order_id = new.id and source = 'order_earn';
+
+  if v_earned > 0 and not exists (
+       select 1 from public.loyalty_transactions t
+       where t.order_id = new.id and t.source = 'order_clawback') then
+    select least(points_balance, v_earned) into v_take
+    from public.loyalty_accounts where firebase_uid = new.firebase_uid for update;
+
+    if coalesce(v_take, 0) > 0 then
+      update public.loyalty_accounts
+      set points_balance = points_balance - v_take
+      where firebase_uid = new.firebase_uid;
+
+      insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+      values (new.firebase_uid, 'redeem', -v_take,
+              'Points reversed - order ' || new.id || ' refunded', new.id, 'order_clawback');
+    end if;
+  end if;
+
+  update public.payments set status = 'refunded'
+  where order_id = new.id and status = 'success';
+
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_finalize_refund on public.orders;
+create trigger orders_finalize_refund
+  after update of status on public.orders
+  for each row
+  when (new.status = 'refunded' and old.status is distinct from new.status)
+  execute function public.finalize_order_refund();
+
+-- -----------------------------------------------------------------------------
+-- 5. Server-side pricing & checkout (replaces the previous definitions)
+-- -----------------------------------------------------------------------------
+
+-- Adds the per-customer voucher limit to the price preview so what the customer
+-- sees is exactly what place_order() will enforce.
+create or replace function public._calculate_cart_pricing(
+  p_cart_id uuid,
+  p_is_delivery boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_subtotal numeric := 0;
+  v_voucher_discount numeric := 0;
+  v_loyalty_discount numeric := 0;
+  v_delivery_fee numeric := 0;
+  v_total numeric := 0;
+  v_balance int := 0;
+  v_points_used int := 0;
+  v_voucher record;
+  v_settings record;
+begin
+  if v_uid is null then
+    raise exception 'Please sign in to use the shopping cart.';
+  end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open';
+  if not found then
+    raise exception 'Cart not found.';
+  end if;
+
+  update public.cart_items ci
+  set current_price = pv.price, updated_at = now()
+  from public.product_variants pv
+  where ci.cart_id = p_cart_id and ci.variant_id = pv.id;
+
+  select coalesce(sum(ci.current_price * ci.quantity), 0)
+  into v_subtotal
+  from public.cart_items ci
+  where ci.cart_id = p_cart_id;
+
+  if v_cart.voucher_code is not null and trim(v_cart.voucher_code) <> '' then
+    select * into v_voucher
+    from public.vouchers v
+    where upper(v.code) = upper(trim(v_cart.voucher_code))
+      and v.is_active
+      and (v.starts_at is null or v.starts_at <= now())
+      and (v.ends_at is null or v.ends_at >= now())
+    for update;
+
+    if not found then
+      raise exception 'Voucher is invalid or expired.';
+    end if;
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then
+      raise exception 'This voucher has reached its usage limit.';
+    end if;
+    if v_voucher.per_customer_limit is not null and
+       (select count(*) from public.voucher_usage vu
+        where vu.voucher_id = v_voucher.id and vu.firebase_uid = v_uid) >= v_voucher.per_customer_limit then
+      raise exception 'You have already used this voucher.';
+    end if;
+    if v_subtotal < v_voucher.minimum_subtotal then
+      raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal;
+    end if;
+
+    if v_voucher.discount_type = 'percent' then
+      v_voucher_discount := round(v_subtotal * v_voucher.discount_value / 100, 2);
+    else
+      v_voucher_discount := v_voucher.discount_value;
+    end if;
+    if v_voucher.maximum_discount is not null then
+      v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount);
+    end if;
+    v_voucher_discount := least(v_voucher_discount, v_subtotal);
+  end if;
+
+  select points_balance into v_balance
+  from public.loyalty_accounts
+  where firebase_uid = v_uid;
+  v_balance := coalesce(v_balance, 0);
+
+  if v_cart.redeem_points then
+    select * into v_settings from public.loyalty_cart_settings where id = 'default';
+    if not found then
+      raise exception 'Loyalty point redemption is not configured yet.';
+    end if;
+    if v_balance <= 0 then
+      raise exception 'You do not have loyalty points available to redeem.';
+    end if;
+
+    v_points_used := least(
+      v_balance,
+      floor(
+        greatest(0, least(
+          v_subtotal - v_voucher_discount,
+          v_subtotal * v_settings.max_discount_percent / 100
+        )) * v_settings.points_per_peso
+      )::int
+    );
+    v_loyalty_discount := round(v_points_used / v_settings.points_per_peso, 2);
+  end if;
+
+  if p_is_delivery then
+    select delivery_fee into v_delivery_fee
+    from public.branches
+    where id = v_cart.branch_id and supports_delivery and is_active;
+    if not found then
+      raise exception 'Delivery is not available for this branch.';
+    end if;
+  end if;
+
+  v_total := greatest(0, v_subtotal - v_voucher_discount - v_loyalty_discount + v_delivery_fee);
+
+  return jsonb_build_object(
+    'cart_id', v_cart.id,
+    'branch_id', v_cart.branch_id,
+    'voucher_code', v_cart.voucher_code,
+    'redeem_points', v_cart.redeem_points,
+    'loyalty_points_balance', v_balance,
+    'loyalty_points_used', v_points_used,
+    'subtotal', round(v_subtotal, 2),
+    'voucher_discount', round(v_voucher_discount, 2),
+    'loyalty_discount', round(v_loyalty_discount, 2),
+    'delivery_fee', round(v_delivery_fee, 2),
+    'total', round(v_total, 2)
+  );
+end;
+$$;
+
+-- Checkout. Same contract as before (this is the 5-argument core; the public
+-- entry point is the 6-argument idempotent wrapper defined in schema.sql).
+-- Changes: rows locked in a fixed order (no deadlocks between two carts),
+-- order lines keep product/variant ids, per-customer voucher limit +
+-- voucher_usage row, and every loyalty ledger row states its source.
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text default ''
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_item record;
+  v_available int;
+  v_order_id text;
+  v_subtotal numeric;
+  v_voucher_discount numeric := 0;
+  v_loyalty_discount numeric := 0;
+  v_delivery_fee numeric;
+  v_total numeric;
+  v_discount numeric;
+  v_points_used int := 0;
+  v_balance int := 0;
+  v_has_voucher boolean;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
+  v_address record;
+  v_profile_phone text;
+  v_contact_phone text;
+  v_delivery_address_text text;
+  v_payment_method_code text;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open'
+  for update;
+  if not found then raise exception 'Your cart is no longer available.'; end if;
+
+  if p_payment_method not in ('GCash E-Wallet', 'Maya / Credit Card', 'Cash on Counter Pickup') then
+    raise exception 'Unsupported payment method.';
+  end if;
+  v_payment_method_code := case p_payment_method
+    when 'GCash E-Wallet' then 'gcash'
+    when 'Maya / Credit Card' then 'card'
+    else 'cash'
+  end;
+
+  select phone into v_profile_phone from public.customer_profiles where firebase_uid = v_uid;
+
+  if p_is_delivery then
+    if p_delivery_address_id is null then raise exception 'Please provide a delivery address.'; end if;
+    select * into v_address from public.customer_addresses
+      where id = p_delivery_address_id and firebase_uid = v_uid;
+    if not found then raise exception 'The selected delivery address is invalid.'; end if;
+    select delivery_fee into v_delivery_fee from public.branches
+      where id = v_cart.branch_id and supports_delivery and is_active;
+    if not found then raise exception 'Delivery is not available for this branch.'; end if;
+    v_contact_phone := nullif(trim(v_address.phone), '');
+    v_delivery_address_text := trim(
+      v_address.recipient_name || ', ' || v_address.line1 || ', ' || v_address.city ||
+      case when coalesce(v_address.province, '') <> '' then ', ' || v_address.province else '' end ||
+      case when coalesce(v_address.postal_code, '') <> '' then ' ' || v_address.postal_code else '' end
+    );
+  else
+    if not exists (select 1 from public.branches where id = v_cart.branch_id and supports_pickup and is_active) then
+      raise exception 'Pickup is not available for this branch.';
+    end if;
+    v_delivery_fee := 0;
+    v_contact_phone := nullif(trim(coalesce(v_profile_phone, '')), '');
+    v_delivery_address_text := null;
+  end if;
+
+  if v_contact_phone is null then
+    raise exception 'Please add a contact phone number to your profile before checking out.';
+  end if;
+
+  -- Prices always come from the catalog, never from the cart row.
+  update public.cart_items ci
+  set current_price = pv.price, variant_label = pv.label, updated_at = now()
+  from public.product_variants pv
+  join public.products p on p.id = pv.product_id
+  where ci.cart_id = v_cart.id and ci.variant_id = pv.id and p.is_active;
+
+  if not exists (select 1 from public.cart_items where cart_id = v_cart.id) then
+    raise exception 'Your cart is empty.';
+  end if;
+
+  -- Validate + lock stock in a fixed order so two checkouts cannot deadlock.
+  for v_item in
+    select ci.product_id, ci.variant_id, ci.quantity, p.name as product_name, p.is_active as product_active
+    from public.cart_items ci
+    join public.products p on p.id = ci.product_id
+    where ci.cart_id = v_cart.id
+    order by ci.product_id, ci.variant_id
+  loop
+    if not v_item.product_active then raise exception '% is no longer available.', v_item.product_name; end if;
+    if v_item.variant_id is null then raise exception '% is no longer available.', v_item.product_name; end if;
+    select bi.quantity into v_available
+    from public.branch_inventory bi
+    where bi.branch_id = v_cart.branch_id
+      and bi.product_id = v_item.product_id
+      and bi.variant_id = v_item.variant_id
+    for update;
+    if v_available is null then raise exception '% is not available at this branch.', v_item.product_name; end if;
+    if v_available < v_item.quantity then
+      raise exception 'Only % of % left at this branch.', v_available, v_item.product_name;
+    end if;
+  end loop;
+
+  -- Lock the loyalty account before recomputing so points cannot be spent twice.
+  insert into public.loyalty_accounts (firebase_uid) values (v_uid) on conflict (firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid = v_uid for update;
+
+  select coalesce(sum(current_price * quantity), 0) into v_subtotal
+  from public.cart_items where cart_id = v_cart.id;
+
+  v_has_voucher := v_cart.voucher_code is not null and trim(v_cart.voucher_code) <> '';
+  if v_has_voucher then
+    select * into v_voucher
+    from public.vouchers v
+    where upper(v.code) = upper(trim(v_cart.voucher_code))
+      and v.is_active
+      and (v.starts_at is null or v.starts_at <= now())
+      and (v.ends_at is null or v.ends_at >= now())
+    for update;
+    if not found then raise exception 'Voucher is invalid or expired.'; end if;
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then
+      raise exception 'This voucher has reached its usage limit.';
+    end if;
+    if v_voucher.per_customer_limit is not null and
+       (select count(*) from public.voucher_usage vu
+        where vu.voucher_id = v_voucher.id and vu.firebase_uid = v_uid) >= v_voucher.per_customer_limit then
+      raise exception 'You have already used this voucher.';
+    end if;
+    if v_subtotal < v_voucher.minimum_subtotal then
+      raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal;
+    end if;
+    if v_voucher.discount_type = 'percent' then
+      v_voucher_discount := round(v_subtotal * v_voucher.discount_value / 100, 2);
+    else
+      v_voucher_discount := v_voucher.discount_value;
+    end if;
+    if v_voucher.maximum_discount is not null then
+      v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount);
+    end if;
+    v_voucher_discount := least(v_voucher_discount, v_subtotal);
+  end if;
+
+  if v_cart.redeem_points then
+    select points_per_peso, max_discount_percent into v_points_per_peso, v_max_discount_percent
+    from public.loyalty_cart_settings where id = 'default';
+    if v_points_per_peso is null then raise exception 'Loyalty point redemption is not configured yet.'; end if;
+    if v_balance <= 0 then raise exception 'You do not have loyalty points available to redeem.'; end if;
+    v_points_used := least(
+      v_balance,
+      floor(greatest(0, least(v_subtotal - v_voucher_discount,
+                              v_subtotal * v_max_discount_percent / 100)) * v_points_per_peso)::int
+    );
+    v_loyalty_discount := round(v_points_used / v_points_per_peso, 2);
+  end if;
+
+  v_discount := v_voucher_discount + v_loyalty_discount;
+  v_total := greatest(0, v_subtotal - v_discount + v_delivery_fee);
+
+  update public.branch_inventory bi
+  set quantity = bi.quantity - ci.quantity
+  from public.cart_items ci
+  where ci.cart_id = v_cart.id
+    and bi.branch_id = v_cart.branch_id
+    and bi.product_id = ci.product_id
+    and bi.variant_id = ci.variant_id;
+
+  insert into public.orders (
+    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
+    subtotal, discount, delivery_fee, total, payment_method,
+    customer_notes, contact_phone, delivery_address_text
+  )
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery, p_delivery_address_id,
+    v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method,
+    left(coalesce(trim(p_customer_notes), ''), 500), v_contact_phone, v_delivery_address_text
+  from public.branches b where b.id = v_cart.branch_id
+  returning id into v_order_id;
+
+  insert into public.order_items (order_id, product_id, variant_id, product_name, variant_label, quantity, unit_price)
+  select v_order_id, ci.product_id, ci.variant_id, p.name, ci.variant_label, ci.quantity, ci.current_price
+  from public.cart_items ci
+  join public.products p on p.id = ci.product_id
+  where ci.cart_id = v_cart.id;
+
+  -- Created in the same transaction as the order; only a trusted server path
+  -- (gateway webhook / staff tooling) may ever move it past 'pending'.
+  insert into public.payments (order_id, firebase_uid, method, status, amount, reference_number)
+  values (v_order_id, v_uid, v_payment_method_code, 'pending', v_total, v_order_id);
+
+  if v_points_used > 0 then
+    update public.loyalty_accounts set points_balance = points_balance - v_points_used
+    where firebase_uid = v_uid;
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (v_uid, 'redeem', -v_points_used, 'Applied to order ' || v_order_id, v_order_id, 'order_redeem');
+  end if;
+
+  if v_has_voucher then
+    update public.vouchers set used_count = used_count + 1 where id = v_voucher.id;
+    insert into public.voucher_usage (voucher_id, firebase_uid, order_id, discount_amount)
+    values (v_voucher.id, v_uid, v_order_id, v_voucher_discount);
+  end if;
+
+  delete from public.cart_items where cart_id = v_cart.id;
+  update public.carts
+  set status = 'checked_out', voucher_code = null, redeem_points = false, updated_at = now()
+  where id = v_cart.id;
+
+  return v_order_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Server-side refund request
+-- -----------------------------------------------------------------------------
+-- The client says WHICH order, WHICH lines/quantities and WHY. Ownership,
+-- eligibility, unit prices, amount, payment method and initial status are all
+-- decided here. Any amount/price/status the client sends is ignored.
+--
+-- Amount = value of the selected lines, scaled by the share of the order the
+-- customer actually paid (so a discounted order is never over-refunded), and
+-- never more than the order total. Delivery fees are not refunded here.
+create or replace function public.request_refund(
+  p_order_id text,
+  p_reason text,
+  p_notes text default '',
+  p_items jsonb default '[]'::jsonb
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_order record;
+  v_req record;
+  v_line record;
+  v_refund_id text;
+  v_items_total numeric := 0;
+  v_ratio numeric := 1;
+  v_amount numeric;
+begin
+  if v_uid is null then raise exception 'Please sign in to request a refund.'; end if;
+  if length(trim(coalesce(p_reason, ''))) = 0 then raise exception 'Please choose a reason for the refund.'; end if;
+  if length(p_reason) > 200 or length(coalesce(p_notes, '')) > 1000 then
+    raise exception 'The reason or notes are too long.';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'Select at least one item to refund.';
+  end if;
+
+  -- "Not found" is deliberately identical for missing and other people's orders.
+  select * into v_order from public.orders
+  where id = p_order_id and firebase_uid = v_uid
+  for update;
+  if not found then raise exception 'Order not found.'; end if;
+  if v_order.status <> 'completed' then raise exception 'Only completed orders can be refunded.'; end if;
+  if exists (select 1 from public.refund_requests r where r.order_id = v_order.id and r.status <> 'rejected') then
+    raise exception 'A refund request already exists for this order.';
+  end if;
+
+  for v_req in
+    select trim(e ->> 'product_name') as product_name,
+           coalesce(nullif(trim(e ->> 'variant_label'), ''), 'Regular') as variant_label,
+           sum((e ->> 'quantity')::int)::int as quantity
+    from jsonb_array_elements(p_items) e
+    group by 1, 2
+  loop
+    if v_req.quantity is null or v_req.quantity <= 0 then
+      raise exception 'Refund quantities must be greater than zero.';
+    end if;
+
+    select sum(oi.quantity)::int as qty, max(oi.unit_price) as unit_price into v_line
+    from public.order_items oi
+    where oi.order_id = v_order.id
+      and oi.product_name = v_req.product_name
+      and oi.variant_label = v_req.variant_label;
+
+    if v_line.qty is null then
+      raise exception '% is not part of this order.', v_req.product_name;
+    end if;
+    if v_req.quantity > v_line.qty then
+      raise exception 'You can refund at most % of %.', v_line.qty, v_req.product_name;
+    end if;
+    v_items_total := v_items_total + v_req.quantity * v_line.unit_price;
+  end loop;
+
+  if v_order.subtotal > 0 then
+    v_ratio := greatest(0, v_order.subtotal - v_order.discount) / v_order.subtotal;
+  end if;
+  v_amount := least(round(v_items_total * v_ratio, 2), v_order.total);
+  if v_amount <= 0 then raise exception 'This order has nothing left to refund.'; end if;
+
+  insert into public.refund_requests (order_id, firebase_uid, reason, notes, amount, payment_method)
+  values (v_order.id, v_uid, trim(p_reason), coalesce(trim(p_notes), ''), v_amount, v_order.payment_method)
+  returning id into v_refund_id;
+
+  insert into public.refund_items (refund_request_id, product_name, variant_label, quantity, unit_price)
+  select v_refund_id, r.product_name, r.variant_label, r.quantity,
+         (select max(oi.unit_price) from public.order_items oi
+          where oi.order_id = v_order.id
+            and oi.product_name = r.product_name
+            and oi.variant_label = r.variant_label)
+  from (
+    select trim(e ->> 'product_name') as product_name,
+           coalesce(nullif(trim(e ->> 'variant_label'), ''), 'Regular') as variant_label,
+           sum((e ->> 'quantity')::int)::int as quantity
+    from jsonb_array_elements(p_items) e
+    group by 1, 2
+  ) r;
+
+  return v_refund_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Privileges — deny by default, then allow-list
+-- -----------------------------------------------------------------------------
+-- Supabase auto-grants ALL on every new public table/function to anon and
+-- authenticated and relies on RLS alone. Grants are a second, independent gate
+-- (defence in depth): even a mistake in a policy cannot let a customer write to
+-- a table they were never granted write access to.
+
+revoke all on all tables    in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+alter default privileges in schema public revoke all on tables    from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+
+do $$
+declare r record;
+begin
+  -- Every function we own, except extension members.
+  for r in
+    select p.oid::regprocedure as sig
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', r.sig);
+  end loop;
+end $$;
+
+-- Public storefront data (guests may browse).
+grant select on
+  public.branches, public.product_categories, public.products, public.product_variants,
+  public.branch_inventory, public.rewards, public.promotions
+to anon, authenticated;
+
+-- A customer's own data. Read-only unless stated: money, stock, points and
+-- statuses are only ever changed by server-side functions/triggers.
+grant select on
+  public.customer_profiles, public.carts, public.cart_items,
+  public.orders, public.order_items, public.order_status_events,
+  public.payments, public.refund_requests, public.refund_items, public.refund_status_events,
+  public.loyalty_accounts, public.loyalty_transactions, public.reward_redemptions,
+  public.voucher_usage, public.customer_addresses, public.notification_preferences,
+  public.notifications
+to authenticated;
+
+grant insert (firebase_uid, full_name, email, phone, default_branch_id) on public.customer_profiles to authenticated;
+grant update (full_name, phone, default_branch_id)                      on public.customer_profiles to authenticated;
+grant insert, update, delete on public.customer_addresses      to authenticated;
+grant insert, update         on public.notification_preferences to authenticated;
+grant update (read)          on public.notifications            to authenticated;
+grant delete                 on public.notifications            to authenticated;
+-- vouchers, loyalty_cart_settings, product_variant_costs: no client access at all.
+
+-- Functions: explicit allow-list. Everything else (notify_customer, the 5-arg
+-- place_order, _calculate_cart_pricing, all trigger functions) is internal.
+grant execute on function public.current_firebase_uid() to authenticated;
+grant execute on function public.jwt_email_verified()   to authenticated;
+grant execute on function public.get_customer_cart(uuid)                                    to authenticated;
+grant execute on function public.get_cart_pricing(uuid, boolean)                            to authenticated;
+grant execute on function public.sync_customer_cart(uuid, jsonb, text, boolean)             to authenticated;
+grant execute on function public.place_order(uuid, boolean, uuid, text, text, text)         to authenticated;
+grant execute on function public.redeem_reward(uuid)                                        to authenticated;
+grant execute on function public.request_refund(text, text, text, jsonb)                    to authenticated;
+grant execute on function public.get_popular_products(int)                                  to anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 8. Row Level Security policies (rebuilt from scratch, all TO a named role)
+-- -----------------------------------------------------------------------------
+-- Every policy on the tables managed here is dropped first so a stale permissive
+-- policy from an earlier migration can never survive. If you have added
+-- custom policies to these tables in the dashboard, re-create them afterwards.
+
+do $$
+declare r record;
+begin
+  for r in
+    select policyname, tablename from pg_policies
+    where schemaname = 'public'
+      and tablename in (
+        'branches','product_categories','products','product_variants','branch_inventory',
+        'rewards','promotions','customer_profiles','customer_addresses','notification_preferences',
+        'carts','cart_items','vouchers','loyalty_cart_settings','orders','order_items',
+        'order_status_events','payments','refund_requests','refund_items','refund_status_events',
+        'loyalty_accounts','loyalty_transactions','reward_redemptions','notifications',
+        'voucher_usage','product_variant_costs')
+  loop
+    execute format('drop policy %I on public.%I', r.policyname, r.tablename);
+  end loop;
+end $$;
+
+alter table public.branches                enable row level security;
+alter table public.product_categories      enable row level security;
+alter table public.products                enable row level security;
+alter table public.product_variants        enable row level security;
+alter table public.branch_inventory        enable row level security;
+alter table public.rewards                 enable row level security;
+alter table public.promotions              enable row level security;
+alter table public.customer_profiles       enable row level security;
+alter table public.customer_addresses      enable row level security;
+alter table public.notification_preferences enable row level security;
+alter table public.carts                   enable row level security;
+alter table public.cart_items              enable row level security;
+alter table public.vouchers                enable row level security;
+alter table public.loyalty_cart_settings   enable row level security;
+alter table public.orders                  enable row level security;
+alter table public.order_items             enable row level security;
+alter table public.order_status_events     enable row level security;
+alter table public.payments                enable row level security;
+alter table public.refund_requests         enable row level security;
+alter table public.refund_items            enable row level security;
+alter table public.refund_status_events    enable row level security;
+alter table public.loyalty_accounts        enable row level security;
+alter table public.loyalty_transactions    enable row level security;
+alter table public.reward_redemptions      enable row level security;
+alter table public.notifications           enable row level security;
+alter table public.voucher_usage           enable row level security;
+alter table public.product_variant_costs   enable row level security;
+
+-- Storefront (guests + customers). Inactive products/categories stay hidden.
+create policy "storefront: branches"    on public.branches           for select to anon, authenticated using (true);
+create policy "storefront: categories"  on public.product_categories for select to anon, authenticated using (is_active);
+create policy "storefront: products"    on public.products           for select to anon, authenticated using (is_active);
+create policy "storefront: variants"    on public.product_variants   for select to anon, authenticated
+  using (exists (select 1 from public.products p where p.id = product_id and p.is_active));
+create policy "storefront: stock"       on public.branch_inventory   for select to anon, authenticated
+  using (exists (select 1 from public.products p where p.id = product_id and p.is_active));
+create policy "storefront: rewards"     on public.rewards            for select to anon, authenticated using (is_active);
+create policy "storefront: promotions"  on public.promotions         for select to anon, authenticated
+  using (is_active and (starts_at is null or starts_at <= now()) and (ends_at is null or ends_at >= now()));
+
+-- Profile: a customer may create ONLY their own row, and only with a verified
+-- email that matches their Firebase identity.
+create policy "customer: read own profile"   on public.customer_profiles for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: create own profile" on public.customer_profiles for insert to authenticated
+  with check (
+    firebase_uid = (select public.current_firebase_uid())
+    and (select public.jwt_email_verified())
+    and lower(email) = lower(coalesce((select auth.jwt() ->> 'email'), ''))
+  );
+create policy "customer: update own profile" on public.customer_profiles for update to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()))
+  with check (firebase_uid = (select public.current_firebase_uid()));
+
+create policy "customer: own addresses" on public.customer_addresses for all to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()))
+  with check (firebase_uid = (select public.current_firebase_uid()));
+
+create policy "customer: own notification prefs" on public.notification_preferences for all to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()))
+  with check (firebase_uid = (select public.current_firebase_uid()));
+
+-- Read-only own records (all writes happen in server-side functions).
+create policy "customer: read own carts"        on public.carts for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own cart items"   on public.cart_items for select to authenticated
+  using (exists (select 1 from public.carts c where c.id = cart_id and c.firebase_uid = (select public.current_firebase_uid())));
+create policy "customer: read own orders"       on public.orders for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own order items"  on public.order_items for select to authenticated
+  using (exists (select 1 from public.orders o where o.id = order_id and o.firebase_uid = (select public.current_firebase_uid())));
+create policy "customer: read own order history" on public.order_status_events for select to authenticated
+  using (exists (select 1 from public.orders o where o.id = order_id and o.firebase_uid = (select public.current_firebase_uid())));
+create policy "customer: read own payments"     on public.payments for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own refunds"      on public.refund_requests for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own refund items" on public.refund_items for select to authenticated
+  using (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = (select public.current_firebase_uid())));
+create policy "customer: read own refund history" on public.refund_status_events for select to authenticated
+  using (exists (select 1 from public.refund_requests r where r.id = refund_request_id and r.firebase_uid = (select public.current_firebase_uid())));
+create policy "customer: read own loyalty account" on public.loyalty_accounts for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own loyalty history" on public.loyalty_transactions for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own redemptions"  on public.reward_redemptions for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: read own voucher usage" on public.voucher_usage for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+
+-- Notifications: read, mark-read (column-limited by grant), delete own.
+create policy "customer: read own notifications"   on public.notifications for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: update own notifications" on public.notifications for update to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()))
+  with check (firebase_uid = (select public.current_firebase_uid()));
+create policy "customer: delete own notifications" on public.notifications for delete to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+
+-- vouchers, loyalty_cart_settings, product_variant_costs intentionally have NO
+-- policy: RLS is on, so no client role can read or write them.
+
+-- -----------------------------------------------------------------------------
+-- 9. Realtime: the app streams these two tables (OrdersRepository.watchOrder,
+--    RefundsRepository.watchRequest). Realtime enforces the RLS above per
+--    subscriber, so a customer only ever receives their own rows.
+-- -----------------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['orders', 'refund_requests'] loop
+      if not exists (select 1 from pg_publication_tables
+                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+commit;
+
+
+-- >>>>>>>>>> 20260928010000_order_integrity.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20260928010000
+-- Database integrity: atomic checkout guarantees, state machines, constraints
+-- =============================================================================
+-- RUN ORDER: schema.sql -> 20260928000000_customer_security_hardening.sql
+--            -> this file -> supabase/tests/*.sql
+-- Idempotent and atomic (single transaction). If you ever re-run migration
+-- 20260928000000, re-run this one afterwards.
+--
+-- CHECKOUT (place_order) is ONE database transaction: customer -> branch ->
+-- products -> variants -> stock (row-locked) -> prices -> voucher -> loyalty ->
+-- totals -> order -> items -> stock deduction -> payment -> loyalty ledger ->
+-- voucher usage -> cart conversion. Any failure rolls ALL of it back (verified
+-- by the failure-injection tests). This migration closes the remaining gaps:
+--
+--  1. Concurrent retries of the SAME checkout (double tap / flaky-network
+--     retry) are serialised and all get the one real order, instead of the
+--     losers getting a misleading "cart no longer available" error.
+--  2. Defence in depth for ANY code path that creates orders (future staff POS,
+--     admin tools): a deferred constraint guarantees at COMMIT that an order has
+--     items, that the items add up to the subtotal, and that a payment exists
+--     for exactly the order total. Column CHECKs pin the money arithmetic.
+--  3. State machines: orders, payments and refunds can only move along valid
+--     transitions (no cancelled -> completed, no un-paying, no completing an
+--     unpaid order, no "out for delivery" on a pickup order).
+--  4. Immutability: financial columns of orders/payments/refunds/order lines and
+--     the loyalty ledger cannot be edited after the fact by ANY role.
+--  5. A failing notification can no longer roll back a checkout (notifications
+--     are non-critical side effects).
+--  6. Variant <-> product pairing is enforced by composite foreign keys.
+--  7. New functions are no longer executable by anon/authenticated by default
+--     (the implicit PUBLIC grant is removed).
+--  8. loyalty_ledger_drift view: reconciles every balance against its ledger.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Idempotent checkout wrapper (replaces the schema.sql definition)
+-- -----------------------------------------------------------------------------
+-- pg_advisory_xact_lock serialises concurrent calls carrying the same
+-- (customer, key). The second caller waits for the first to commit, then finds
+-- the finished order and returns it. The unique index on
+-- orders(firebase_uid, idempotency_key) remains the hard backstop.
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text,
+  p_idempotency_key text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_existing_order_id text;
+  v_order_id text;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  -- Step 1: validate the customer.
+  if not exists (select 1 from public.customer_profiles where firebase_uid = v_uid) then
+    raise exception 'Your customer profile is not set up yet. Please sign in again.';
+  end if;
+
+  if v_key is not null then
+    if length(v_key) > 200 then raise exception 'Invalid checkout reference.'; end if;
+    perform pg_advisory_xact_lock(hashtextextended(v_uid || ':' || v_key, 0));
+    select id into v_existing_order_id
+    from public.orders
+    where firebase_uid = v_uid and idempotency_key = v_key;
+    if found then
+      -- This checkout attempt already went through: hand back the same order
+      -- without touching stock, loyalty, vouchers or the cart again.
+      return v_existing_order_id;
+    end if;
+  end if;
+
+  -- Steps 2-16 (branch, products, variants, stock, prices, voucher, loyalty,
+  -- totals, order, items, stock deduction, payment, ledger, cart) run inside
+  -- the 5-argument core, in this same transaction.
+  v_order_id := public.place_order(p_cart_id, p_is_delivery, p_delivery_address_id, p_payment_method, p_customer_notes);
+
+  if v_key is not null then
+    update public.orders set idempotency_key = v_key where id = v_order_id;
+  end if;
+
+  return v_order_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Constraints
+-- -----------------------------------------------------------------------------
+-- Added NOT VALID so legacy rows never block the migration; VALIDATE is then
+-- attempted, and a warning (not a failure) is raised if old data violates it.
+-- New and updated rows are checked either way.
+
+create or replace function pg_temp.add_check(p_table regclass, p_name text, p_expr text)
+returns void language plpgsql as $$
+begin
+  if not exists (select 1 from pg_constraint where conname = p_name and conrelid = p_table) then
+    execute format('alter table %s add constraint %I check (%s) not valid', p_table, p_name, p_expr);
+  end if;
+  begin
+    execute format('alter table %s validate constraint %I', p_table, p_name);
+  exception when others then
+    raise warning 'Constraint % on % is enforced for new rows but existing rows violate it: %', p_name, p_table, sqlerrm;
+  end;
+end $$;
+
+-- The money arithmetic of an order is a database invariant, not a client promise.
+select pg_temp.add_check('public.orders', 'orders_amounts_nonnegative',
+  'subtotal >= 0 and discount >= 0 and delivery_fee >= 0 and total >= 0');
+select pg_temp.add_check('public.orders', 'orders_discount_within_subtotal',
+  'discount <= subtotal');
+select pg_temp.add_check('public.orders', 'orders_total_consistent',
+  'total = greatest(0, subtotal - discount + delivery_fee)');
+select pg_temp.add_check('public.order_items', 'order_items_price_nonnegative', 'unit_price >= 0');
+select pg_temp.add_check('public.payments', 'payments_amount_nonnegative', 'amount >= 0');
+select pg_temp.add_check('public.refund_requests', 'refund_requests_amount_positive', 'amount > 0');
+select pg_temp.add_check('public.refund_items', 'refund_items_price_nonnegative', 'unit_price >= 0');
+select pg_temp.add_check('public.vouchers', 'vouchers_used_within_limit',
+  'usage_limit is null or used_count <= usage_limit');
+
+-- A variant belongs to exactly one product; every table that names both must
+-- name a matching pair (a typo in staff tooling can't sell product A as B's variant).
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'product_variants_id_product_key') then
+    alter table public.product_variants
+      add constraint product_variants_id_product_key unique (id, product_id);
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'branch_inventory_variant_product_fk') then
+    alter table public.branch_inventory
+      add constraint branch_inventory_variant_product_fk
+      foreign key (variant_id, product_id) references public.product_variants (id, product_id)
+      on delete cascade not valid;
+  end if;
+  begin
+    alter table public.branch_inventory validate constraint branch_inventory_variant_product_fk;
+  exception when others then
+    raise warning 'branch_inventory has rows whose variant belongs to a different product: %', sqlerrm;
+  end;
+
+  -- ON DELETE SET NULL (column list) needs PostgreSQL 15+, which Supabase uses.
+  if not exists (select 1 from pg_constraint where conname = 'cart_items_variant_product_fk') then
+    begin
+      execute 'alter table public.cart_items
+               add constraint cart_items_variant_product_fk
+               foreign key (variant_id, product_id) references public.product_variants (id, product_id)
+               on delete set null (variant_id) not valid';
+    exception when others then
+      raise warning 'cart_items_variant_product_fk not created: %', sqlerrm;
+    end;
+  end if;
+  begin
+    alter table public.cart_items validate constraint cart_items_variant_product_fk;
+  exception when others then
+    null; -- constraint absent, or legacy rows violate it; new rows are still checked when present
+  end;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 3. An order can never exist half-created (deferred to COMMIT)
+-- -----------------------------------------------------------------------------
+-- Deferred so the order row, its lines and its payment can be inserted in any
+-- order within the transaction; checked once, when the transaction commits.
+create or replace function public.check_order_integrity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count int;
+  v_items numeric;
+begin
+  select count(*), coalesce(sum(quantity * unit_price), 0)
+  into v_count, v_items
+  from public.order_items where order_id = new.id;
+
+  if v_count = 0 then
+    raise exception 'Order % must have at least one item.', new.id;
+  end if;
+  if v_items <> new.subtotal then
+    raise exception 'Order % subtotal (%) does not match its items (%).', new.id, new.subtotal, v_items;
+  end if;
+  if not exists (select 1 from public.payments p where p.order_id = new.id and p.amount = new.total) then
+    raise exception 'Order % must have a payment record for exactly its total (%).', new.id, new.total;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists orders_integrity_check on public.orders;
+create constraint trigger orders_integrity_check
+  after insert on public.orders
+  deferrable initially deferred
+  for each row execute function public.check_order_integrity();
+
+-- -----------------------------------------------------------------------------
+-- 4. State machines (apply to EVERY writer, including staff and service role)
+-- -----------------------------------------------------------------------------
+
+-- Orders: pending -> confirmed -> preparing -> (readyForPickup | outForDelivery)
+-- -> completed, cancellable while active; completed <-> refundRequested ->
+-- refunded. cancelled and refunded are final. Completion needs a confirmed
+-- payment (or a zero total), which is what makes loyalty points trustworthy.
+create or replace function public.enforce_order_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_old int;
+  v_new int;
+begin
+  if new.status = old.status then return new; end if;
+
+  if old.status in ('cancelled', 'refunded') then
+    raise exception 'Order % is % and can no longer change status.', old.id, old.status;
+  end if;
+
+  if old.status = 'completed' then
+    if new.status <> 'refundRequested' then
+      raise exception 'A completed order can only move to refundRequested (not %).', new.status;
+    end if;
+    return new;
+  end if;
+
+  if old.status = 'refundRequested' then
+    if new.status not in ('refunded', 'completed') then
+      raise exception 'A refund-requested order can only become refunded or return to completed (not %).', new.status;
+    end if;
+    return new;
+  end if;
+
+  -- From here `old` is an active (unfulfilled) status.
+  if new.status in ('refundRequested', 'refunded') then
+    raise exception 'Only a completed order can be refunded.';
+  end if;
+  if new.status = 'cancelled' then return new; end if;
+  if new.status = 'readyForPickup' and new.is_delivery then
+    raise exception 'A delivery order cannot be ready for pickup.';
+  end if;
+  if new.status = 'outForDelivery' and not new.is_delivery then
+    raise exception 'A pickup order cannot be out for delivery.';
+  end if;
+
+  v_old := case old.status when 'pending' then 1 when 'confirmed' then 2 when 'preparing' then 3
+                           when 'readyForPickup' then 4 when 'outForDelivery' then 4 end;
+  v_new := case new.status when 'pending' then 1 when 'confirmed' then 2 when 'preparing' then 3
+                           when 'readyForPickup' then 4 when 'outForDelivery' then 4 when 'completed' then 5 end;
+  if v_new is null or v_new <= v_old then
+    raise exception 'Order status cannot move from % to %.', old.status, new.status;
+  end if;
+
+  if new.status = 'completed' and new.total > 0 and not exists (
+       select 1 from public.payments p where p.order_id = new.id and p.status = 'success') then
+    raise exception 'Order % cannot be completed until its payment is confirmed.', new.id;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_enforce_transition on public.orders;
+create trigger orders_enforce_transition
+  before update of status on public.orders
+  for each row execute function public.enforce_order_transition();
+
+-- Payments: pending -> processing -> success | failed; failed may retry;
+-- success -> refunded; refunded is final.
+create or replace function public.enforce_payment_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status = old.status then return new; end if;
+  if not (
+       (old.status = 'pending'    and new.status in ('processing', 'success', 'failed'))
+    or (old.status = 'processing' and new.status in ('success', 'failed'))
+    or (old.status = 'failed'     and new.status in ('pending', 'processing'))
+    or (old.status = 'success'    and new.status = 'refunded')
+  ) then
+    raise exception 'Payment % cannot move from % to %.', old.id, old.status, new.status;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists payments_enforce_transition on public.payments;
+create trigger payments_enforce_transition
+  before update of status on public.payments
+  for each row execute function public.enforce_payment_transition();
+
+-- Refunds: pending -> approved | rejected; approved -> processing | completed
+-- | rejected; processing -> completed | rejected. completed/rejected are final.
+create or replace function public.enforce_refund_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status = old.status then return new; end if;
+  if not (
+       (old.status = 'pending'    and new.status in ('approved', 'rejected'))
+    or (old.status = 'approved'   and new.status in ('processing', 'completed', 'rejected'))
+    or (old.status = 'processing' and new.status in ('completed', 'rejected'))
+  ) then
+    raise exception 'Refund % cannot move from % to %.', old.id, old.status, new.status;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists refund_requests_enforce_transition on public.refund_requests;
+create trigger refund_requests_enforce_transition
+  before update of status on public.refund_requests
+  for each row execute function public.enforce_refund_transition();
+
+-- -----------------------------------------------------------------------------
+-- 5. Immutability of financial facts
+-- -----------------------------------------------------------------------------
+create or replace function public.forbid_financial_edits()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_table_name = 'orders' then
+    if (new.firebase_uid, new.branch_id, new.is_delivery, new.subtotal, new.discount,
+        new.delivery_fee, new.total, new.payment_method, new.points_earned)
+       is distinct from
+       (old.firebase_uid, old.branch_id, old.is_delivery, old.subtotal, old.discount,
+        old.delivery_fee, old.total, old.payment_method, old.points_earned) then
+      raise exception 'The financial details of order % cannot be changed after it is placed.', old.id;
+    end if;
+  elsif tg_table_name = 'payments' then
+    if (new.order_id, new.firebase_uid, new.amount, new.method)
+       is distinct from (old.order_id, old.firebase_uid, old.amount, old.method) then
+      raise exception 'The amount, method and owner of payment % cannot be changed.', old.id;
+    end if;
+  elsif tg_table_name = 'refund_requests' then
+    if (new.order_id, new.firebase_uid, new.amount, new.payment_method)
+       is distinct from (old.order_id, old.firebase_uid, old.amount, old.payment_method) then
+      raise exception 'The order, owner and amount of refund % cannot be changed.', old.id;
+    end if;
+  elsif tg_table_name = 'order_items' then
+    -- product_id / variant_id may still be nulled by ON DELETE SET NULL.
+    if (new.order_id, new.product_name, new.variant_label, new.quantity, new.unit_price)
+       is distinct from (old.order_id, old.product_name, old.variant_label, old.quantity, old.unit_price) then
+      raise exception 'Order lines cannot be edited after the order is placed.';
+    end if;
+  elsif tg_table_name = 'refund_items' then
+    raise exception 'Refund lines cannot be edited.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_forbid_financial_edits on public.orders;
+create trigger orders_forbid_financial_edits before update on public.orders
+  for each row execute function public.forbid_financial_edits();
+drop trigger if exists payments_forbid_financial_edits on public.payments;
+create trigger payments_forbid_financial_edits before update on public.payments
+  for each row execute function public.forbid_financial_edits();
+drop trigger if exists refund_requests_forbid_financial_edits on public.refund_requests;
+create trigger refund_requests_forbid_financial_edits before update on public.refund_requests
+  for each row execute function public.forbid_financial_edits();
+drop trigger if exists order_items_forbid_financial_edits on public.order_items;
+create trigger order_items_forbid_financial_edits before update on public.order_items
+  for each row execute function public.forbid_financial_edits();
+drop trigger if exists refund_items_forbid_financial_edits on public.refund_items;
+create trigger refund_items_forbid_financial_edits before update on public.refund_items
+  for each row execute function public.forbid_financial_edits();
+
+-- The loyalty ledger is append-only: corrections are new rows, never edits.
+create or replace function public.forbid_ledger_rewrite()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'The loyalty ledger is append-only; post a correcting entry instead.';
+end;
+$$;
+
+drop trigger if exists loyalty_transactions_append_only on public.loyalty_transactions;
+create trigger loyalty_transactions_append_only
+  before update or delete on public.loyalty_transactions
+  for each row execute function public.forbid_ledger_rewrite();
+
+-- -----------------------------------------------------------------------------
+-- 6. Non-critical side effects must never abort a critical transaction
+-- -----------------------------------------------------------------------------
+create or replace function public.notify_on_order_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    if tg_op = 'INSERT' then
+      perform public.notify_customer(new.firebase_uid, 'order', 'Order placed',
+        'Your order ' || new.id || ' has been received.');
+    elsif new.status is distinct from old.status then
+      perform public.notify_customer(new.firebase_uid, 'order', 'Order ' || new.id || ' updated',
+        'Status changed to ' || new.status || '.');
+    end if;
+  exception when others then
+    raise warning 'order notification for % failed: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+
+create or replace function public.notify_on_refund_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    if tg_op = 'INSERT' then
+      perform public.notify_customer(new.firebase_uid, 'refund', 'Refund request submitted',
+        'Request ' || new.id || ' for order ' || new.order_id || ' is pending review.');
+    elsif new.status is distinct from old.status then
+      perform public.notify_customer(new.firebase_uid, 'refund', 'Refund ' || new.id || ' updated',
+        'Status changed to ' || new.status || '.');
+    end if;
+  exception when others then
+    raise warning 'refund notification for % failed: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Fail-closed function privileges for FUTURE functions
+-- -----------------------------------------------------------------------------
+-- PostgreSQL grants EXECUTE to PUBLIC on every new function, and anon /
+-- authenticated inherit PUBLIC. Removing that default means a function added
+-- later is private until it is explicitly granted.
+alter default privileges revoke execute on functions from public;
+alter default privileges in schema public revoke execute on functions from anon, authenticated;
+
+-- Everything this migration created is internal (trigger functions): make sure
+-- none is callable by client roles.
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in ('check_order_integrity', 'enforce_order_transition', 'enforce_payment_transition',
+                        'enforce_refund_transition', 'forbid_financial_edits', 'forbid_ledger_rewrite',
+                        'notify_on_order_status', 'notify_on_refund_status')
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', r.sig);
+  end loop;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Reconciliation: every loyalty balance must equal the sum of its ledger.
+--    Any row returned means points were changed outside the ledger.
+--    No client role is granted access (default privileges are revoked).
+-- -----------------------------------------------------------------------------
+create or replace view public.loyalty_ledger_drift as
+select a.firebase_uid,
+       a.points_balance,
+       coalesce(sum(t.points), 0)::int as ledger_total,
+       a.points_balance - coalesce(sum(t.points), 0)::int as drift
+from public.loyalty_accounts a
+left join public.loyalty_transactions t on t.firebase_uid = a.firebase_uid
+group by a.firebase_uid, a.points_balance
+having a.points_balance <> coalesce(sum(t.points), 0);
+
+revoke all on public.loyalty_ledger_drift from anon, authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20260929000000_customer_product_search.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20260929000000
+-- search_customer_products(): the storefront search RPC
+-- =============================================================================
+-- RUN ORDER: schema.sql -> 20260928000000 -> 20260928010000 -> this file.
+-- Idempotent and atomic.
+--
+-- Why this exists: ProductsRepository.searchProducts() calls this RPC, but no
+-- earlier SQL defined it, and migration 20260928000000 revokes EXECUTE on every
+-- public function that is not on its allow-list. Search would therefore fail
+-- for every customer and guest.
+--
+-- SECURITY INVOKER (not definer): the query runs with the caller's own
+-- privileges, so the storefront RLS policies still apply. Inactive products,
+-- inactive categories and variants of inactive products stay invisible, and no
+-- cost data or private table is reachable from here.
+--
+-- Matches (case-insensitive, partial): product name, category label, product
+-- SKU, any variant SKU, and any tag. Optional category filter and price bounds
+-- (a product matches a bound when its base price or any variant price does).
+-- Returns full `products` rows because the client hydrates variants/stock itself.
+-- =============================================================================
+
+begin;
+
+create or replace function public.search_customer_products(
+  p_query text default '',
+  p_category_ids uuid[] default null,
+  p_min_price numeric default null,
+  p_max_price numeric default null,
+  p_limit int default 100
+)
+returns setof public.products
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  with q as (
+    -- Escape LIKE wildcards so a customer typing "%" or "_" searches literally.
+    select '%' || replace(replace(replace(lower(trim(coalesce(p_query, ''))),
+             '\', '\\'), '%', '\%'), '_', '\_') || '%' as pattern,
+           lower(trim(coalesce(p_query, ''))) as raw
+  )
+  select p.*
+  from public.products p
+  left join public.product_categories c on c.id = p.category_id
+  cross join q
+  where p.is_active
+    and (p_category_ids is null or p.category_id = any (p_category_ids))
+    and (
+      q.raw = ''
+      or lower(p.name) like q.pattern escape '\'
+      or lower(coalesce(c.label, '')) like q.pattern escape '\'
+      or lower(coalesce(p.sku, '')) like q.pattern escape '\'
+      or exists (select 1 from unnest(p.tags) t where lower(t) like q.pattern escape '\')
+      or exists (select 1 from public.product_variants v
+                 where v.product_id = p.id and lower(coalesce(v.sku, '')) like q.pattern escape '\')
+    )
+    and (
+      (p_min_price is null and p_max_price is null)
+      or (    (p_min_price is null or p.price >= p_min_price)
+          and (p_max_price is null or p.price <= p_max_price))
+      or exists (select 1 from public.product_variants v
+                 where v.product_id = p.id
+                   and (p_min_price is null or v.price >= p_min_price)
+                   and (p_max_price is null or v.price <= p_max_price))
+    )
+  order by
+    (q.raw <> '' and lower(p.name) like q.raw || '%') desc,  -- names starting with the query first
+    p.name
+  limit least(greatest(coalesce(p_limit, 100), 1), 200)
+$$;
+
+revoke all on function public.search_customer_products(text, uuid[], numeric, numeric, int)
+  from public, anon, authenticated;
+grant execute on function public.search_customer_products(text, uuid[], numeric, numeric, int)
+  to anon, authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20260929010000_customer_realtime.sql <<<<<<<<<<
+-- Customer realtime: publish the customer-owned tables the app subscribes to.
+--
+-- The app streams (see CustomerDataStore.startRealtime):
+--   * notifications  -> live notification list + unread badge
+--   * orders         -> live order / delivery status (rider, ETA) in history + tracking
+--   * payments       -> live payment status
+--
+-- `orders` and `refund_requests` were published by
+-- 20260928000000_customer_security_hardening.sql. Realtime enforces the RLS
+-- policies on each table per subscriber, so a customer only ever receives
+-- their own rows ("customer: read own notifications/orders/payments").
+--
+-- Idempotent: safe to re-run.
+
+begin;
+
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['notifications', 'orders', 'payments'] loop
+      if not exists (select 1 from pg_publication_tables
+                     where pubname = 'supabase_realtime'
+                       and schemaname = 'public'
+                       and tablename = t) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+commit;
+
+
+-- >>>>>>>>>> 20260930000000_staff_backend.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20260930000000
+-- Staff backend: access control, branch inventory batches (FEFO), stock
+-- transfers, real POS sales, order/payment/refund handling, notifications and
+-- the dashboard.
+-- =============================================================================
+-- RUN ORDER: schema.sql -> 20260928000000 -> 20260928010000 -> 20260929000000
+--            -> 20260929010000 -> THIS FILE.
+-- Safe to re-run (idempotent) and atomic (one transaction).
+--
+-- WHY A DATABASE-SIDE STAFF REGISTRY
+--   Roles live in Firestore (`users/{uid}`), and Postgres cannot read Firestore.
+--   Row Level Security only knows the Firebase UID (`auth.jwt() ->> 'sub'`).
+--   `staff_members` is therefore the database's own record of who may act as
+--   staff/owner, for which branch, and with which permissions. Every staff RPC
+--   and policy checks it, so a modified client that skips the Flutter route
+--   guards still cannot read or change anything it is not entitled to.
+--   It is written ONLY by owner_upsert_staff_member / owner_set_staff_active.
+--
+--   ONE-TIME BOOTSTRAP (SQL editor, cannot be done from the app): register the
+--   first owner, then owners register staff from the app (User Management):
+--     insert into public.staff_members (firebase_uid, full_name, email, role)
+--     values ('<owner firebase uid>', '<name>', '<email>', 'owner');
+--   Staff created before this migration must be registered the same way:
+--     insert into public.staff_members (firebase_uid, full_name, email, role, branch_id)
+--     select '<staff firebase uid>', '<name>', '<email>', 'staff', b.id
+--     from public.branches b where b.name = '<branch name>';
+--
+--   Roles: only the two that already exist in the app are used ('staff',
+--   'owner'). Owner is a superset of staff, exactly as in firestore.rules.
+--
+-- WALK-IN SALES
+--   POS sales are ordinary rows in `orders` (so reports, refunds, stock and the
+--   order/payment state machines all apply unchanged). A sale with no loyalty
+--   customer is attached to one system row, customer_profiles 'walk-in', which
+--   earns no points and receives no notifications.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Staff registry + access helpers
+-- -----------------------------------------------------------------------------
+create table if not exists public.staff_members (
+  firebase_uid text primary key,
+  full_name text not null default '',
+  email text not null default '',
+  role text not null check (role in ('staff', 'owner')),
+  branch_id uuid references public.branches(id) on delete restrict,
+  is_active boolean not null default true,
+  -- Receive / adjust / transfer stock in the staff member's OWN branch.
+  can_manage_inventory boolean not null default true,
+  -- Review (approve / reject / complete) refund requests for the own branch.
+  can_review_refunds boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint staff_branch_required check (role = 'owner' or branch_id is not null)
+);
+drop trigger if exists staff_members_set_updated_at on public.staff_members;
+create trigger staff_members_set_updated_at before update on public.staff_members
+  for each row execute function public.set_updated_at();
+alter table public.staff_members enable row level security;
+
+create or replace function public._default_restock_threshold()
+returns int language sql immutable as $$ select 20 $$;
+
+-- The caller's active staff row, or a clear error. Every staff RPC starts here.
+--   p_branch_id  : the branch being touched (staff may only use their own)
+--   p_permission : 'inventory' | 'refunds' (owners always pass)
+create or replace function public._require_staff(
+  p_branch_id uuid default null,
+  p_permission text default null
+)
+returns public.staff_members
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  select * into v from public.staff_members
+  where firebase_uid = public.current_firebase_uid();
+  if not found then
+    raise exception 'Your staff account is not set up yet. Please contact the owner.';
+  end if;
+  if not v.is_active then
+    raise exception 'Your staff account has been deactivated. Please contact the owner.';
+  end if;
+  if p_branch_id is not null and v.role <> 'owner' and v.branch_id is distinct from p_branch_id then
+    raise exception 'You can only work in your assigned branch.';
+  end if;
+  if p_permission is not null and v.role <> 'owner' then
+    if p_permission = 'inventory' and not v.can_manage_inventory then
+      raise exception 'You do not have permission to manage inventory.';
+    elsif p_permission = 'refunds' and not v.can_review_refunds then
+      raise exception 'You do not have permission to review refunds.';
+    end if;
+  end if;
+  return v;
+end;
+$$;
+
+create or replace function public._require_owner()
+returns public.staff_members
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  select * into v from public.staff_members
+  where firebase_uid = public.current_firebase_uid() and is_active and role = 'owner';
+  if not found then
+    raise exception 'Only an active owner can do this.';
+  end if;
+  return v;
+end;
+$$;
+
+-- Policy helpers (evaluated for the querying role, so they are granted below).
+create or replace function public.staff_can_see_branch(p_branch_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.staff_members s
+    where s.firebase_uid = public.current_firebase_uid()
+      and s.is_active
+      and (s.role = 'owner' or s.branch_id = p_branch_id)
+  )
+$$;
+
+create or replace function public.staff_is_owner()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.staff_members s
+    where s.firebase_uid = public.current_firebase_uid() and s.is_active and s.role = 'owner'
+  )
+$$;
+
+create or replace function public.staff_has_permission(p_permission text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.staff_members s
+    where s.firebase_uid = public.current_firebase_uid()
+      and s.is_active
+      and (s.role = 'owner'
+           or (p_permission = 'inventory' and s.can_manage_inventory)
+           or (p_permission = 'refunds' and s.can_review_refunds))
+  )
+$$;
+
+-- The signed-in staff member's own profile (drives the Profile tab, the branch
+-- shown everywhere and which buttons appear).
+create or replace function public.get_my_staff_profile()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+  v_branch_name text;
+begin
+  v := public._require_staff();
+  select name into v_branch_name from public.branches where id = v.branch_id;
+  return jsonb_build_object(
+    'firebase_uid', v.firebase_uid,
+    'full_name', v.full_name,
+    'email', v.email,
+    'role', v.role,
+    'branch_id', v.branch_id,
+    'branch_name', v_branch_name,
+    'is_active', v.is_active,
+    'can_manage_inventory', (v.role = 'owner' or v.can_manage_inventory),
+    'can_review_refunds', (v.role = 'owner' or v.can_review_refunds),
+    'created_at', v.created_at
+  );
+end;
+$$;
+
+-- The ONE read the app makes after sign-in to decide whether a staff session may
+-- exist at all. Unlike get_my_staff_profile() it never raises for "no row" or
+-- "deactivated": it returns a status so the app can tell "not set up" and
+-- "suspended" apart from network/auth trouble, and fail closed on the latter.
+--
+--   {"status": "not_provisioned"}          signed in, no staff_members row
+--   {"status": "inactive"}                 row exists but was deactivated
+--   {"status": "active", "profile": {...}} same fields as get_my_staff_profile()
+--
+-- Always about the caller and nobody else (identified by the verified Firebase
+-- token, never by a client-sent value). No details are revealed for the two
+-- non-active outcomes.
+create or replace function public.get_my_staff_context()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v public.staff_members;
+  v_branch_name text;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated' using errcode = '28000';
+  end if;
+
+  select * into v from public.staff_members where firebase_uid = v_uid;
+  if not found then
+    return jsonb_build_object('status', 'not_provisioned');
+  end if;
+  if not v.is_active then
+    return jsonb_build_object('status', 'inactive');
+  end if;
+
+  select name into v_branch_name from public.branches where id = v.branch_id;
+  return jsonb_build_object(
+    'status', 'active',
+    'profile', jsonb_build_object(
+      'firebase_uid', v.firebase_uid,
+      'full_name', v.full_name,
+      'email', v.email,
+      'role', v.role,
+      'branch_id', v.branch_id,
+      'branch_name', v_branch_name,
+      'is_active', v.is_active,
+      'can_manage_inventory', (v.role = 'owner' or v.can_manage_inventory),
+      'can_review_refunds', (v.role = 'owner' or v.can_review_refunds),
+      'created_at', v.created_at
+    )
+  );
+end;
+$$;
+
+-- Owner-only provisioning (called by the app right after it creates the
+-- Firebase account, and by the SQL bootstrap above for the first owner).
+create or replace function public.owner_upsert_staff_member(
+  p_firebase_uid text,
+  p_full_name text,
+  p_email text,
+  p_role text,
+  p_branch_name text default null,
+  p_is_active boolean default true,
+  p_can_manage_inventory boolean default true,
+  p_can_review_refunds boolean default false
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_branch_id uuid;
+begin
+  perform public._require_owner();
+  if coalesce(trim(p_firebase_uid), '') = '' then raise exception 'A staff account id is required.'; end if;
+  if p_role not in ('staff', 'owner') then raise exception 'Unsupported staff role.'; end if;
+  if p_role = 'staff' then
+    select id into v_branch_id from public.branches where name = p_branch_name;
+    if v_branch_id is null then raise exception 'Please choose a valid branch for this staff member.'; end if;
+  end if;
+
+  insert into public.staff_members
+    (firebase_uid, full_name, email, role, branch_id, is_active, can_manage_inventory, can_review_refunds)
+  values
+    (p_firebase_uid, left(coalesce(p_full_name, ''), 100), left(coalesce(p_email, ''), 254), p_role,
+     v_branch_id, coalesce(p_is_active, true), coalesce(p_can_manage_inventory, true), coalesce(p_can_review_refunds, false))
+  on conflict (firebase_uid) do update
+    set full_name = excluded.full_name,
+        email = excluded.email,
+        role = excluded.role,
+        branch_id = excluded.branch_id,
+        is_active = excluded.is_active,
+        can_manage_inventory = excluded.can_manage_inventory,
+        can_review_refunds = excluded.can_review_refunds;
+end;
+$$;
+
+create or replace function public.owner_set_staff_active(p_firebase_uid text, p_is_active boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_owner();
+  if p_firebase_uid = public.current_firebase_uid() and not coalesce(p_is_active, true) then
+    raise exception 'You cannot deactivate your own account.';
+  end if;
+  update public.staff_members set is_active = coalesce(p_is_active, true)
+  where firebase_uid = p_firebase_uid;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Inventory batches (FEFO), thresholds and the stock ledger
+-- -----------------------------------------------------------------------------
+create table if not exists public.inventory_batches (
+  id uuid primary key default gen_random_uuid(),
+  branch_id uuid not null references public.branches(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete cascade,
+  variant_id uuid not null references public.product_variants(id) on delete cascade,
+  batch_code text not null check (length(trim(batch_code)) between 1 and 40),
+  received_date date not null default current_date,
+  expiration_date date not null,
+  quantity int not null default 0 check (quantity >= 0),
+  initial_quantity int not null check (initial_quantity > 0),
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (branch_id, variant_id, batch_code),
+  check (expiration_date >= received_date)
+);
+create index if not exists inventory_batches_branch_variant_idx
+  on public.inventory_batches (branch_id, variant_id, expiration_date);
+create index if not exists inventory_batches_expiry_idx
+  on public.inventory_batches (branch_id, expiration_date) where quantity > 0;
+drop trigger if exists inventory_batches_set_updated_at on public.inventory_batches;
+create trigger inventory_batches_set_updated_at before update on public.inventory_batches
+  for each row execute function public.set_updated_at();
+alter table public.inventory_batches enable row level security;
+
+create table if not exists public.stock_thresholds (
+  branch_id uuid not null references public.branches(id) on delete cascade,
+  variant_id uuid not null references public.product_variants(id) on delete cascade,
+  restock_threshold int not null check (restock_threshold >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (branch_id, variant_id)
+);
+alter table public.stock_thresholds enable row level security;
+
+-- Append-only audit trail of every stock change.
+create table if not exists public.stock_movements (
+  id uuid primary key default gen_random_uuid(),
+  branch_id uuid not null references public.branches(id) on delete cascade,
+  product_id uuid references public.products(id) on delete set null,
+  variant_id uuid references public.product_variants(id) on delete set null,
+  batch_id uuid references public.inventory_batches(id) on delete set null,
+  movement_type text not null check (movement_type in
+    ('receive', 'assign', 'adjust', 'sale', 'sale_cancel', 'transfer_out', 'transfer_in')),
+  quantity_change int not null,
+  batch_quantity_after int,
+  reason text,
+  reference text,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+create index if not exists stock_movements_branch_idx on public.stock_movements (branch_id, created_at desc);
+alter table public.stock_movements enable row level security;
+
+-- Batch-level FEFO consumption. p_strict = false consumes what exists (used for
+-- customer orders, where branch_inventory may hold stock that was never
+-- assigned a batch); p_strict = true refuses to over-consume (transfers).
+create or replace function public._consume_batches_fefo(
+  p_branch_id uuid, p_product_id uuid, p_variant_id uuid, p_qty int,
+  p_type text, p_reference text, p_uid text, p_strict boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_remaining int := p_qty;
+  v_take int;
+  v_after int;
+  v_lines jsonb := '[]'::jsonb;
+  b record;
+begin
+  for b in
+    select * from public.inventory_batches
+    where branch_id = p_branch_id and variant_id = p_variant_id and quantity > 0
+    order by expiration_date, received_date, created_at
+    for update
+  loop
+    exit when v_remaining <= 0;
+    v_take := least(b.quantity, v_remaining);
+    update public.inventory_batches set quantity = quantity - v_take
+    where id = b.id returning quantity into v_after;
+    insert into public.stock_movements
+      (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reference, created_by)
+    values (p_branch_id, p_product_id, p_variant_id, b.id, p_type, -v_take, v_after, p_reference, p_uid);
+    v_lines := v_lines || jsonb_build_object(
+      'batch_code', b.batch_code, 'expiration_date', b.expiration_date,
+      'received_date', b.received_date, 'quantity', v_take);
+    v_remaining := v_remaining - v_take;
+  end loop;
+  if v_remaining > 0 and p_strict then
+    raise exception 'Not enough batched stock at this branch. Assign batches to the remaining units first.';
+  end if;
+  return v_lines;
+end;
+$$;
+
+-- Keeps batches consistent when branch_inventory changes WITHOUT going through
+-- a staff inventory function — i.e. a customer order (deduct) or a cancelled
+-- order (restore). Staff inventory functions set app.inventory_managed and
+-- maintain both sides themselves.
+create or replace function public._sync_batches_with_inventory()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delta int;
+  v_remaining int;
+  v_take int;
+  v_after int;
+  b record;
+  v_ref text := nullif(current_setting('app.stock_reference', true), '');
+begin
+  if coalesce(current_setting('app.inventory_managed', true), '') = '1' then return new; end if;
+  if new.variant_id is null then return new; end if;
+  v_delta := new.quantity - old.quantity;
+  if v_delta = 0 then return new; end if;
+
+  if v_delta < 0 then
+    perform public._consume_batches_fefo(new.branch_id, new.product_id, new.variant_id, -v_delta,
+                                         'sale', v_ref, null, false);
+  else
+    v_remaining := v_delta;
+    for b in
+      select id, quantity, initial_quantity from public.inventory_batches
+      where branch_id = new.branch_id and variant_id = new.variant_id and quantity < initial_quantity
+      order by expiration_date, received_date
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(b.initial_quantity - b.quantity, v_remaining);
+      update public.inventory_batches set quantity = quantity + v_take
+      where id = b.id returning quantity into v_after;
+      insert into public.stock_movements
+        (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reference)
+      values (new.branch_id, new.product_id, new.variant_id, b.id, 'sale_cancel', v_take, v_after, v_ref);
+      v_remaining := v_remaining - v_take;
+    end loop;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists branch_inventory_sync_batches on public.branch_inventory;
+create trigger branch_inventory_sync_batches
+  after update of quantity on public.branch_inventory
+  for each row execute function public._sync_batches_with_inventory();
+
+-- Receive a new batch (new stock), or — with p_assign_existing — give a batch
+-- to units that are already counted in branch stock but have no batch yet.
+create or replace function public.staff_receive_batch(
+  p_branch_id uuid,
+  p_variant_id uuid,
+  p_batch_code text,
+  p_quantity int,
+  p_expiration_date date,
+  p_received_date date default null,
+  p_restock_threshold int default null,
+  p_assign_existing boolean default false
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_variant record;
+  v_code text := trim(coalesce(p_batch_code, ''));
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  v_received date;
+  v_batch_id uuid;
+  v_current int;
+  v_batched int;
+begin
+  v_staff := public._require_staff(p_branch_id, 'inventory');
+  if v_code = '' or length(v_code) > 40 then raise exception 'Please enter a batch code (up to 40 characters).'; end if;
+  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then raise exception 'Quantity must be between 1 and 100000.'; end if;
+  v_received := coalesce(p_received_date, v_today);
+  if v_received > v_today then raise exception 'The received date cannot be in the future.'; end if;
+  if p_expiration_date is null or p_expiration_date <= v_today then
+    raise exception 'The expiration date must be in the future.';
+  end if;
+  if p_expiration_date < v_received then raise exception 'The expiration date cannot be before the received date.'; end if;
+
+  select pv.id, pv.product_id into v_variant
+  from public.product_variants pv join public.products p on p.id = pv.product_id
+  where pv.id = p_variant_id and p.is_active;
+  if not found then raise exception 'That product variant could not be found.'; end if;
+
+  perform set_config('app.inventory_managed', '1', true);
+
+  insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
+  values (p_branch_id, v_variant.product_id, p_variant_id, 0)
+  on conflict (branch_id, product_id, variant_id) do nothing;
+  select quantity into v_current from public.branch_inventory
+  where branch_id = p_branch_id and product_id = v_variant.product_id and variant_id = p_variant_id
+  for update;
+
+  if p_assign_existing then
+    select coalesce(sum(quantity), 0) into v_batched from public.inventory_batches
+    where branch_id = p_branch_id and variant_id = p_variant_id;
+    if p_quantity > v_current - v_batched then
+      raise exception 'Only % unit(s) at this branch are not yet assigned to a batch.', greatest(v_current - v_batched, 0);
+    end if;
+  else
+    update public.branch_inventory set quantity = quantity + p_quantity
+    where branch_id = p_branch_id and product_id = v_variant.product_id and variant_id = p_variant_id;
+  end if;
+
+  begin
+    insert into public.inventory_batches
+      (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity, created_by)
+    values (p_branch_id, v_variant.product_id, p_variant_id, v_code, v_received, p_expiration_date,
+            p_quantity, p_quantity, v_staff.firebase_uid)
+    returning id into v_batch_id;
+  exception when unique_violation then
+    raise exception 'Batch code % already exists for this product at this branch.', v_code;
+  end;
+
+  insert into public.stock_movements
+    (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reason, created_by)
+  values (p_branch_id, v_variant.product_id, p_variant_id, v_batch_id,
+          case when p_assign_existing then 'assign' else 'receive' end,
+          case when p_assign_existing then 0 else p_quantity end, p_quantity,
+          case when p_assign_existing then 'Assigned existing stock to a batch' else 'Batch received' end,
+          v_staff.firebase_uid);
+
+  if p_restock_threshold is not null then
+    if p_restock_threshold < 0 or p_restock_threshold > 100000 then raise exception 'Invalid restock threshold.'; end if;
+    insert into public.stock_thresholds (branch_id, variant_id, restock_threshold)
+    values (p_branch_id, p_variant_id, p_restock_threshold)
+    on conflict (branch_id, variant_id) do update
+      set restock_threshold = excluded.restock_threshold, updated_at = now();
+  end if;
+
+  return v_batch_id;
+end;
+$$;
+
+-- Adjust one batch up or down with a reason (damage, count correction, ...).
+create or replace function public.staff_adjust_batch(
+  p_batch_id uuid,
+  p_delta int,
+  p_reason text,
+  p_note text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  b public.inventory_batches;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_new int;
+  v_total int;
+begin
+  select * into b from public.inventory_batches where id = p_batch_id for update;
+  if not found then raise exception 'That batch could not be found.'; end if;
+  v_staff := public._require_staff(b.branch_id, 'inventory');
+  if p_delta is null or p_delta = 0 or abs(p_delta) > 100000 then raise exception 'Enter an adjustment other than zero.'; end if;
+  if v_reason = '' or length(v_reason) > 100 then raise exception 'Please choose a reason for this adjustment.'; end if;
+  v_new := b.quantity + p_delta;
+  if v_new < 0 then raise exception 'Stock cannot go below 0. Reduce the adjustment.'; end if;
+
+  perform set_config('app.inventory_managed', '1', true);
+  select quantity into v_total from public.branch_inventory
+  where branch_id = b.branch_id and product_id = b.product_id and variant_id = b.variant_id for update;
+  if coalesce(v_total, 0) + p_delta < 0 then raise exception 'Stock cannot go below 0. Reduce the adjustment.'; end if;
+
+  update public.inventory_batches
+  set quantity = v_new,
+      initial_quantity = greatest(1, v_new,
+        case when p_delta < 0 then b.initial_quantity + p_delta else b.initial_quantity end)
+  where id = b.id;
+  update public.branch_inventory set quantity = quantity + p_delta
+  where branch_id = b.branch_id and product_id = b.product_id and variant_id = b.variant_id;
+
+  insert into public.stock_movements
+    (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reason, created_by)
+  values (b.branch_id, b.product_id, b.variant_id, b.id, 'adjust', p_delta, v_new,
+          left(v_reason || case when nullif(trim(coalesce(p_note, '')), '') is null then '' else ': ' || trim(p_note) end, 300),
+          v_staff.firebase_uid);
+
+  return jsonb_build_object('previous_quantity', b.quantity, 'new_quantity', v_new, 'adjustment', p_delta);
+end;
+$$;
+
+-- Read model for every inventory screen: one row per variant (with branch
+-- totals, threshold and how much is not yet assigned to a batch) plus the
+-- active batches. Staff always get their own branch; owners pass p_branch_id.
+create or replace function public.staff_get_inventory(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch uuid;
+begin
+  v_staff := public._require_staff();
+  v_branch := case when v_staff.role = 'owner' then p_branch_id else v_staff.branch_id end;
+  if v_branch is null then raise exception 'Please choose a branch first.'; end if;
+
+  return jsonb_build_object(
+    'branch_id', v_branch,
+    'branch_name', (select name from public.branches where id = v_branch),
+    'items', (
+      select coalesce(jsonb_agg(to_jsonb(x) order by x.product_name, x.variant_label), '[]'::jsonb)
+      from (
+        select p.id as product_id, p.name as product_name, p.category_id,
+               pv.id as variant_id, pv.label as variant_label, pv.sku, pv.price,
+               coalesce(bi.quantity, 0) as quantity,
+               coalesce(th.restock_threshold, public._default_restock_threshold()) as restock_threshold,
+               coalesce((select sum(b.quantity) from public.inventory_batches b
+                         where b.branch_id = v_branch and b.variant_id = pv.id), 0)::int as batched_quantity
+        from public.products p
+        join public.product_variants pv on pv.product_id = p.id
+        left join public.branch_inventory bi on bi.branch_id = v_branch and bi.variant_id = pv.id
+        left join public.stock_thresholds th on th.branch_id = v_branch and th.variant_id = pv.id
+        where p.is_active
+      ) x
+    ),
+    'batches', (
+      select coalesce(jsonb_agg(to_jsonb(y) order by y.expiration_date, y.received_date), '[]'::jsonb)
+      from (
+        select b.id, b.branch_id, br.name as branch_name, b.product_id, b.variant_id,
+               b.batch_code, b.received_date, b.expiration_date, b.quantity, b.initial_quantity
+        from public.inventory_batches b
+        join public.branches br on br.id = b.branch_id
+        where b.branch_id = v_branch and b.quantity > 0
+      ) y
+    )
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Stock transfers between branches
+--    requested (by receiving branch) -> in_transit (source ships, FEFO batches
+--    leave source stock) -> received (batches + quantity land at destination).
+--    A request can also be rejected (source) or cancelled (requester).
+-- -----------------------------------------------------------------------------
+create sequence if not exists public.transfer_code_seq start 1001;
+
+create table if not exists public.stock_transfers (
+  id text primary key default ('TRF-' || nextval('public.transfer_code_seq')::text),
+  from_branch_id uuid not null references public.branches(id),
+  to_branch_id uuid not null references public.branches(id),
+  product_id uuid not null references public.products(id),
+  variant_id uuid not null references public.product_variants(id),
+  quantity int not null check (quantity > 0),
+  status text not null default 'requested'
+    check (status in ('requested', 'in_transit', 'received', 'rejected', 'cancelled')),
+  note text not null default '',
+  requested_by text not null,
+  requested_at timestamptz not null default now(),
+  reviewed_by text,
+  shipped_at timestamptz,
+  received_by text,
+  received_at timestamptz,
+  updated_at timestamptz not null default now(),
+  check (from_branch_id <> to_branch_id)
+);
+create index if not exists stock_transfers_from_idx on public.stock_transfers (from_branch_id, status);
+create index if not exists stock_transfers_to_idx on public.stock_transfers (to_branch_id, status);
+drop trigger if exists stock_transfers_set_updated_at on public.stock_transfers;
+create trigger stock_transfers_set_updated_at before update on public.stock_transfers
+  for each row execute function public.set_updated_at();
+alter table public.stock_transfers enable row level security;
+
+create table if not exists public.stock_transfer_batches (
+  id uuid primary key default gen_random_uuid(),
+  transfer_id text not null references public.stock_transfers(id) on delete cascade,
+  batch_code text not null,
+  received_date date not null,
+  expiration_date date not null,
+  quantity int not null check (quantity > 0)
+);
+alter table public.stock_transfer_batches enable row level security;
+
+create or replace function public.staff_request_transfer(
+  p_from_branch_id uuid,
+  p_to_branch_id uuid,
+  p_variant_id uuid,
+  p_quantity int,
+  p_note text default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_product uuid;
+  v_available int;
+  v_id text;
+begin
+  -- The requester works at the DESTINATION branch.
+  v_staff := public._require_staff(p_to_branch_id, 'inventory');
+  if p_from_branch_id is null or p_to_branch_id is null or p_from_branch_id = p_to_branch_id then
+    raise exception 'Choose a different branch to transfer from.';
+  end if;
+  if not exists (select 1 from public.branches where id = p_from_branch_id) then
+    raise exception 'That branch could not be found.';
+  end if;
+  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then raise exception 'Quantity must be between 1 and 100000.'; end if;
+  select pv.product_id into v_product
+  from public.product_variants pv join public.products p on p.id = pv.product_id
+  where pv.id = p_variant_id and p.is_active;
+  if v_product is null then raise exception 'That product variant could not be found.'; end if;
+
+  select coalesce(quantity, 0) into v_available from public.branch_inventory
+  where branch_id = p_from_branch_id and variant_id = p_variant_id;
+  if coalesce(v_available, 0) < p_quantity then
+    raise exception 'The source branch only has % of this item.', coalesce(v_available, 0);
+  end if;
+
+  insert into public.stock_transfers
+    (from_branch_id, to_branch_id, product_id, variant_id, quantity, note, requested_by)
+  values (p_from_branch_id, p_to_branch_id, v_product, p_variant_id, p_quantity,
+          left(coalesce(trim(p_note), ''), 300), v_staff.firebase_uid)
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+-- p_action: 'ship' | 'reject' (source branch), 'cancel' | 'receive' (destination).
+create or replace function public.staff_respond_transfer(p_transfer_id text, p_action text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  t public.stock_transfers;
+  v_lines jsonb;
+  l jsonb;
+  v_new int;
+  v_from_stock int;
+  v_code text;
+begin
+  select * into t from public.stock_transfers where id = p_transfer_id for update;
+  if not found then raise exception 'That transfer could not be found.'; end if;
+
+  if p_action in ('ship', 'reject') then
+    v_staff := public._require_staff(t.from_branch_id, 'inventory');
+    if t.status <> 'requested' then raise exception 'This transfer is no longer waiting for approval.'; end if;
+  elsif p_action in ('cancel', 'receive') then
+    v_staff := public._require_staff(t.to_branch_id, 'inventory');
+    if p_action = 'cancel' and t.status <> 'requested' then raise exception 'Only a pending request can be cancelled.'; end if;
+    if p_action = 'receive' and t.status <> 'in_transit' then raise exception 'This transfer is not on its way.'; end if;
+  else
+    raise exception 'Unsupported transfer action.';
+  end if;
+
+  perform set_config('app.inventory_managed', '1', true);
+
+  if p_action = 'reject' then
+    update public.stock_transfers set status = 'rejected', reviewed_by = v_staff.firebase_uid where id = t.id;
+
+  elsif p_action = 'cancel' then
+    update public.stock_transfers set status = 'cancelled' where id = t.id;
+
+  elsif p_action = 'ship' then
+    select quantity into v_from_stock from public.branch_inventory
+    where branch_id = t.from_branch_id and product_id = t.product_id and variant_id = t.variant_id for update;
+    if coalesce(v_from_stock, 0) < t.quantity then
+      raise exception 'Not enough stock at your branch to ship this transfer.';
+    end if;
+    v_lines := public._consume_batches_fefo(t.from_branch_id, t.product_id, t.variant_id, t.quantity,
+                                            'transfer_out', t.id, v_staff.firebase_uid, true);
+    update public.branch_inventory set quantity = quantity - t.quantity
+    where branch_id = t.from_branch_id and product_id = t.product_id and variant_id = t.variant_id;
+    for l in select * from jsonb_array_elements(v_lines) loop
+      insert into public.stock_transfer_batches (transfer_id, batch_code, received_date, expiration_date, quantity)
+      values (t.id, l ->> 'batch_code', (l ->> 'received_date')::date, (l ->> 'expiration_date')::date, (l ->> 'quantity')::int);
+    end loop;
+    update public.stock_transfers
+    set status = 'in_transit', reviewed_by = v_staff.firebase_uid, shipped_at = now()
+    where id = t.id;
+
+  else -- receive
+    insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
+    values (t.to_branch_id, t.product_id, t.variant_id, 0)
+    on conflict (branch_id, product_id, variant_id) do nothing;
+    update public.branch_inventory set quantity = quantity + t.quantity
+    where branch_id = t.to_branch_id and product_id = t.product_id and variant_id = t.variant_id;
+
+    for l in
+      select to_jsonb(sb) from public.stock_transfer_batches sb where sb.transfer_id = t.id
+    loop
+      v_code := l ->> 'batch_code';
+      insert into public.inventory_batches
+        (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity, created_by)
+      values (t.to_branch_id, t.product_id, t.variant_id, v_code,
+              (l ->> 'received_date')::date, (l ->> 'expiration_date')::date,
+              (l ->> 'quantity')::int, (l ->> 'quantity')::int, v_staff.firebase_uid)
+      on conflict (branch_id, variant_id, batch_code) do update
+        set quantity = public.inventory_batches.quantity + excluded.quantity,
+            initial_quantity = public.inventory_batches.initial_quantity + excluded.initial_quantity,
+            expiration_date = least(public.inventory_batches.expiration_date, excluded.expiration_date)
+      returning quantity into v_new;
+      insert into public.stock_movements
+        (branch_id, product_id, variant_id, movement_type, quantity_change, batch_quantity_after, reference, created_by)
+      values (t.to_branch_id, t.product_id, t.variant_id, 'transfer_in', (l ->> 'quantity')::int, v_new, t.id, v_staff.firebase_uid);
+    end loop;
+
+    update public.stock_transfers
+    set status = 'received', received_by = v_staff.firebase_uid, received_at = now()
+    where id = t.id;
+  end if;
+end;
+$$;
+
+create or replace function public.staff_list_transfers(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch uuid;
+begin
+  v_staff := public._require_staff();
+  v_branch := case when v_staff.role = 'owner' then p_branch_id else v_staff.branch_id end;
+  return (
+    select coalesce(jsonb_agg(to_jsonb(x) order by x.requested_at desc), '[]'::jsonb)
+    from (
+      select t.id, t.status, t.quantity, t.note, t.requested_at, t.shipped_at, t.received_at,
+             t.from_branch_id, fb.name as from_branch_name,
+             t.to_branch_id, tb.name as to_branch_name,
+             t.product_id, p.name as product_name, t.variant_id, pv.label as variant_label,
+             (select coalesce(jsonb_agg(jsonb_build_object(
+                'batch_code', sb.batch_code, 'expiration_date', sb.expiration_date, 'quantity', sb.quantity)
+                order by sb.expiration_date), '[]'::jsonb)
+              from public.stock_transfer_batches sb where sb.transfer_id = t.id) as batches
+      from public.stock_transfers t
+      join public.branches fb on fb.id = t.from_branch_id
+      join public.branches tb on tb.id = t.to_branch_id
+      join public.products p on p.id = t.product_id
+      join public.product_variants pv on pv.id = t.variant_id
+      where (v_branch is null or t.from_branch_id = v_branch or t.to_branch_id = v_branch)
+      order by t.requested_at desc
+      limit 200
+    ) x
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. Staff notifications
+-- -----------------------------------------------------------------------------
+create table if not exists public.staff_notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_uid text not null,
+  branch_id uuid references public.branches(id) on delete cascade,
+  category text not null check (category in ('order', 'inventory', 'transfer', 'refund', 'system')),
+  title text not null,
+  body text not null,
+  reference text,
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists staff_notifications_recipient_idx
+  on public.staff_notifications (recipient_uid, created_at desc);
+alter table public.staff_notifications enable row level security;
+
+create or replace function public._notify_staff(
+  p_branch_id uuid, p_category text, p_title text, p_body text,
+  p_reference text default null, p_permission text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.staff_notifications (recipient_uid, branch_id, category, title, body, reference)
+  select s.firebase_uid, p_branch_id, p_category, p_title, p_body, p_reference
+  from public.staff_members s
+  where s.is_active and s.role = 'staff' and s.branch_id = p_branch_id
+    and (p_permission is null
+         or (p_permission = 'inventory' and s.can_manage_inventory)
+         or (p_permission = 'refunds' and s.can_review_refunds));
+end;
+$$;
+
+-- Non-critical side effects must never abort the transaction that caused them.
+create or replace function public._trg_staff_notify_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    if coalesce(current_setting('app.pos_sale', true), '') <> '1' then
+      perform public._notify_staff(new.branch_id, 'order',
+        'New ' || case when new.is_delivery then 'delivery' else 'pickup' end || ' order ' || new.id,
+        'Total ₱' || to_char(new.total, 'FM999,999,990.00') || ' • ' || new.payment_method,
+        new.id);
+    end if;
+  exception when others then
+    raise warning 'staff order notification for % failed: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+drop trigger if exists orders_notify_staff on public.orders;
+create trigger orders_notify_staff after insert on public.orders
+  for each row execute function public._trg_staff_notify_order();
+
+create or replace function public._trg_staff_notify_stock()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_thr int;
+  v_name text;
+begin
+  begin
+    if new.variant_id is null or new.quantity >= old.quantity then return new; end if;
+    select coalesce(
+             (select restock_threshold from public.stock_thresholds
+              where branch_id = new.branch_id and variant_id = new.variant_id),
+             public._default_restock_threshold()) into v_thr;
+    select p.name || ' (' || pv.label || ')' into v_name
+    from public.products p join public.product_variants pv on pv.product_id = p.id
+    where pv.id = new.variant_id;
+    if new.quantity = 0 then
+      perform public._notify_staff(new.branch_id, 'inventory', 'Out of stock: ' || v_name,
+        'This item has run out at your branch.', new.variant_id::text, 'inventory');
+    elsif new.quantity <= v_thr and old.quantity > v_thr then
+      perform public._notify_staff(new.branch_id, 'inventory', 'Low stock: ' || v_name,
+        'Only ' || new.quantity || ' left (restock level ' || v_thr || ').', new.variant_id::text, 'inventory');
+    end if;
+  exception when others then
+    raise warning 'staff stock notification failed: %', sqlerrm;
+  end;
+  return new;
+end;
+$$;
+drop trigger if exists branch_inventory_notify_staff on public.branch_inventory;
+create trigger branch_inventory_notify_staff after update of quantity on public.branch_inventory
+  for each row execute function public._trg_staff_notify_stock();
+
+create or replace function public._trg_staff_notify_transfer()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text;
+  v_from text;
+  v_to text;
+begin
+  begin
+    select p.name || ' (' || pv.label || ')' into v_name
+    from public.products p join public.product_variants pv on pv.product_id = p.id where pv.id = new.variant_id;
+    select name into v_from from public.branches where id = new.from_branch_id;
+    select name into v_to from public.branches where id = new.to_branch_id;
+    if tg_op = 'INSERT' then
+      perform public._notify_staff(new.from_branch_id, 'transfer', 'Transfer requested ' || new.id,
+        v_to || ' requests ' || new.quantity || ' × ' || v_name || '.', new.id, 'inventory');
+    elsif new.status is distinct from old.status then
+      if new.status = 'in_transit' then
+        perform public._notify_staff(new.to_branch_id, 'transfer', 'Transfer on its way ' || new.id,
+          v_from || ' shipped ' || new.quantity || ' × ' || v_name || '. Receive it when it arrives.', new.id, 'inventory');
+      elsif new.status = 'rejected' then
+        perform public._notify_staff(new.to_branch_id, 'transfer', 'Transfer declined ' || new.id,
+          v_from || ' declined your request for ' || v_name || '.', new.id, 'inventory');
+      elsif new.status = 'received' then
+        perform public._notify_staff(new.from_branch_id, 'transfer', 'Transfer received ' || new.id,
+          v_to || ' received ' || new.quantity || ' × ' || v_name || '.', new.id, 'inventory');
+      end if;
+    end if;
+  exception when others then
+    raise warning 'staff transfer notification for % failed: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+drop trigger if exists stock_transfers_notify_staff on public.stock_transfers;
+create trigger stock_transfers_notify_staff after insert or update of status on public.stock_transfers
+  for each row execute function public._trg_staff_notify_transfer();
+
+create or replace function public._trg_staff_notify_refund()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_branch uuid;
+begin
+  begin
+    select branch_id into v_branch from public.orders where id = new.order_id;
+    if v_branch is not null then
+      perform public._notify_staff(v_branch, 'refund', 'Refund requested ' || new.id,
+        'Order ' || new.order_id || ' • ₱' || to_char(new.amount, 'FM999,999,990.00'), new.id, 'refunds');
+    end if;
+  exception when others then
+    raise warning 'staff refund notification for % failed: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+drop trigger if exists refund_requests_notify_staff on public.refund_requests;
+create trigger refund_requests_notify_staff after insert on public.refund_requests
+  for each row execute function public._trg_staff_notify_refund();
+
+-- -----------------------------------------------------------------------------
+-- 5. Walk-in sales (POS)
+-- -----------------------------------------------------------------------------
+insert into public.customer_profiles (firebase_uid, full_name)
+values ('walk-in', 'Walk-in Customer')
+on conflict (firebase_uid) do nothing;
+
+-- Walk-ins never earn points and never get inbox notifications.
+create or replace function public.compute_points_earned()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.firebase_uid = 'walk-in' then
+    new.points_earned := 0;
+  else
+    new.points_earned := greatest(0, floor(new.total / 50)::int);
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.notify_customer(
+  p_uid text, p_category text, p_title text, p_body text
+) returns void language plpgsql security definer set search_path = public as $$
+begin
+  if p_uid = 'walk-in' then return; end if;
+  insert into public.notifications (firebase_uid, category, title, body)
+  values (p_uid, p_category, p_title, p_body);
+end;
+$$;
+
+create table if not exists public.pos_sales (
+  order_id text primary key references public.orders(id) on delete cascade,
+  branch_id uuid not null references public.branches(id),
+  staff_uid text not null,
+  staff_name text not null default '',
+  payment_reference text,
+  cash_received numeric(10, 2),
+  change_given numeric(10, 2),
+  created_at timestamptz not null default now()
+);
+create index if not exists pos_sales_branch_idx on public.pos_sales (branch_id, created_at desc);
+alter table public.pos_sales enable row level security;
+
+-- Finds a loyalty customer by RFID card number, phone or e-mail (EXACT match
+-- only, so it cannot be used to browse customers). Returns just what the
+-- cashier needs.
+create or replace function public.staff_lookup_customer(p_query text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := trim(coalesce(p_query, ''));
+begin
+  perform public._require_staff();
+  if length(v_q) < 4 then raise exception 'Enter at least 4 characters to look up a customer.'; end if;
+  return (
+    select coalesce(jsonb_agg(t.j), '[]'::jsonb)
+    from (
+      select jsonb_build_object(
+        'firebase_uid', cp.firebase_uid,
+        'full_name', cp.full_name,
+        'points_balance', coalesce(la.points_balance, 0)) as j
+      from public.customer_profiles cp
+      left join public.loyalty_accounts la on la.firebase_uid = cp.firebase_uid
+      where cp.firebase_uid <> 'walk-in'
+        and (cp.rfid_card_number = v_q or cp.phone = v_q or lower(cp.email) = lower(v_q))
+      limit 5
+    ) t
+  );
+end;
+$$;
+
+-- Rings up a sale. Prices and stock are decided HERE from the catalog and
+-- branch_inventory — the client only says which variants and how many.
+-- p_items: [{"variant_id": "<uuid>", "quantity": 2}, ...]
+-- p_payment_method: 'cash' | 'gcash' | 'card'. Cash needs p_cash_received;
+-- GCash/card need the terminal / wallet reference number.
+create or replace function public.staff_create_pos_sale(
+  p_branch_id uuid,
+  p_items jsonb,
+  p_payment_method text,
+  p_payment_reference text default null,
+  p_cash_received numeric default null,
+  p_customer_uid text default null,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_uid text := coalesce(nullif(trim(coalesce(p_customer_uid, '')), ''), 'walk-in');
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_branch_name text;
+  v_existing text;
+  v_line record;
+  v_var record;
+  v_avail int;
+  v_subtotal numeric := 0;
+  v_order_id text;
+  v_payment_id text;
+  v_code text;
+  v_label text;
+  v_ref text := nullif(trim(coalesce(p_payment_reference, '')), '');
+  v_change numeric := 0;
+  v_count int;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  select name into v_branch_name from public.branches where id = p_branch_id;
+  if v_branch_name is null then raise exception 'That branch could not be found.'; end if;
+
+  if v_uid <> 'walk-in' and not exists (select 1 from public.customer_profiles where firebase_uid = v_uid) then
+    raise exception 'That loyalty customer could not be found.';
+  end if;
+
+  if v_key is not null then
+    if length(v_key) > 200 then raise exception 'Invalid checkout reference.'; end if;
+    perform pg_advisory_xact_lock(hashtextextended('pos:' || v_uid || ':' || v_key, 0));
+    select id into v_existing from public.orders where firebase_uid = v_uid and idempotency_key = v_key;
+    if found then
+      return (
+        select jsonb_build_object('order_id', o.id, 'total', o.total, 'points_earned', o.points_earned,
+                                  'payment_id', p.id, 'change', coalesce(ps.change_given, 0), 'already_recorded', true)
+        from public.orders o
+        left join public.payments p on p.order_id = o.id
+        left join public.pos_sales ps on ps.order_id = o.id
+        where o.id = v_existing
+      );
+    end if;
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'The sale has no items.';
+  end if;
+  if jsonb_array_length(p_items) > 100 then raise exception 'Too many lines in one sale.'; end if;
+
+  select case p_payment_method when 'cash' then 'cash' when 'gcash' then 'gcash' when 'card' then 'card' end,
+         case p_payment_method when 'cash' then 'Cash (In-store)' when 'gcash' then 'GCash (In-store)'
+                               when 'card' then 'Card (In-store)' end
+  into v_code, v_label;
+  if v_code is null then raise exception 'Unsupported payment method.'; end if;
+  if v_code <> 'cash' and (v_ref is null or length(v_ref) < 4) then
+    raise exception 'Enter the payment reference number from the terminal or wallet.';
+  end if;
+
+  -- Validate every line and lock its stock row (variant order = lock order).
+  for v_line in
+    select (e ->> 'variant_id')::uuid as variant_id, sum((e ->> 'quantity')::int)::int as qty
+    from jsonb_array_elements(p_items) e
+    group by 1 order by 1
+  loop
+    if v_line.qty <= 0 or v_line.qty > 1000 then raise exception 'Invalid quantity in this sale.'; end if;
+    select pv.id, pv.product_id, pv.label, pv.price, p.name into v_var
+    from public.product_variants pv join public.products p on p.id = pv.product_id
+    where pv.id = v_line.variant_id and p.is_active;
+    if not found then raise exception 'A product in this sale is no longer available.'; end if;
+    select quantity into v_avail from public.branch_inventory
+    where branch_id = p_branch_id and variant_id = v_line.variant_id for update;
+    if coalesce(v_avail, 0) < v_line.qty then
+      raise exception 'Only % left of % (%) at this branch.', coalesce(v_avail, 0), v_var.name, v_var.label;
+    end if;
+    v_subtotal := v_subtotal + v_var.price * v_line.qty;
+  end loop;
+
+  if v_code = 'cash' then
+    if p_cash_received is null or p_cash_received < v_subtotal then
+      raise exception 'The cash received is less than the total.';
+    end if;
+    v_change := p_cash_received - v_subtotal;
+  end if;
+
+  perform set_config('app.pos_sale', '1', true);
+
+  insert into public.orders
+    (firebase_uid, branch_id, branch_name, is_delivery, subtotal, discount, delivery_fee, total,
+     payment_method, idempotency_key)
+  values (v_uid, p_branch_id, v_branch_name, false, v_subtotal, 0, 0, v_subtotal, v_label, v_key)
+  returning id into v_order_id;
+
+  perform set_config('app.stock_reference', v_order_id, true);
+
+  for v_line in
+    select (e ->> 'variant_id')::uuid as variant_id, sum((e ->> 'quantity')::int)::int as qty
+    from jsonb_array_elements(p_items) e
+    group by 1 order by 1
+  loop
+    select pv.product_id, pv.label, pv.price, p.name into v_var
+    from public.product_variants pv join public.products p on p.id = pv.product_id
+    where pv.id = v_line.variant_id;
+    insert into public.order_items (order_id, product_id, variant_id, product_name, variant_label, quantity, unit_price)
+    values (v_order_id, v_var.product_id, v_line.variant_id, v_var.name, v_var.label, v_line.qty, v_var.price);
+    -- The sync trigger takes these units out of the soonest-expiring batches.
+    update public.branch_inventory set quantity = quantity - v_line.qty
+    where branch_id = p_branch_id and variant_id = v_line.variant_id;
+  end loop;
+
+  insert into public.payments (order_id, firebase_uid, method, status, amount, reference_number)
+  values (v_order_id, v_uid, v_code, 'pending', v_subtotal, coalesce(v_ref, v_order_id))
+  returning id into v_payment_id;
+
+  insert into public.pos_sales (order_id, branch_id, staff_uid, staff_name, payment_reference, cash_received, change_given)
+  values (v_order_id, p_branch_id, v_staff.firebase_uid, v_staff.full_name, v_ref,
+          case when v_code = 'cash' then p_cash_received end,
+          case when v_code = 'cash' then v_change end);
+
+  -- Money is taken at the counter, so the sale is paid and handed over now.
+  update public.payments set status = 'success' where id = v_payment_id;
+  update public.orders set status = 'completed' where id = v_order_id;
+
+  select count(*) into v_count from public.order_items where order_id = v_order_id;
+  return (
+    select jsonb_build_object('order_id', o.id, 'total', o.total, 'points_earned', o.points_earned,
+                              'payment_id', v_payment_id, 'change', v_change, 'line_count', v_count,
+                              'already_recorded', false)
+    from public.orders o where o.id = v_order_id
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Orders, payments and refunds for staff
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_list_orders(
+  p_branch_id uuid default null,
+  p_statuses text[] default null,
+  p_since timestamptz default null,
+  p_limit int default 100,
+  p_order_id text default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch uuid;
+begin
+  v_staff := public._require_staff();
+  v_branch := case when v_staff.role = 'owner' then p_branch_id else v_staff.branch_id end;
+  if v_branch is null then raise exception 'Please choose a branch first.'; end if;
+
+  return (
+    select coalesce(jsonb_agg(x.j order by x.created_at desc), '[]'::jsonb)
+    from (
+      select o.created_at,
+        jsonb_build_object(
+          'id', o.id, 'created_at', o.created_at, 'status', o.status,
+          'branch_id', o.branch_id, 'branch_name', o.branch_name, 'is_delivery', o.is_delivery,
+          'subtotal', o.subtotal, 'discount', o.discount, 'delivery_fee', o.delivery_fee, 'total', o.total,
+          'payment_method', o.payment_method, 'points_earned', o.points_earned,
+          'customer_notes', o.customer_notes, 'contact_phone', o.contact_phone,
+          'delivery_address_text', o.delivery_address_text,
+          'rider_name', o.rider_name, 'eta_label', o.eta_label,
+          'customer_name', case when o.firebase_uid = 'walk-in' then null else nullif(cp.full_name, '') end,
+          'is_pos', (ps.order_id is not null),
+          'cashier_name', nullif(ps.staff_name, ''),
+          'cash_received', ps.cash_received, 'change_given', ps.change_given,
+          'items', (select coalesce(jsonb_agg(jsonb_build_object(
+                      'product_name', i.product_name, 'variant_label', i.variant_label,
+                      'quantity', i.quantity, 'unit_price', i.unit_price)), '[]'::jsonb)
+                    from public.order_items i where i.order_id = o.id),
+          'payment', (select jsonb_build_object('id', pay.id, 'method', pay.method, 'status', pay.status,
+                                                'reference_number', pay.reference_number, 'amount', pay.amount)
+                      from public.payments pay where pay.order_id = o.id limit 1)
+        ) as j
+      from public.orders o
+      left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+      left join public.pos_sales ps on ps.order_id = o.id
+      where o.branch_id = v_branch
+        and (p_statuses is null or o.status = any(p_statuses))
+        and (p_since is null or o.created_at >= p_since)
+        and (p_order_id is null or o.id = p_order_id)
+      order by o.created_at desc
+      limit least(greatest(coalesce(p_limit, 100), 1), 300)
+    ) x
+  );
+end;
+$$;
+
+create or replace function public.staff_update_order_status(
+  p_order_id text,
+  p_status text,
+  p_note text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  o public.orders;
+begin
+  select * into o from public.orders where id = p_order_id for update;
+  if not found then raise exception 'That order could not be found.'; end if;
+  perform public._require_staff(o.branch_id);
+  if p_status not in ('confirmed', 'preparing', 'readyForPickup', 'outForDelivery', 'completed', 'cancelled') then
+    raise exception 'Staff cannot set an order to that status.';
+  end if;
+  -- The state machine trigger (enforce_order_transition) validates the move,
+  -- including "completed needs a confirmed payment".
+  update public.orders set status = p_status where id = p_order_id;
+  if nullif(trim(coalesce(p_note, '')), '') is not null then
+    update public.order_status_events set note = left(trim(p_note), 300)
+    where id = (select id from public.order_status_events
+                where order_id = p_order_id and status = p_status
+                order by created_at desc limit 1);
+  end if;
+end;
+$$;
+
+create or replace function public.staff_confirm_payment(p_order_id text, p_reference text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  o public.orders;
+  pay public.payments;
+  v_ref text := nullif(trim(coalesce(p_reference, '')), '');
+begin
+  select * into o from public.orders where id = p_order_id for update;
+  if not found then raise exception 'That order could not be found.'; end if;
+  perform public._require_staff(o.branch_id);
+  if o.status in ('cancelled', 'refunded') then raise exception 'This order is % and cannot be paid.', o.status; end if;
+  select * into pay from public.payments where order_id = p_order_id for update;
+  if not found then raise exception 'This order has no payment record.'; end if;
+  if pay.status not in ('pending', 'processing') then raise exception 'This payment is already %.', pay.status; end if;
+  if pay.method <> 'cash' and (v_ref is null or length(v_ref) < 4) then
+    raise exception 'Enter the payment reference number to confirm this payment.';
+  end if;
+  update public.payments
+  set status = 'success', reference_number = coalesce(v_ref, reference_number)
+  where id = pay.id;
+  perform public.notify_customer(o.firebase_uid, 'payment', 'Payment received',
+    'We received your payment for order ' || o.id || '.');
+end;
+$$;
+
+create or replace function public.staff_list_refunds(
+  p_branch_id uuid default null,
+  p_statuses text[] default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch uuid;
+begin
+  v_staff := public._require_staff(null, 'refunds');
+  v_branch := case when v_staff.role = 'owner' then p_branch_id else v_staff.branch_id end;
+  if v_branch is null then raise exception 'Please choose a branch first.'; end if;
+  return (
+    select coalesce(jsonb_agg(x.j order by x.created_at desc), '[]'::jsonb)
+    from (
+      select r.created_at,
+        jsonb_build_object(
+          'id', r.id, 'order_id', r.order_id, 'status', r.status, 'reason', r.reason, 'notes', r.notes,
+          'amount', r.amount, 'payment_method', r.payment_method, 'created_at', r.created_at,
+          'customer_name', nullif(cp.full_name, ''),
+          'items', (select coalesce(jsonb_agg(jsonb_build_object(
+                      'product_name', ri.product_name, 'variant_label', ri.variant_label,
+                      'quantity', ri.quantity, 'unit_price', ri.unit_price)), '[]'::jsonb)
+                    from public.refund_items ri where ri.refund_request_id = r.id)
+        ) as j
+      from public.refund_requests r
+      join public.orders o on o.id = r.order_id
+      left join public.customer_profiles cp on cp.firebase_uid = r.firebase_uid
+      where o.branch_id = v_branch and (p_statuses is null or r.status = any(p_statuses))
+      order by r.created_at desc
+      limit 200
+    ) x
+  );
+end;
+$$;
+
+-- p_action: 'approve' | 'reject' | 'process' | 'complete'.
+create or replace function public.staff_review_refund(p_refund_id text, p_action text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r public.refund_requests;
+  v_branch uuid;
+  v_status text;
+begin
+  select * into r from public.refund_requests where id = p_refund_id for update;
+  if not found then raise exception 'That refund request could not be found.'; end if;
+  select branch_id into v_branch from public.orders where id = r.order_id;
+  perform public._require_staff(v_branch, 'refunds');
+  v_status := case p_action when 'approve' then 'approved' when 'reject' then 'rejected'
+                            when 'process' then 'processing' when 'complete' then 'completed' end;
+  if v_status is null then raise exception 'Unsupported refund action.'; end if;
+  -- enforce_refund_transition validates the move; sync triggers update the order.
+  update public.refund_requests set status = v_status where id = r.id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Dashboard
+--    "Sales today" = completed orders (and completed orders with a refund
+--    request pending) created today, Asia/Manila. Pending / preparing / ready
+--    are LIVE counts of open orders regardless of the day they were placed.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_get_dashboard(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch uuid;
+  v_day_start timestamptz := date_trunc('day', now() at time zone 'Asia/Manila') at time zone 'Asia/Manila';
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  b record;
+  o record;
+  v_low int;
+  v_out int;
+  v_expiring int;
+  v_await_approval int;
+  v_await_receipt int;
+  v_refunds int;
+  v_unread int;
+begin
+  v_staff := public._require_staff();
+  v_branch := case when v_staff.role = 'owner' then p_branch_id else v_staff.branch_id end;
+  if v_branch is null then raise exception 'Please choose a branch first.'; end if;
+  select * into b from public.branches where id = v_branch;
+  if not found then raise exception 'That branch could not be found.'; end if;
+
+  select
+    coalesce(sum(total) filter (where created_at >= v_day_start and status in ('completed', 'refundRequested')), 0) as sales_today,
+    count(*) filter (where created_at >= v_day_start) as orders_today,
+    count(*) filter (where status in ('pending', 'confirmed')) as pending_orders,
+    count(*) filter (where status = 'preparing') as preparing_orders,
+    count(*) filter (where status in ('readyForPickup', 'outForDelivery')) as ready_orders,
+    count(*) filter (where created_at >= v_day_start and status = 'completed') as completed_today,
+    count(*) filter (where created_at >= v_day_start and status = 'cancelled') as cancelled_today
+  into o
+  from public.orders where branch_id = v_branch;
+
+  with items as (
+    select bi.quantity,
+           coalesce(th.restock_threshold, public._default_restock_threshold()) as thr
+    from public.branch_inventory bi
+    join public.products p on p.id = bi.product_id and p.is_active
+    left join public.stock_thresholds th on th.branch_id = bi.branch_id and th.variant_id = bi.variant_id
+    where bi.branch_id = v_branch and bi.variant_id is not null
+  )
+  select count(*) filter (where quantity = 0), count(*) filter (where quantity > 0 and quantity <= thr)
+  into v_out, v_low from items;
+
+  select count(*) into v_expiring from public.inventory_batches
+  where branch_id = v_branch and quantity > 0 and expiration_date <= v_today + 15;
+
+  select count(*) into v_await_approval from public.stock_transfers
+  where from_branch_id = v_branch and status = 'requested';
+  select count(*) into v_await_receipt from public.stock_transfers
+  where to_branch_id = v_branch and status = 'in_transit';
+
+  if v_staff.role = 'owner' or v_staff.can_review_refunds then
+    select count(*) into v_refunds
+    from public.refund_requests r join public.orders ord on ord.id = r.order_id
+    where ord.branch_id = v_branch and r.status in ('pending', 'approved', 'processing');
+  end if;
+
+  select count(*) into v_unread from public.staff_notifications
+  where recipient_uid = v_staff.firebase_uid and not read;
+
+  return jsonb_build_object(
+    'branch', jsonb_build_object(
+      'id', b.id, 'name', b.name, 'address', b.address, 'contact_phone', b.contact_phone,
+      'operating_hours', b.operating_hours, 'is_active', b.is_active,
+      'supports_delivery', b.supports_delivery, 'supports_pickup', b.supports_pickup),
+    'sales_today', o.sales_today,
+    'orders_today', o.orders_today,
+    'pending_orders', o.pending_orders,
+    'preparing_orders', o.preparing_orders,
+    'ready_orders', o.ready_orders,
+    'completed_today', o.completed_today,
+    'cancelled_today', o.cancelled_today,
+    'low_stock_count', v_low,
+    'out_of_stock_count', v_out,
+    'expiring_soon_count', v_expiring,
+    'transfers_awaiting_approval', v_await_approval,
+    'transfers_awaiting_receipt', v_await_receipt,
+    'pending_refunds', v_refunds,          -- null when the caller may not review refunds
+    'unread_notifications', v_unread,
+    'generated_at', now()
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Privileges and policies (deny by default, then allow-list)
+-- -----------------------------------------------------------------------------
+grant select on
+  public.staff_members, public.inventory_batches, public.stock_thresholds, public.stock_movements,
+  public.stock_transfers, public.stock_transfer_batches, public.staff_notifications, public.pos_sales
+to authenticated;
+grant update (read) on public.staff_notifications to authenticated;
+grant delete on public.staff_notifications to authenticated;
+
+drop policy if exists "staff: read own registry row" on public.staff_members;
+create policy "staff: read own registry row" on public.staff_members for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()) or public.staff_is_owner());
+
+drop policy if exists "staff: read branch batches" on public.inventory_batches;
+create policy "staff: read branch batches" on public.inventory_batches for select to authenticated
+  using (public.staff_can_see_branch(branch_id));
+
+drop policy if exists "staff: read branch thresholds" on public.stock_thresholds;
+create policy "staff: read branch thresholds" on public.stock_thresholds for select to authenticated
+  using (public.staff_can_see_branch(branch_id));
+
+drop policy if exists "staff: read branch stock movements" on public.stock_movements;
+create policy "staff: read branch stock movements" on public.stock_movements for select to authenticated
+  using (public.staff_can_see_branch(branch_id));
+
+drop policy if exists "staff: read branch transfers" on public.stock_transfers;
+create policy "staff: read branch transfers" on public.stock_transfers for select to authenticated
+  using (public.staff_can_see_branch(from_branch_id) or public.staff_can_see_branch(to_branch_id));
+
+drop policy if exists "staff: read transfer batches" on public.stock_transfer_batches;
+create policy "staff: read transfer batches" on public.stock_transfer_batches for select to authenticated
+  using (exists (select 1 from public.stock_transfers t
+                 where t.id = transfer_id
+                   and (public.staff_can_see_branch(t.from_branch_id) or public.staff_can_see_branch(t.to_branch_id))));
+
+drop policy if exists "staff: read own notifications" on public.staff_notifications;
+create policy "staff: read own notifications" on public.staff_notifications for select to authenticated
+  using (recipient_uid = (select public.current_firebase_uid()));
+drop policy if exists "staff: update own notifications" on public.staff_notifications;
+create policy "staff: update own notifications" on public.staff_notifications for update to authenticated
+  using (recipient_uid = (select public.current_firebase_uid()))
+  with check (recipient_uid = (select public.current_firebase_uid()));
+drop policy if exists "staff: delete own notifications" on public.staff_notifications;
+create policy "staff: delete own notifications" on public.staff_notifications for delete to authenticated
+  using (recipient_uid = (select public.current_firebase_uid()));
+
+drop policy if exists "staff: read branch pos sales" on public.pos_sales;
+create policy "staff: read branch pos sales" on public.pos_sales for select to authenticated
+  using (public.staff_can_see_branch(branch_id));
+
+-- Additive policies on existing customer tables: staff may READ their branch's
+-- orders (live dashboard / order list) and, with the refunds permission, that
+-- branch's refund requests. Customers keep their own-rows-only policies.
+drop policy if exists "staff: read branch orders" on public.orders;
+create policy "staff: read branch orders" on public.orders for select to authenticated
+  using (public.staff_can_see_branch(branch_id));
+
+drop policy if exists "staff: read branch refunds" on public.refund_requests;
+create policy "staff: read branch refunds" on public.refund_requests for select to authenticated
+  using (public.staff_has_permission('refunds')
+         and exists (select 1 from public.orders o
+                     where o.id = order_id and public.staff_can_see_branch(o.branch_id)));
+
+-- Functions: explicit allow-list (everything else stays private).
+grant execute on function public.staff_can_see_branch(uuid) to authenticated;
+grant execute on function public.staff_has_permission(text) to authenticated;
+grant execute on function public.staff_is_owner() to authenticated;
+grant execute on function public.get_my_staff_profile() to authenticated;
+grant execute on function public.get_my_staff_context() to authenticated;
+grant execute on function public.owner_upsert_staff_member(text, text, text, text, text, boolean, boolean, boolean) to authenticated;
+grant execute on function public.owner_set_staff_active(text, boolean) to authenticated;
+grant execute on function public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean) to authenticated;
+grant execute on function public.staff_adjust_batch(uuid, int, text, text) to authenticated;
+grant execute on function public.staff_get_inventory(uuid) to authenticated;
+grant execute on function public.staff_request_transfer(uuid, uuid, uuid, int, text) to authenticated;
+grant execute on function public.staff_respond_transfer(text, text) to authenticated;
+grant execute on function public.staff_list_transfers(uuid) to authenticated;
+grant execute on function public.staff_lookup_customer(text) to authenticated;
+grant execute on function public.staff_create_pos_sale(uuid, jsonb, text, text, numeric, text, text) to authenticated;
+grant execute on function public.staff_list_orders(uuid, text[], timestamptz, int, text) to authenticated;
+grant execute on function public.staff_update_order_status(text, text, text) to authenticated;
+grant execute on function public.staff_confirm_payment(text, text) to authenticated;
+grant execute on function public.staff_list_refunds(uuid, text[]) to authenticated;
+grant execute on function public.staff_review_refund(text, text) to authenticated;
+grant execute on function public.staff_get_dashboard(uuid) to authenticated;
+-- Internal helpers/triggers (_require_*, _consume_batches_fefo, _notify_staff,
+-- _sync_batches_with_inventory, _trg_*, notify_customer) are deliberately NOT
+-- granted: default privileges already deny clients execute on new functions.
+revoke all on function public._require_staff(uuid, text) from public, anon, authenticated;
+revoke all on function public._require_owner() from public, anon, authenticated;
+revoke all on function public._consume_batches_fefo(uuid, uuid, uuid, int, text, text, text, boolean) from public, anon, authenticated;
+revoke all on function public._notify_staff(uuid, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public._sync_batches_with_inventory() from public, anon, authenticated;
+revoke all on function public._trg_staff_notify_order() from public, anon, authenticated;
+revoke all on function public._trg_staff_notify_stock() from public, anon, authenticated;
+revoke all on function public._trg_staff_notify_transfer() from public, anon, authenticated;
+revoke all on function public._trg_staff_notify_refund() from public, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 9. Realtime (enforces the SELECT policies above per subscriber)
+-- -----------------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['orders', 'refund_requests', 'branch_inventory', 'inventory_batches',
+                             'stock_transfers', 'staff_notifications'] loop
+      if not exists (select 1 from pg_publication_tables
+                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+commit;
+
+
+-- >>>>>>>>>> 20260930010000_staff_foundation.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20260930010000
+-- Staff foundation (Batch 1): account status, profile fields, permission
+-- catalog + grants, authorized-branch resolution, append-only audit log and
+-- email sync from the verified Firebase token.
+-- =============================================================================
+-- RUN ORDER: ... -> 20260930000000_staff_backend.sql -> THIS FILE.
+-- Safe to re-run (idempotent) and atomic (one transaction).
+--
+-- DESIGN NOTES
+--   * `staff_members` stays the ONE registry (see 20260930000000). Nothing here
+--     creates a second table of staff.
+--   * Identity is the Firebase UID (`staff_members.firebase_uid`), taken from
+--     the verified JWT (`current_firebase_uid()`), never from a client value.
+--   * account_status ('active' | 'inactive' | 'suspended') is the single source
+--     of truth. `is_active` is now a GENERATED column (account_status='active'),
+--     so every existing `where is_active` / `v.is_active` keeps working and can
+--     never disagree with the status.
+--   * Permissions: the two legacy flags (can_manage_inventory,
+--     can_review_refunds) keep working for every existing RPC. The catalog +
+--     `staff_permission_grants` table are the foundation later batches use to
+--     enforce finer permissions. `staff_permission_keys()` is the one place that
+--     computes what a caller may do; the app displays exactly that list.
+--   * Branches: a staff member has ONE assigned branch (existing requirement);
+--     owners may access every branch. `staff_authorized_branch_ids()` is the one
+--     place that answers "which branches may this caller access?" so a later
+--     multi-branch model only changes this function.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Account status, phone, profile image
+-- -----------------------------------------------------------------------------
+alter table public.staff_members add column if not exists account_status text;
+alter table public.staff_members add column if not exists phone text;
+alter table public.staff_members add column if not exists profile_image text;
+
+do $$
+begin
+  -- First run only: derive the status from the old boolean, then replace the
+  -- boolean with a generated column so the two can never drift apart.
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'staff_members'
+      and column_name = 'is_active' and is_generated = 'NEVER'
+  ) then
+    update public.staff_members
+       set account_status = case when is_active then 'active' else 'inactive' end
+     where account_status is null;
+    alter table public.staff_members drop column is_active;
+  end if;
+end $$;
+
+update public.staff_members set account_status = 'active' where account_status is null;
+alter table public.staff_members alter column account_status set default 'active';
+alter table public.staff_members alter column account_status set not null;
+
+alter table public.staff_members drop constraint if exists staff_account_status_valid;
+alter table public.staff_members
+  add constraint staff_account_status_valid
+  check (account_status in ('active', 'inactive', 'suspended'));
+
+alter table public.staff_members drop constraint if exists staff_phone_length;
+alter table public.staff_members
+  add constraint staff_phone_length check (phone is null or char_length(phone) <= 32);
+alter table public.staff_members drop constraint if exists staff_profile_image_length;
+alter table public.staff_members
+  add constraint staff_profile_image_length check (profile_image is null or char_length(profile_image) <= 1024);
+
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'staff_members' and column_name = 'is_active'
+  ) then
+    alter table public.staff_members
+      add column is_active boolean generated always as (account_status = 'active') stored;
+  end if;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Permission catalog + grants
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_permission_catalog()
+returns text[]
+language sql
+immutable
+as $$
+  select array[
+    'view_dashboard',
+    'view_products',    'manage_products',
+    'view_inventory',   'manage_inventory',
+    'view_orders',      'manage_orders',
+    'view_payments',
+    'manage_refunds',
+    'view_reports',
+    'manage_stock_transfers',
+    'view_notifications'
+  ]
+$$;
+
+create table if not exists public.staff_permission_grants (
+  firebase_uid text not null references public.staff_members(firebase_uid) on delete cascade,
+  permission text not null,
+  granted_by text,
+  granted_at timestamptz not null default now(),
+  primary key (firebase_uid, permission),
+  constraint staff_permission_in_catalog check (permission = any (public.staff_permission_catalog()))
+);
+alter table public.staff_permission_grants enable row level security;
+
+-- What the caller may do, computed on the server:
+--   * owner            -> the whole catalog
+--   * active staff     -> baseline read access every active staff member already
+--                         has through the existing RPCs
+--                         + implied by the legacy flags
+--                         + explicit grants
+--   * anyone else      -> nothing
+-- The 'suspended' / 'inactive' accounts get an EMPTY list: a stale grant can
+-- never outlive the account status.
+create or replace function public.staff_permission_keys()
+returns text[]
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+  v_keys text[];
+begin
+  select * into v from public.staff_members where firebase_uid = public.current_firebase_uid();
+  if not found or v.account_status <> 'active' then
+    return array[]::text[];
+  end if;
+  if v.role = 'owner' then
+    return public.staff_permission_catalog();
+  end if;
+
+  v_keys := array['view_dashboard', 'view_products', 'view_inventory', 'view_orders', 'view_notifications'];
+  if v.can_manage_inventory then
+    v_keys := v_keys || array['manage_inventory', 'manage_stock_transfers'];
+  end if;
+  if v.can_review_refunds then
+    v_keys := v_keys || array['manage_refunds'];
+  end if;
+  select coalesce(array_agg(g.permission), array[]::text[]) into v_keys
+  from (
+    select unnest(v_keys) as permission
+    union
+    select permission from public.staff_permission_grants where firebase_uid = v.firebase_uid
+  ) g;
+  return v_keys;
+end;
+$$;
+
+-- Which branches may the caller access? Owner: all. Staff: their assigned one.
+create or replace function public.staff_authorized_branch_ids()
+returns uuid[]
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  select * into v from public.staff_members where firebase_uid = public.current_firebase_uid();
+  if not found or v.account_status <> 'active' then
+    return array[]::uuid[];
+  end if;
+  if v.role = 'owner' then
+    return coalesce((select array_agg(id order by name) from public.branches), array[]::uuid[]);
+  end if;
+  if v.branch_id is null then
+    return array[]::uuid[];
+  end if;
+  return array[v.branch_id];
+end;
+$$;
+
+-- Generic permission check for RPCs and policies. Understands the two legacy
+-- keys ('inventory', 'refunds') used by the existing functions AND the catalog.
+create or replace function public.staff_has_permission(p_permission text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  select * into v from public.staff_members where firebase_uid = public.current_firebase_uid();
+  if not found or v.account_status <> 'active' then
+    return false;
+  end if;
+  if v.role = 'owner' then
+    return true;
+  end if;
+  if p_permission = 'inventory' then return v.can_manage_inventory; end if;
+  if p_permission = 'refunds' then return v.can_review_refunds; end if;
+  return p_permission = any (public.staff_permission_keys());
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Access helpers that now understand 'suspended'
+-- -----------------------------------------------------------------------------
+create or replace function public._require_staff(
+  p_branch_id uuid default null,
+  p_permission text default null
+)
+returns public.staff_members
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  select * into v from public.staff_members
+  where firebase_uid = public.current_firebase_uid();
+  if not found then
+    raise exception 'Your staff account is not set up yet. Please contact the owner.';
+  end if;
+  if v.account_status = 'suspended' then
+    raise exception 'Your staff account has been suspended. Please contact the owner.';
+  end if;
+  if v.account_status <> 'active' then
+    raise exception 'Your staff account has been deactivated. Please contact the owner.';
+  end if;
+  if p_branch_id is not null and v.role <> 'owner' and v.branch_id is distinct from p_branch_id then
+    raise exception 'You can only work in your assigned branch.';
+  end if;
+  if p_permission is not null and v.role <> 'owner' then
+    if p_permission = 'inventory' and not v.can_manage_inventory then
+      raise exception 'You do not have permission to manage inventory.';
+    elsif p_permission = 'refunds' and not v.can_review_refunds then
+      raise exception 'You do not have permission to review refunds.';
+    end if;
+  end if;
+  return v;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. The one read the app makes after sign-in (extended, still status-style)
+--
+--   {"status": "not_provisioned"}
+--   {"status": "inactive"}
+--   {"status": "suspended"}
+--   {"status": "invalid_branch"}      staff row without a usable branch
+--   {"status": "active", "profile": {...}, "permissions": [...],
+--    "authorized_branches": [{"id": "...", "name": "..."}]}
+--
+-- Never raises for "no row" / "not active", never reveals more for the
+-- non-active outcomes.
+-- -----------------------------------------------------------------------------
+create or replace function public.get_my_staff_context()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v public.staff_members;
+  v_branch_name text;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated' using errcode = '28000';
+  end if;
+
+  select * into v from public.staff_members where firebase_uid = v_uid;
+  if not found then
+    return jsonb_build_object('status', 'not_provisioned');
+  end if;
+  if v.account_status = 'suspended' then
+    return jsonb_build_object('status', 'suspended');
+  end if;
+  if v.account_status <> 'active' then
+    return jsonb_build_object('status', 'inactive');
+  end if;
+
+  select name into v_branch_name from public.branches where id = v.branch_id;
+  if v.role = 'staff' and (v.branch_id is null or v_branch_name is null) then
+    return jsonb_build_object('status', 'invalid_branch');
+  end if;
+
+  return jsonb_build_object(
+    'status', 'active',
+    'profile', jsonb_build_object(
+      'firebase_uid', v.firebase_uid,
+      'full_name', v.full_name,
+      'email', v.email,
+      'phone', v.phone,
+      'profile_image', v.profile_image,
+      'role', v.role,
+      'branch_id', v.branch_id,
+      'branch_name', v_branch_name,
+      'account_status', v.account_status,
+      'is_active', v.is_active,
+      'can_manage_inventory', (v.role = 'owner' or v.can_manage_inventory),
+      'can_review_refunds', (v.role = 'owner' or v.can_review_refunds),
+      'created_at', v.created_at
+    ),
+    'permissions', to_jsonb(public.staff_permission_keys()),
+    'authorized_branches', coalesce((
+      select jsonb_agg(jsonb_build_object('id', b.id, 'name', b.name) order by b.name)
+      from public.branches b
+      where b.id = any (public.staff_authorized_branch_ids())
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+-- Keeps the registry email in step with the VERIFIED Firebase token. The value
+-- comes from the JWT, never from a parameter, so a client cannot choose it.
+-- Email is a display/contact field; the identity remains the Firebase UID.
+create or replace function public.staff_sync_my_identity()
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_email text := nullif(lower(trim(coalesce(auth.jwt() ->> 'email', ''))), '');
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated' using errcode = '28000';
+  end if;
+  if v_email is null then
+    return;
+  end if;
+  update public.staff_members
+     set email = left(v_email, 254)
+   where firebase_uid = v_uid
+     and account_status = 'active'
+     and email is distinct from left(v_email, 254);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Owner provisioning: same signatures as before, now status-aware
+-- -----------------------------------------------------------------------------
+create or replace function public.owner_upsert_staff_member(
+  p_firebase_uid text,
+  p_full_name text,
+  p_email text,
+  p_role text,
+  p_branch_name text default null,
+  p_is_active boolean default true,
+  p_can_manage_inventory boolean default true,
+  p_can_review_refunds boolean default false
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_branch_id uuid;
+  v_status text := case when coalesce(p_is_active, true) then 'active' else 'inactive' end;
+begin
+  perform public._require_owner();
+  if coalesce(trim(p_firebase_uid), '') = '' then raise exception 'A staff account id is required.'; end if;
+  if p_role not in ('staff', 'owner') then raise exception 'Unsupported staff role.'; end if;
+  if p_role = 'staff' then
+    select id into v_branch_id from public.branches where name = p_branch_name;
+    if v_branch_id is null then raise exception 'Please choose a valid branch for this staff member.'; end if;
+  end if;
+
+  insert into public.staff_members
+    (firebase_uid, full_name, email, role, branch_id, account_status, can_manage_inventory, can_review_refunds)
+  values
+    (p_firebase_uid, left(coalesce(p_full_name, ''), 100), left(coalesce(p_email, ''), 254), p_role,
+     v_branch_id, v_status, coalesce(p_can_manage_inventory, true), coalesce(p_can_review_refunds, false))
+  on conflict (firebase_uid) do update
+    set full_name = excluded.full_name,
+        email = excluded.email,
+        role = excluded.role,
+        branch_id = excluded.branch_id,
+        -- Re-provisioning must not silently lift a suspension.
+        account_status = case
+          when public.staff_members.account_status = 'suspended' and excluded.account_status = 'active'
+            then 'suspended' else excluded.account_status end,
+        can_manage_inventory = excluded.can_manage_inventory,
+        can_review_refunds = excluded.can_review_refunds;
+end;
+$$;
+
+create or replace function public.owner_set_staff_active(p_firebase_uid text, p_is_active boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_owner();
+  if p_firebase_uid = public.current_firebase_uid() and not coalesce(p_is_active, true) then
+    raise exception 'You cannot deactivate your own account.';
+  end if;
+  update public.staff_members
+     set account_status = case when coalesce(p_is_active, true) then 'active' else 'inactive' end
+   where firebase_uid = p_firebase_uid;
+end;
+$$;
+
+create or replace function public.owner_set_staff_status(p_firebase_uid text, p_status text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_owner();
+  if p_status not in ('active', 'inactive', 'suspended') then
+    raise exception 'Unsupported account status.';
+  end if;
+  if p_firebase_uid = public.current_firebase_uid() and p_status <> 'active' then
+    raise exception 'You cannot change your own account status.';
+  end if;
+  update public.staff_members set account_status = p_status where firebase_uid = p_firebase_uid;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Audit log (append-only)
+-- -----------------------------------------------------------------------------
+create table if not exists public.staff_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  staff_firebase_uid text not null,
+  branch_id uuid references public.branches(id) on delete set null,
+  action text not null,
+  entity_type text not null,
+  entity_id text,
+  metadata jsonb not null default '{}'::jsonb,
+  -- Set by the app for actions recorded offline, so a retried sync of the same
+  -- operation is stored once.
+  client_operation_id text,
+  created_at timestamptz not null default now(),
+  constraint audit_action_format check (action ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$' and char_length(action) <= 80),
+  constraint audit_entity_type_format check (entity_type ~ '^[a-z][a-z0-9_]*$' and char_length(entity_type) <= 60),
+  constraint audit_entity_id_length check (entity_id is null or char_length(entity_id) <= 128),
+  constraint audit_metadata_object check (jsonb_typeof(metadata) = 'object'),
+  constraint audit_metadata_size check (octet_length(metadata::text) <= 8192)
+);
+create unique index if not exists staff_audit_logs_client_op_uq
+  on public.staff_audit_logs (staff_firebase_uid, client_operation_id)
+  where client_operation_id is not null;
+create index if not exists staff_audit_logs_branch_time_idx
+  on public.staff_audit_logs (branch_id, created_at desc);
+create index if not exists staff_audit_logs_actor_time_idx
+  on public.staff_audit_logs (staff_firebase_uid, created_at desc);
+alter table public.staff_audit_logs enable row level security;
+
+-- Append-only, even for roles that hold table privileges.
+create or replace function public._audit_logs_immutable()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'Audit records cannot be changed or deleted.';
+end;
+$$;
+drop trigger if exists staff_audit_logs_no_update on public.staff_audit_logs;
+create trigger staff_audit_logs_no_update
+  before update or delete on public.staff_audit_logs
+  for each row execute function public._audit_logs_immutable();
+drop trigger if exists staff_audit_logs_no_truncate on public.staff_audit_logs;
+create trigger staff_audit_logs_no_truncate
+  before truncate on public.staff_audit_logs
+  for each statement execute function public._audit_logs_immutable();
+
+-- Internal writer for later server-side RPCs (inventory, refunds, transfers...).
+-- NOT granted to clients.
+create or replace function public._write_audit(
+  p_staff_uid text,
+  p_branch_id uuid,
+  p_action text,
+  p_entity_type text,
+  p_entity_id text,
+  p_metadata jsonb default '{}'::jsonb,
+  p_client_operation_id text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  insert into public.staff_audit_logs
+    (staff_firebase_uid, branch_id, action, entity_type, entity_id, metadata, client_operation_id)
+  values
+    (p_staff_uid, p_branch_id, p_action, p_entity_type, p_entity_id,
+     coalesce(p_metadata, '{}'::jsonb), p_client_operation_id)
+  on conflict (staff_firebase_uid, client_operation_id) where client_operation_id is not null
+  do nothing
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+-- Client entry point. Who did it and in which branch are derived on the server
+-- from the verified token and the registry; the caller cannot claim either.
+create or replace function public.staff_log_audit(
+  p_action text,
+  p_entity_type text,
+  p_entity_id text default null,
+  p_metadata jsonb default '{}'::jsonb,
+  p_client_operation_id text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  v := public._require_staff();
+  if p_client_operation_id is not null and char_length(p_client_operation_id) > 64 then
+    raise exception 'Invalid operation id.';
+  end if;
+  return public._write_audit(
+    v.firebase_uid, v.branch_id, p_action, p_entity_type, p_entity_id,
+    coalesce(p_metadata, '{}'::jsonb), p_client_operation_id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Privileges and policies (deny by default, then allow-list)
+-- -----------------------------------------------------------------------------
+revoke all on public.staff_permission_grants from anon, authenticated;
+revoke all on public.staff_audit_logs from anon, authenticated;
+grant select on public.staff_permission_grants to authenticated;
+grant select on public.staff_audit_logs to authenticated;
+
+drop policy if exists "staff: read own permission grants" on public.staff_permission_grants;
+create policy "staff: read own permission grants" on public.staff_permission_grants
+  for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()) or public.staff_is_owner());
+
+-- Staff read their own audit trail; owners read everything. Nobody writes
+-- through the API: inserts only happen inside staff_log_audit / _write_audit.
+drop policy if exists "staff: read own audit records" on public.staff_audit_logs;
+create policy "staff: read own audit records" on public.staff_audit_logs
+  for select to authenticated
+  using (staff_firebase_uid = (select public.current_firebase_uid()) or public.staff_is_owner());
+
+grant execute on function public.staff_permission_catalog() to authenticated;
+grant execute on function public.staff_permission_keys() to authenticated;
+grant execute on function public.staff_authorized_branch_ids() to authenticated;
+grant execute on function public.staff_has_permission(text) to authenticated;
+grant execute on function public.get_my_staff_context() to authenticated;
+grant execute on function public.staff_sync_my_identity() to authenticated;
+grant execute on function public.owner_upsert_staff_member(text, text, text, text, text, boolean, boolean, boolean) to authenticated;
+grant execute on function public.owner_set_staff_active(text, boolean) to authenticated;
+grant execute on function public.owner_set_staff_status(text, text) to authenticated;
+grant execute on function public.staff_log_audit(text, text, text, jsonb, text) to authenticated;
+
+revoke all on function public._require_staff(uuid, text) from public, anon, authenticated;
+revoke all on function public._write_audit(text, uuid, text, text, text, jsonb, text) from public, anon, authenticated;
+revoke all on function public._audit_logs_immutable() from public, anon, authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261001000000_staff_product_management.sql <<<<<<<<<<
+-- Staff product management: real writes for the staff Add/Edit Product and
+-- Category screens. Customers read the same products / product_variants /
+-- product_categories / branch_inventory tables, so every change here is what
+-- the customer app sees. Prices, active state and stock are enforced by the
+-- database, not by the client.
+--
+-- Idempotent: safe to re-run. Requires 20260930000000 + 20260930010000.
+
+begin;
+
+-- Active staff (any role) may read inactive products too, so a deactivated
+-- product stays editable. Customers still only see is_active products.
+create or replace function public.is_active_staff()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.staff_members s
+    where s.firebase_uid = public.current_firebase_uid() and s.account_status = 'active'
+  )
+$$;
+revoke all on function public.is_active_staff() from public;
+grant execute on function public.is_active_staff() to authenticated;
+
+drop policy if exists "staff read all products" on public.products;
+create policy "staff read all products" on public.products
+  for select using (public.is_active_staff());
+
+-- Caller must be an active staff member holding manage_products (owners hold
+-- everything). Raises a staff-readable message otherwise.
+create or replace function public._require_product_manager()
+returns public.staff_members
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare v public.staff_members;
+begin
+  v := public._require_staff();
+  if not public.staff_has_permission('manage_products') then
+    raise exception 'You do not have permission to manage products.';
+  end if;
+  return v;
+end;
+$$;
+
+-- Create (p_product_id null) or update a product, its variants and the
+-- branches it is stocked in. p_variants: [{id?, label, price, cost_price?, sku?, badge?}]
+-- Variants omitted from the list are removed only if they have no stock rows
+-- or order history; otherwise the call fails rather than orphaning data.
+create or replace function public.staff_save_product(
+  p_product_id uuid,
+  p_name text,
+  p_description text,
+  p_category_id uuid,
+  p_price numeric,
+  p_sku text,
+  p_images text[],
+  p_is_active boolean,
+  p_is_featured boolean,
+  p_variants jsonb,
+  p_branch_ids uuid[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_id uuid := p_product_id;
+  v_name text := trim(coalesce(p_name, ''));
+  v jsonb;
+  v_vid uuid;
+  v_keep uuid[] := '{}';
+  v_branch uuid;
+  v_sort int := 0;
+begin
+  v_staff := public._require_product_manager();
+  if v_name = '' or length(v_name) > 120 then raise exception 'Enter a product name (up to 120 characters).'; end if;
+  if p_price is null or p_price < 0 or p_price > 1000000 then raise exception 'Enter a valid price.'; end if;
+  if p_category_id is not null and not exists (select 1 from public.product_categories where id = p_category_id) then
+    raise exception 'That category no longer exists.';
+  end if;
+
+  -- Branch availability: staff may only touch their own branch.
+  if p_branch_ids is not null then
+    foreach v_branch in array p_branch_ids loop
+      if v_staff.role <> 'owner' and v_staff.branch_id is distinct from v_branch then
+        raise exception 'You can only make products available in your assigned branch.';
+      end if;
+      if not exists (select 1 from public.branches where id = v_branch) then
+        raise exception 'A selected branch no longer exists.';
+      end if;
+    end loop;
+  end if;
+
+  if v_id is null then
+    insert into public.products (category_id, name, price, description, sku, images, is_active, is_featured)
+    values (p_category_id, v_name, p_price, coalesce(p_description, ''), nullif(trim(coalesce(p_sku, '')), ''),
+            coalesce(p_images, '{}'), coalesce(p_is_active, true), coalesce(p_is_featured, false))
+    returning id into v_id;
+  else
+    update public.products set
+      category_id = p_category_id, name = v_name, price = p_price,
+      description = coalesce(p_description, ''), sku = nullif(trim(coalesce(p_sku, '')), ''),
+      images = coalesce(p_images, '{}'), is_active = coalesce(p_is_active, true),
+      is_featured = coalesce(p_is_featured, false), updated_at = now()
+    where id = v_id;
+    if not found then raise exception 'That product could not be found.'; end if;
+  end if;
+
+  -- Variants (always keep at least a default one so the product is purchasable).
+  if p_variants is null or jsonb_typeof(p_variants) <> 'array' or jsonb_array_length(p_variants) = 0 then
+    p_variants := jsonb_build_array(jsonb_build_object('label', 'Standard', 'price', p_price));
+  end if;
+  for v in select * from jsonb_array_elements(p_variants) loop
+    if coalesce(trim(v->>'label'), '') = '' then raise exception 'Every variant needs a label.'; end if;
+    if (v->>'price') is null or (v->>'price')::numeric < 0 then raise exception 'Every variant needs a valid price.'; end if;
+    v_vid := nullif(v->>'id', '')::uuid;
+    if v_vid is not null and exists (select 1 from public.product_variants where id = v_vid and product_id = v_id) then
+      update public.product_variants set
+        label = trim(v->>'label'), price = (v->>'price')::numeric,
+        cost_price = nullif(v->>'cost_price', '')::numeric,
+        sku = nullif(trim(coalesce(v->>'sku', '')), ''), badge = nullif(trim(coalesce(v->>'badge', '')), ''),
+        sort_order = v_sort
+      where id = v_vid;
+    else
+      insert into public.product_variants (product_id, label, price, cost_price, sku, badge, sort_order)
+      values (v_id, trim(v->>'label'), (v->>'price')::numeric, nullif(v->>'cost_price', '')::numeric,
+              nullif(trim(coalesce(v->>'sku', '')), ''), nullif(trim(coalesce(v->>'badge', '')), ''), v_sort)
+      returning id into v_vid;
+    end if;
+    v_keep := v_keep || v_vid;
+    v_sort := v_sort + 1;
+  end loop;
+
+  begin
+    delete from public.product_variants where product_id = v_id and id <> all (v_keep);
+  exception when foreign_key_violation then
+    raise exception 'A variant that has stock or order history cannot be removed. Deactivate the product instead.';
+  end;
+
+  -- Zero-quantity rows make the variant appear in the branch's inventory
+  -- screens; real stock only ever arrives through the inventory functions.
+  if p_branch_ids is not null then
+    perform set_config('app.inventory_managed', '1', true);
+    foreach v_branch in array p_branch_ids loop
+      insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
+      select v_branch, v_id, pv.id, 0 from public.product_variants pv where pv.product_id = v_id
+      on conflict (branch_id, product_id, variant_id) do nothing;
+    end loop;
+  end if;
+
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id,
+    case when p_product_id is null then 'product_created' else 'product_updated' end,
+    'product', v_id::text, jsonb_build_object('name', v_name, 'price', p_price, 'is_active', coalesce(p_is_active, true)), null);
+  return v_id;
+end;
+$$;
+
+create or replace function public.staff_set_product_active(p_product_id uuid, p_is_active boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_staff public.staff_members;
+begin
+  v_staff := public._require_product_manager();
+  update public.products set is_active = coalesce(p_is_active, false), updated_at = now() where id = p_product_id;
+  if not found then raise exception 'That product could not be found.'; end if;
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id, 'product_active_changed',
+    'product', p_product_id::text, jsonb_build_object('is_active', p_is_active), null);
+end;
+$$;
+
+create or replace function public.staff_save_category(p_category_id uuid, p_label text, p_icon_name text, p_sort_order int)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_id uuid := p_category_id;
+  v_label text := trim(coalesce(p_label, ''));
+begin
+  v_staff := public._require_product_manager();
+  if v_label = '' or length(v_label) > 60 then raise exception 'Enter a category name (up to 60 characters).'; end if;
+  if v_id is null then
+    insert into public.product_categories (label, icon_name, sort_order)
+    values (v_label, coalesce(nullif(trim(coalesce(p_icon_name, '')), ''), 'category'), coalesce(p_sort_order, 0))
+    returning id into v_id;
+  else
+    update public.product_categories set label = v_label,
+      icon_name = coalesce(nullif(trim(coalesce(p_icon_name, '')), ''), icon_name),
+      sort_order = coalesce(p_sort_order, sort_order)
+    where id = v_id;
+    if not found then raise exception 'That category could not be found.'; end if;
+  end if;
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id, 'category_saved', 'category', v_id::text,
+    jsonb_build_object('label', v_label), null);
+  return v_id;
+end;
+$$;
+
+revoke all on function public._require_product_manager() from public, anon;
+revoke all on function public.staff_save_product(uuid, text, text, uuid, numeric, text, text[], boolean, boolean, jsonb, uuid[]) from public, anon;
+revoke all on function public.staff_set_product_active(uuid, boolean) from public, anon;
+revoke all on function public.staff_save_category(uuid, text, text, int) from public, anon;
+grant execute on function public.staff_save_product(uuid, text, text, uuid, numeric, text, text[], boolean, boolean, jsonb, uuid[]) to authenticated;
+grant execute on function public.staff_set_product_active(uuid, boolean) to authenticated;
+grant execute on function public.staff_save_category(uuid, text, text, int) to authenticated;
+
+-- Customer realtime: catalog + stock changes reach open customer screens.
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    foreach t in array array['products', 'product_variants', 'branch_inventory'] loop
+      if not exists (select 1 from pg_publication_tables
+                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+        execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+commit;
+
+
+-- >>>>>>>>>> 20261001010000_fix_cart_updated_at.sql <<<<<<<<<<
+-- Fix: column "updated_at" of relation "cart_items" does not exist
+--
+-- schema.sql creates cart_items / carts with `create table if not exists`, so
+-- databases that already had the older prototype tables never received the
+-- created_at / updated_at columns. get_customer_cart, checkout and the
+-- cart_items_set_updated_at trigger all write updated_at, so every cart load
+-- and sync failed, leaving the app stuck on
+-- "Your cart changes haven't synced to your account yet."
+--
+-- Idempotent: safe to run on databases that already have the columns.
+
+alter table public.cart_items add column if not exists created_at timestamptz not null default now();
+alter table public.cart_items add column if not exists updated_at timestamptz not null default now();
+
+alter table public.carts add column if not exists created_at timestamptz not null default now();
+alter table public.carts add column if not exists updated_at timestamptz not null default now();
+
+drop trigger if exists cart_items_set_updated_at on public.cart_items;
+create trigger cart_items_set_updated_at before update on public.cart_items
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists carts_set_updated_at on public.carts;
+create trigger carts_set_updated_at before update on public.carts
+  for each row execute function public.set_updated_at();
+
+-- Make PostgREST pick up the new columns immediately.
+notify pgrst, 'reload schema';
+
+
+-- >>>>>>>>>> 20261001020000_seed_loyalty_cart_settings.sql <<<<<<<<<<
+-- Fix: "Loyalty point redemption is not configured yet."
+--
+-- The cart pricing function reads the single `default` row of
+-- public.loyalty_cart_settings when a customer turns on "Redeem Golden Kernel
+-- Points". schema.sql creates the table but (deliberately) never seeds it, so
+-- the row was missing and redemption always raised that error.
+--
+-- STARTER VALUES - change them to match your actual loyalty policy:
+--   points_per_peso      = 1   -> 1 point is worth PHP 1 off  (points earn at
+--                                 1 pt per PHP 50 spent, so this is ~2% back)
+--   max_discount_percent = 50  -> points can cover at most 50% of an order
+--
+-- `on conflict do nothing` means this never overwrites values you've already set.
+
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
+values ('default', 1, 50)
+on conflict (id) do nothing;
+
+-- To change later (SQL editor):
+--   update public.loyalty_cart_settings
+--   set points_per_peso = 1, max_discount_percent = 50, updated_at = now()
+--   where id = 'default';
+
+
+-- >>>>>>>>>> 20261002000000_product_sales_30d.sql <<<<<<<<<<
+-- Fix: Product Performance / Pricing Hub screens showed fake numbers.
+--
+-- `Product.unitsSoldLast30Days` (and the `monthlyRevenue`/`marginPercent`
+-- getters built on it) was always hardcoded to 0 in the app, because no
+-- existing query returned real per-product trailing-30-day unit counts.
+-- `get_popular_products` (schema.sql) only returns a top-N *ranking*, not a
+-- per-product count for every active product, so it can't be reused here.
+--
+-- This adds a dedicated RPC, modeled on `get_popular_products`, that returns
+-- every active product's real units sold in the trailing 30 days (0 for a
+-- product with no recent sales, never omitted and never invented).
+
+create or replace function public.get_product_sales_30d()
+returns table (product_id uuid, units_sold bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.id as product_id,
+         coalesce(sum(oi.quantity) filter (
+           where o.id is not null
+             and o.status <> 'cancelled'
+             and o.created_at >= now() - interval '30 days'
+         ), 0)::bigint as units_sold
+  from public.products p
+  left join public.order_items oi on oi.product_name = p.name
+  left join public.orders o on o.id = oi.order_id
+  where p.is_active
+  group by p.id
+$$;
+
+grant execute on function public.get_product_sales_30d() to anon, authenticated;
+
+
+-- >>>>>>>>>> 20261002010000_delivery_module.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261002010000
+-- Delivery module: real dispatches built from real orders.
+--
+-- Replaces the Delivery feature's frontend-only simulation with a real
+-- `deliveries` / `delivery_stops` backend. There is still no GPS/routing
+-- provider wired in anywhere in this app, so per-leg distance/time here is
+-- a simple, honestly-labeled heuristic (not real routing) — see
+-- `staff_create_delivery` below.
+--
+-- RUN ORDER: ... -> 20261002000000_product_sales_30d.sql -> THIS FILE.
+-- Safe to re-run (idempotent) and atomic (one transaction).
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 0. Order state machine: allow a cancelled delivery to return its order to
+--    'confirmed' so it can be redispatched. Every other rule from
+--    `enforce_order_transition` (20260928010000_order_integrity.sql) is kept
+--    verbatim; this just adds one explicit backward edge.
+-- -----------------------------------------------------------------------------
+create or replace function public.enforce_order_transition()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_old int;
+  v_new int;
+begin
+  if new.status = old.status then return new; end if;
+
+  if old.status in ('cancelled', 'refunded') then
+    raise exception 'Order % is % and can no longer change status.', old.id, old.status;
+  end if;
+
+  if old.status = 'completed' then
+    if new.status <> 'refundRequested' then
+      raise exception 'A completed order can only move to refundRequested (not %).', new.status;
+    end if;
+    return new;
+  end if;
+
+  if old.status = 'refundRequested' then
+    if new.status not in ('refunded', 'completed') then
+      raise exception 'A refund-requested order can only become refunded or return to completed (not %).', new.status;
+    end if;
+    return new;
+  end if;
+
+  -- From here `old` is an active (unfulfilled) status.
+  if new.status in ('refundRequested', 'refunded') then
+    raise exception 'Only a completed order can be refunded.';
+  end if;
+  if new.status = 'cancelled' then return new; end if;
+
+  -- A delivery dispatch was cancelled: the order returns to the kitchen
+  -- queue so staff can redispatch it on a new delivery. The only backward
+  -- edge in this state machine, and only this one.
+  if old.status = 'outForDelivery' and new.status = 'confirmed' then
+    return new;
+  end if;
+
+  if new.status = 'readyForPickup' and new.is_delivery then
+    raise exception 'A delivery order cannot be ready for pickup.';
+  end if;
+  if new.status = 'outForDelivery' and not new.is_delivery then
+    raise exception 'A pickup order cannot be out for delivery.';
+  end if;
+
+  v_old := case old.status when 'pending' then 1 when 'confirmed' then 2 when 'preparing' then 3
+                           when 'readyForPickup' then 4 when 'outForDelivery' then 4 end;
+  v_new := case new.status when 'pending' then 1 when 'confirmed' then 2 when 'preparing' then 3
+                           when 'readyForPickup' then 4 when 'outForDelivery' then 4 when 'completed' then 5 end;
+  if v_new is null or v_new <= v_old then
+    raise exception 'Order status cannot move from % to %.', old.status, new.status;
+  end if;
+
+  if new.status = 'completed' and new.total > 0 and not exists (
+       select 1 from public.payments p where p.order_id = new.id and p.status = 'success') then
+    raise exception 'Order % cannot be completed until its payment is confirmed.', new.id;
+  end if;
+
+  return new;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 1. Tables
+-- -----------------------------------------------------------------------------
+create sequence if not exists public.delivery_code_seq start 1001;
+
+create table if not exists public.deliveries (
+  id text primary key default ('DEL-' || nextval('public.delivery_code_seq')::text),
+  branch_id uuid not null references public.branches(id),
+  branch_name text not null,
+  vehicle text not null,
+  rider_name text not null,
+  status text not null default 'optimized'
+    check (status in ('pending', 'optimized', 'dispatched', 'inTransit', 'completed', 'cancelled')),
+  created_by text references public.staff_members(firebase_uid),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+drop trigger if exists deliveries_set_updated_at on public.deliveries;
+create trigger deliveries_set_updated_at before update on public.deliveries
+  for each row execute function public.set_updated_at();
+create index if not exists deliveries_branch_time_idx on public.deliveries (branch_id, created_at desc);
+
+create table if not exists public.delivery_stops (
+  id uuid primary key default gen_random_uuid(),
+  delivery_id text not null references public.deliveries(id) on delete cascade,
+  order_id text not null references public.orders(id),
+  sequence_index int not null,
+  distance_from_previous_km numeric(6, 2) not null default 0,
+  travel_minutes_from_previous int not null default 0,
+  eta_label text,
+  status text not null default 'pending'
+    check (status in ('pending', 'enRoute', 'delivered', 'delayed', 'skipped')),
+  issue_reason text,
+  proof_note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+drop trigger if exists delivery_stops_set_updated_at on public.delivery_stops;
+create trigger delivery_stops_set_updated_at before update on public.delivery_stops
+  for each row execute function public.set_updated_at();
+create index if not exists delivery_stops_delivery_idx on public.delivery_stops (delivery_id, sequence_index);
+create index if not exists delivery_stops_order_idx on public.delivery_stops (order_id);
+
+-- -----------------------------------------------------------------------------
+-- 2. RLS: deny direct table access; everything goes through the RPCs below
+--    (same pattern as `staff_audit_logs` / other operational tables).
+-- -----------------------------------------------------------------------------
+alter table public.deliveries enable row level security;
+alter table public.delivery_stops enable row level security;
+revoke all on public.deliveries from anon, authenticated;
+revoke all on public.delivery_stops from anon, authenticated;
+
+drop policy if exists "no direct access" on public.deliveries;
+create policy "no direct access" on public.deliveries for all to authenticated using (false) with check (false);
+drop policy if exists "no direct access" on public.delivery_stops;
+create policy "no direct access" on public.delivery_stops for all to authenticated using (false) with check (false);
+
+-- -----------------------------------------------------------------------------
+-- 3. Shared jsonb read model for one delivery (used by create + list)
+-- -----------------------------------------------------------------------------
+create or replace function public._delivery_to_jsonb(p_delivery_id text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', d.id,
+    'branch', d.branch_name,
+    'branch_id', d.branch_id,
+    'vehicle', d.vehicle,
+    'rider_name', d.rider_name,
+    'status', d.status,
+    'created_at', d.created_at,
+    'stops', (
+      select coalesce(jsonb_agg(to_jsonb(s) order by s.sequence_index), '[]'::jsonb)
+      from (
+        select
+          ds.id,
+          o.id as order_id,
+          coalesce(nullif(cp.full_name, ''), 'Customer') as customer_name,
+          coalesce(o.delivery_address_text, 'Address not provided') as address,
+          ds.sequence_index,
+          ds.distance_from_previous_km,
+          ds.travel_minutes_from_previous,
+          ds.eta_label as eta,
+          ds.status,
+          ds.issue_reason,
+          ds.proof_note,
+          (select coalesce(jsonb_agg(
+                     oi.quantity::text || 'x ' || oi.product_name ||
+                     case when oi.variant_label is null or oi.variant_label = '' or oi.variant_label = 'Regular'
+                          then '' else ' (' || oi.variant_label || ')' end
+                   ), '[]'::jsonb)
+           from public.order_items oi where oi.order_id = o.id) as items
+        from public.delivery_stops ds
+        join public.orders o on o.id = ds.order_id
+        left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+        where ds.delivery_id = d.id
+      ) s
+    )
+  )
+  from public.deliveries d
+  where d.id = p_delivery_id
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. Orders eligible to become delivery stops
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_list_deliverable_orders(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch uuid;
+begin
+  v_staff := public._require_staff();
+  v_branch := case when v_staff.role = 'owner' then p_branch_id else v_staff.branch_id end;
+  if v_branch is null then raise exception 'Please choose a branch first.'; end if;
+  if not (v_branch = any (public.staff_authorized_branch_ids())) then
+    raise exception 'You can only work in your assigned branch.';
+  end if;
+
+  return (
+    select coalesce(jsonb_agg(x.j order by x.created_at), '[]'::jsonb)
+    from (
+      select o.created_at,
+        jsonb_build_object(
+          'order_id', o.id,
+          'customer_name', coalesce(nullif(cp.full_name, ''), 'Customer'),
+          'address', coalesce(o.delivery_address_text, 'Address not provided'),
+          'created_at', o.created_at,
+          'items', (select coalesce(jsonb_agg(
+                       oi.quantity::text || 'x ' || oi.product_name ||
+                       case when oi.variant_label is null or oi.variant_label = '' or oi.variant_label = 'Regular'
+                            then '' else ' (' || oi.variant_label || ')' end
+                     ), '[]'::jsonb)
+                   from public.order_items oi where oi.order_id = o.id)
+        ) as j
+      from public.orders o
+      left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+      where o.branch_id = v_branch
+        and o.is_delivery
+        and o.status in ('confirmed', 'preparing')
+        and not exists (
+          select 1 from public.delivery_stops ds
+          join public.deliveries d on d.id = ds.delivery_id
+          where ds.order_id = o.id and d.status not in ('cancelled', 'completed')
+        )
+      order by o.created_at
+    ) x
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Create a delivery from a chosen set of real orders
+--
+--    No geocoding/routing API is available in this project, so the
+--    per-stop distance/time below is a simple, clearly-labeled estimate
+--    (a fixed per-stop increment, like a delivery person working down a
+--    short local route) — NOT real GPS/turn-by-turn routing.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_create_delivery(
+  p_branch_id uuid,
+  p_vehicle text,
+  p_rider_name text,
+  p_order_ids text[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branch_name text;
+  v_delivery_id text;
+  v_order_id text;
+  v_order public.orders;
+  v_idx int := 0;
+  v_distance numeric(6, 2);
+  v_minutes int;
+  v_eta_minutes int := 0;
+  v_now timestamptz := now();
+  v_eta timestamptz;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  if coalesce(trim(p_vehicle), '') = '' then raise exception 'Please enter a vehicle.'; end if;
+  if coalesce(trim(p_rider_name), '') = '' then raise exception 'Please enter a rider name.'; end if;
+  if p_order_ids is null or array_length(p_order_ids, 1) is null then
+    raise exception 'Please choose at least one order for this delivery.';
+  end if;
+
+  select name into v_branch_name from public.branches where id = p_branch_id;
+  if v_branch_name is null then raise exception 'Please choose a valid branch.'; end if;
+
+  insert into public.deliveries (branch_id, branch_name, vehicle, rider_name, status, created_by)
+  values (p_branch_id, v_branch_name, trim(p_vehicle), trim(p_rider_name), 'optimized', v_staff.firebase_uid)
+  returning id into v_delivery_id;
+
+  foreach v_order_id in array p_order_ids loop
+    select * into v_order from public.orders where id = v_order_id for update;
+    if not found then
+      raise exception 'Order % could not be found.', v_order_id;
+    end if;
+    if v_order.branch_id is distinct from p_branch_id then
+      raise exception 'Order % does not belong to the chosen branch.', v_order_id;
+    end if;
+    if not v_order.is_delivery then
+      raise exception 'Order % is not a delivery order.', v_order_id;
+    end if;
+    if v_order.status not in ('confirmed', 'preparing') then
+      raise exception 'Order % is % and can no longer be dispatched.', v_order_id, v_order.status;
+    end if;
+    if exists (
+      select 1 from public.delivery_stops ds
+      join public.deliveries d on d.id = ds.delivery_id
+      where ds.order_id = v_order_id and d.status not in ('cancelled', 'completed')
+    ) then
+      raise exception 'Order % is already part of another active delivery.', v_order_id;
+    end if;
+
+    -- Honest, simple per-stop estimate: a fixed base distance/time per leg
+    -- (no real geocoding/routing is available to this app).
+    v_distance := round((1.5 + v_idx * 1.2)::numeric, 1);
+    v_minutes := round(v_distance / 20.0 * 60.0)::int; -- ~20 km/h average local delivery speed
+    v_eta_minutes := v_eta_minutes + v_minutes;
+    v_eta := v_now + make_interval(mins => v_eta_minutes);
+
+    insert into public.delivery_stops (
+      delivery_id, order_id, sequence_index, distance_from_previous_km,
+      travel_minutes_from_previous, eta_label, status
+    ) values (
+      v_delivery_id, v_order_id, v_idx, v_distance, v_minutes,
+      to_char(v_eta, 'FMHH12:MI AM'), 'pending'
+    );
+
+    update public.orders set status = 'outForDelivery', rider_name = trim(p_rider_name) where id = v_order_id;
+
+    v_idx := v_idx + 1;
+  end loop;
+
+  return public._delivery_to_jsonb(v_delivery_id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. List deliveries the caller may see
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_get_deliveries(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branches uuid[];
+begin
+  v_staff := public._require_staff();
+  v_branches := public.staff_authorized_branch_ids();
+  if p_branch_id is not null then
+    if not (p_branch_id = any (v_branches)) then
+      raise exception 'You can only work in your assigned branch.';
+    end if;
+    v_branches := array[p_branch_id];
+  end if;
+
+  return (
+    select coalesce(jsonb_agg(public._delivery_to_jsonb(d.id) order by d.created_at desc), '[]'::jsonb)
+    from public.deliveries d
+    where d.branch_id = any (v_branches)
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6b. Mark a delivery as dispatched (handed off to the rider) before any
+--     stop has moved. A stop moving to 'enRoute'/'delivered'/etc. also
+--     advances status past this automatically (see staff_update_delivery_stop
+--     below), so this only matters for the brief "handed off, not yet moving"
+--     window.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_dispatch_delivery(p_delivery_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delivery public.deliveries;
+begin
+  select * into v_delivery from public.deliveries where id = p_delivery_id for update;
+  if not found then raise exception 'That delivery could not be found.'; end if;
+  perform public._require_staff(v_delivery.branch_id);
+
+  if v_delivery.status not in ('pending', 'optimized') then
+    raise exception 'This delivery is already %.', v_delivery.status;
+  end if;
+
+  update public.deliveries set status = 'dispatched' where id = p_delivery_id;
+  return public._delivery_to_jsonb(p_delivery_id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Update one stop's status (delivered / delayed / skipped / enRoute) and
+--    roll the parent delivery's status forward to match.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_update_delivery_stop(
+  p_stop_id uuid,
+  p_status text,
+  p_issue_reason text default null,
+  p_proof_note text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_stop public.delivery_stops;
+  v_delivery public.deliveries;
+  v_total int;
+  v_done int;
+  v_enroute int;
+  v_moved int;
+  v_new_status text;
+begin
+  if p_status not in ('pending', 'enRoute', 'delivered', 'delayed', 'skipped') then
+    raise exception 'Unsupported stop status.';
+  end if;
+
+  select * into v_stop from public.delivery_stops where id = p_stop_id for update;
+  if not found then raise exception 'That delivery stop could not be found.'; end if;
+  select * into v_delivery from public.deliveries where id = v_stop.delivery_id for update;
+  if not found then raise exception 'That delivery could not be found.'; end if;
+  perform public._require_staff(v_delivery.branch_id);
+
+  if v_delivery.status in ('completed', 'cancelled') then
+    raise exception 'This delivery is % and its stops can no longer be changed.', v_delivery.status;
+  end if;
+
+  update public.delivery_stops
+     set status = p_status,
+         issue_reason = case when p_status in ('delayed', 'skipped') then coalesce(p_issue_reason, v_stop.issue_reason) else v_stop.issue_reason end,
+         proof_note = coalesce(p_proof_note, v_stop.proof_note)
+   where id = p_stop_id;
+
+  if p_status = 'delivered' then
+    update public.orders set status = 'completed' where id = v_stop.order_id;
+  end if;
+
+  select count(*), count(*) filter (where status in ('delivered', 'skipped')),
+         count(*) filter (where status = 'enRoute'), count(*) filter (where status <> 'pending')
+    into v_total, v_done, v_enroute, v_moved
+    from public.delivery_stops where delivery_id = v_delivery.id;
+
+  if v_total > 0 and v_done = v_total then
+    v_new_status := 'completed';
+  elsif v_enroute > 0 then
+    v_new_status := 'inTransit';
+  elsif v_moved > 0 then
+    v_new_status := 'dispatched';
+  else
+    v_new_status := v_delivery.status;
+  end if;
+
+  if v_new_status is distinct from v_delivery.status then
+    update public.deliveries set status = v_new_status where id = v_delivery.id;
+  end if;
+
+  return public._delivery_to_jsonb(v_delivery.id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Cancel a whole delivery
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_cancel_delivery(p_delivery_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delivery public.deliveries;
+  v_stop record;
+begin
+  select * into v_delivery from public.deliveries where id = p_delivery_id for update;
+  if not found then raise exception 'That delivery could not be found.'; end if;
+  perform public._require_staff(v_delivery.branch_id);
+
+  if v_delivery.status in ('completed', 'cancelled') then
+    raise exception 'This delivery is already %.', v_delivery.status;
+  end if;
+
+  for v_stop in
+    select * from public.delivery_stops where delivery_id = p_delivery_id and status not in ('delivered', 'skipped')
+  loop
+    update public.orders set status = 'confirmed', rider_name = null
+     where id = v_stop.order_id and status = 'outForDelivery';
+  end loop;
+
+  update public.deliveries set status = 'cancelled' where id = p_delivery_id;
+  return public._delivery_to_jsonb(p_delivery_id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9. Grants (staff-only — never anon)
+-- -----------------------------------------------------------------------------
+revoke all on function public._delivery_to_jsonb(text) from public, anon, authenticated;
+grant execute on function public.staff_list_deliverable_orders(uuid) to authenticated;
+grant execute on function public.staff_create_delivery(uuid, text, text, text[]) to authenticated;
+grant execute on function public.staff_get_deliveries(uuid) to authenticated;
+grant execute on function public.staff_dispatch_delivery(text) to authenticated;
+grant execute on function public.staff_update_delivery_stop(uuid, text, text, text) to authenticated;
+grant execute on function public.staff_cancel_delivery(text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261002020000_owner_delete_staff_member.sql <<<<<<<<<<
+-- Fix: orphaned `staff_members` row when account creation fails partway.
+--
+-- `AuthService.createManagedAccount` (lib/core/services/auth_service.dart) does,
+-- in order: (1) create the Firebase Auth user, (2) upsert the `staff_members`
+-- row via `owner_upsert_staff_member`, (3) write the Firestore profile
+-- document. If step 3 throws, the code rolled back step 1 (deletes the Auth
+-- user) but had no way to roll back step 2 — leaving a real `staff_members`
+-- row (name/email/branch/role) permanently registered against a Firebase UID
+-- whose Auth account no longer exists. That staff member could never sign in
+-- again, but would still show up in staff lists/counts and occupy that email
+-- in `staff_members`, blocking a retry with the same email.
+--
+-- This adds the missing rollback primitive: an owner-only RPC to remove a
+-- staff_members row outright. Dart-side, `createManagedAccount` now calls
+-- this when the Firestore write fails after the staff row was created.
+
+create or replace function public.owner_delete_staff_member(p_firebase_uid text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caller public.staff_members;
+begin
+  select * into v_caller from public.staff_members where firebase_uid = public.current_firebase_uid();
+  if not found or v_caller.role <> 'owner' or v_caller.account_status <> 'active' then
+    raise exception 'Only an active owner can remove a staff account.';
+  end if;
+  if p_firebase_uid = v_caller.firebase_uid then
+    raise exception 'You cannot remove your own owner account.';
+  end if;
+
+  -- `staff_permission_grants` cascades on delete already. `deliveries.created_by`
+  -- has no cascade (deliveries should outlive the staff member who created
+  -- them), so this only succeeds for a staff member with no dependent rows —
+  -- exactly the case this exists for: cleaning up a just-failed creation
+  -- before anything else could have referenced it.
+  delete from public.staff_members where firebase_uid = p_firebase_uid;
+end;
+$$;
+
+revoke all on function public.owner_delete_staff_member(text) from public, anon;
+grant execute on function public.owner_delete_staff_member(text) to authenticated;
+
+
+-- >>>>>>>>>> 20261007000000_customer_delivery_tracking.sql <<<<<<<<<<
+-- Customer-side delivery tracking: let the customer call their rider.
+--
+-- `orders.rider_name` and `orders.eta_label` already exist and are shown on the
+-- customer's tracking screen. This adds the rider's phone so the "call rider"
+-- button on that screen can actually work. It is set by whoever assigns/claims
+-- the order (rider or staff); customers can already read their own order rows,
+-- so no policy change is needed.
+
+alter table public.orders add column if not exists rider_phone text;
+
+
+-- >>>>>>>>>> 20261007010000_cod_and_hitpay.sql <<<<<<<<<<
+-- Cash on Delivery (COD) + HitPay online payments.
+--
+--  1. place_order (5-arg core) accepts two new labels:
+--       'Online Payment (GCash, Maya, Card)'  -> payments.method 'card' (placeholder)
+--       'Cash on Delivery'                    -> payments.method 'cash', delivery only
+--     The three older labels keep working. Everything else is unchanged from
+--     20260928000000_customer_security_hardening.sql. Grants are untouched:
+--     CREATE OR REPLACE keeps them (the 5-arg core stays internal; customers
+--     call the 6-arg wrapper from 20260928010000_order_integrity.sql).
+--  2. payments gets gateway columns.
+--  3. forbid_financial_edits lets hitpay_apply_payment correct payments.method.
+--  4. hitpay_set_checkout / hitpay_apply_payment: service_role-only functions
+--     called by the hitpay-create-payment / hitpay-webhook Edge Functions.
+--
+-- Safe to re-run.
+
+-- -----------------------------------------------------------------------------
+-- 1. place_order (5-arg core)
+-- -----------------------------------------------------------------------------
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text default ''
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_item record;
+  v_available int;
+  v_order_id text;
+  v_subtotal numeric;
+  v_voucher_discount numeric := 0;
+  v_loyalty_discount numeric := 0;
+  v_delivery_fee numeric;
+  v_total numeric;
+  v_discount numeric;
+  v_points_used int := 0;
+  v_balance int := 0;
+  v_has_voucher boolean;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
+  v_address record;
+  v_profile_phone text;
+  v_contact_phone text;
+  v_delivery_address_text text;
+  v_payment_method_code text;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open'
+  for update;
+  if not found then raise exception 'Your cart is no longer available.'; end if;
+
+  -- 'Online Payment (GCash, Maya, Card)' is settled by the HitPay hosted
+  -- checkout; 'card' is only the initial placeholder, the HitPay webhook
+  -- (hitpay_apply_payment) records the method actually used. The three older
+  -- labels stay accepted for backward compatibility with older app builds.
+  if p_payment_method not in (
+    'Online Payment (GCash, Maya, Card)', 'Cash on Delivery', 'Cash on Counter Pickup',
+    'GCash E-Wallet', 'Maya / Credit Card'
+  ) then
+    raise exception 'Unsupported payment method.';
+  end if;
+  if p_payment_method = 'Cash on Delivery' and not p_is_delivery then
+    raise exception 'Cash on Delivery is only available for delivery orders.';
+  end if;
+  v_payment_method_code := case p_payment_method
+    when 'Online Payment (GCash, Maya, Card)' then 'card'
+    when 'GCash E-Wallet' then 'gcash'
+    when 'Maya / Credit Card' then 'card'
+    else 'cash'
+  end;
+
+  select phone into v_profile_phone from public.customer_profiles where firebase_uid = v_uid;
+
+  if p_is_delivery then
+    if p_delivery_address_id is null then raise exception 'Please provide a delivery address.'; end if;
+    select * into v_address from public.customer_addresses
+      where id = p_delivery_address_id and firebase_uid = v_uid;
+    if not found then raise exception 'The selected delivery address is invalid.'; end if;
+    select delivery_fee into v_delivery_fee from public.branches
+      where id = v_cart.branch_id and supports_delivery and is_active;
+    if not found then raise exception 'Delivery is not available for this branch.'; end if;
+    v_contact_phone := nullif(trim(v_address.phone), '');
+    v_delivery_address_text := trim(
+      v_address.recipient_name || ', ' || v_address.line1 || ', ' || v_address.city ||
+      case when coalesce(v_address.province, '') <> '' then ', ' || v_address.province else '' end ||
+      case when coalesce(v_address.postal_code, '') <> '' then ' ' || v_address.postal_code else '' end
+    );
+  else
+    if not exists (select 1 from public.branches where id = v_cart.branch_id and supports_pickup and is_active) then
+      raise exception 'Pickup is not available for this branch.';
+    end if;
+    v_delivery_fee := 0;
+    v_contact_phone := nullif(trim(coalesce(v_profile_phone, '')), '');
+    v_delivery_address_text := null;
+  end if;
+
+  if v_contact_phone is null then
+    raise exception 'Please add a contact phone number to your profile before checking out.';
+  end if;
+
+  -- Prices always come from the catalog, never from the cart row.
+  update public.cart_items ci
+  set current_price = pv.price, variant_label = pv.label, updated_at = now()
+  from public.product_variants pv
+  join public.products p on p.id = pv.product_id
+  where ci.cart_id = v_cart.id and ci.variant_id = pv.id and p.is_active;
+
+  if not exists (select 1 from public.cart_items where cart_id = v_cart.id) then
+    raise exception 'Your cart is empty.';
+  end if;
+
+  -- Validate + lock stock in a fixed order so two checkouts cannot deadlock.
+  for v_item in
+    select ci.product_id, ci.variant_id, ci.quantity, p.name as product_name, p.is_active as product_active
+    from public.cart_items ci
+    join public.products p on p.id = ci.product_id
+    where ci.cart_id = v_cart.id
+    order by ci.product_id, ci.variant_id
+  loop
+    if not v_item.product_active then raise exception '% is no longer available.', v_item.product_name; end if;
+    if v_item.variant_id is null then raise exception '% is no longer available.', v_item.product_name; end if;
+    select bi.quantity into v_available
+    from public.branch_inventory bi
+    where bi.branch_id = v_cart.branch_id
+      and bi.product_id = v_item.product_id
+      and bi.variant_id = v_item.variant_id
+    for update;
+    if v_available is null then raise exception '% is not available at this branch.', v_item.product_name; end if;
+    if v_available < v_item.quantity then
+      raise exception 'Only % of % left at this branch.', v_available, v_item.product_name;
+    end if;
+  end loop;
+
+  -- Lock the loyalty account before recomputing so points cannot be spent twice.
+  insert into public.loyalty_accounts (firebase_uid) values (v_uid) on conflict (firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid = v_uid for update;
+
+  select coalesce(sum(current_price * quantity), 0) into v_subtotal
+  from public.cart_items where cart_id = v_cart.id;
+
+  v_has_voucher := v_cart.voucher_code is not null and trim(v_cart.voucher_code) <> '';
+  if v_has_voucher then
+    select * into v_voucher
+    from public.vouchers v
+    where upper(v.code) = upper(trim(v_cart.voucher_code))
+      and v.is_active
+      and (v.starts_at is null or v.starts_at <= now())
+      and (v.ends_at is null or v.ends_at >= now())
+    for update;
+    if not found then raise exception 'Voucher is invalid or expired.'; end if;
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then
+      raise exception 'This voucher has reached its usage limit.';
+    end if;
+    if v_voucher.per_customer_limit is not null and
+       (select count(*) from public.voucher_usage vu
+        where vu.voucher_id = v_voucher.id and vu.firebase_uid = v_uid) >= v_voucher.per_customer_limit then
+      raise exception 'You have already used this voucher.';
+    end if;
+    if v_subtotal < v_voucher.minimum_subtotal then
+      raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal;
+    end if;
+    if v_voucher.discount_type = 'percent' then
+      v_voucher_discount := round(v_subtotal * v_voucher.discount_value / 100, 2);
+    else
+      v_voucher_discount := v_voucher.discount_value;
+    end if;
+    if v_voucher.maximum_discount is not null then
+      v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount);
+    end if;
+    v_voucher_discount := least(v_voucher_discount, v_subtotal);
+  end if;
+
+  if v_cart.redeem_points then
+    select points_per_peso, max_discount_percent into v_points_per_peso, v_max_discount_percent
+    from public.loyalty_cart_settings where id = 'default';
+    if v_points_per_peso is null then raise exception 'Loyalty point redemption is not configured yet.'; end if;
+    if v_balance <= 0 then raise exception 'You do not have loyalty points available to redeem.'; end if;
+    v_points_used := least(
+      v_balance,
+      floor(greatest(0, least(v_subtotal - v_voucher_discount,
+                              v_subtotal * v_max_discount_percent / 100)) * v_points_per_peso)::int
+    );
+    v_loyalty_discount := round(v_points_used / v_points_per_peso, 2);
+  end if;
+
+  v_discount := v_voucher_discount + v_loyalty_discount;
+  v_total := greatest(0, v_subtotal - v_discount + v_delivery_fee);
+
+  update public.branch_inventory bi
+  set quantity = bi.quantity - ci.quantity
+  from public.cart_items ci
+  where ci.cart_id = v_cart.id
+    and bi.branch_id = v_cart.branch_id
+    and bi.product_id = ci.product_id
+    and bi.variant_id = ci.variant_id;
+
+  insert into public.orders (
+    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
+    subtotal, discount, delivery_fee, total, payment_method,
+    customer_notes, contact_phone, delivery_address_text
+  )
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery, p_delivery_address_id,
+    v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method,
+    left(coalesce(trim(p_customer_notes), ''), 500), v_contact_phone, v_delivery_address_text
+  from public.branches b where b.id = v_cart.branch_id
+  returning id into v_order_id;
+
+  insert into public.order_items (order_id, product_id, variant_id, product_name, variant_label, quantity, unit_price)
+  select v_order_id, ci.product_id, ci.variant_id, p.name, ci.variant_label, ci.quantity, ci.current_price
+  from public.cart_items ci
+  join public.products p on p.id = ci.product_id
+  where ci.cart_id = v_cart.id;
+
+  -- Created in the same transaction as the order; only a trusted server path
+  -- (gateway webhook / staff tooling) may ever move it past 'pending'.
+  insert into public.payments (order_id, firebase_uid, method, status, amount, reference_number)
+  values (v_order_id, v_uid, v_payment_method_code, 'pending', v_total, v_order_id);
+
+  if v_points_used > 0 then
+    update public.loyalty_accounts set points_balance = points_balance - v_points_used
+    where firebase_uid = v_uid;
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (v_uid, 'redeem', -v_points_used, 'Applied to order ' || v_order_id, v_order_id, 'order_redeem');
+  end if;
+
+  if v_has_voucher then
+    update public.vouchers set used_count = used_count + 1 where id = v_voucher.id;
+    insert into public.voucher_usage (voucher_id, firebase_uid, order_id, discount_amount)
+    values (v_voucher.id, v_uid, v_order_id, v_voucher_discount);
+  end if;
+
+  delete from public.cart_items where cart_id = v_cart.id;
+  update public.carts
+  set status = 'checked_out', voucher_code = null, redeem_points = false, updated_at = now()
+  where id = v_cart.id;
+
+  return v_order_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Gateway columns
+-- -----------------------------------------------------------------------------
+alter table public.payments
+  add column if not exists gateway text,
+  add column if not exists gateway_payment_id text,
+  add column if not exists gateway_checkout_url text;
+
+-- -----------------------------------------------------------------------------
+-- 3. Immutability of financial facts (payments.method now correctable)
+-- -----------------------------------------------------------------------------
+create or replace function public.forbid_financial_edits()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_table_name = 'orders' then
+    if (new.firebase_uid, new.branch_id, new.is_delivery, new.subtotal, new.discount,
+        new.delivery_fee, new.total, new.payment_method, new.points_earned)
+       is distinct from
+       (old.firebase_uid, old.branch_id, old.is_delivery, old.subtotal, old.discount,
+        old.delivery_fee, old.total, old.payment_method, old.points_earned) then
+      raise exception 'The financial details of order % cannot be changed after it is placed.', old.id;
+    end if;
+  elsif tg_table_name = 'payments' then
+    if (new.order_id, new.firebase_uid, new.amount)
+       is distinct from (old.order_id, old.firebase_uid, old.amount) then
+      raise exception 'The amount and owner of payment % cannot be changed.', old.id;
+    end if;
+    -- The method may only be corrected by hitpay_apply_payment, which flags
+    -- its own transaction; nobody else can reach this branch (customers have
+    -- no UPDATE privilege on payments).
+    if new.method is distinct from old.method
+       and coalesce(current_setting('app.allow_payment_method_change', true), '') <> 'on' then
+      raise exception 'The method of payment % cannot be changed.', old.id;
+    end if;
+  elsif tg_table_name = 'refund_requests' then
+    if (new.order_id, new.firebase_uid, new.amount, new.payment_method)
+       is distinct from (old.order_id, old.firebase_uid, old.amount, old.payment_method) then
+      raise exception 'The order, owner and amount of refund % cannot be changed.', old.id;
+    end if;
+  elsif tg_table_name = 'order_items' then
+    -- product_id / variant_id may still be nulled by ON DELETE SET NULL.
+    if (new.order_id, new.product_name, new.variant_label, new.quantity, new.unit_price)
+       is distinct from (old.order_id, old.product_name, old.variant_label, old.quantity, old.unit_price) then
+      raise exception 'Order lines cannot be edited after the order is placed.';
+    end if;
+  elsif tg_table_name = 'refund_items' then
+    raise exception 'Refund lines cannot be edited.';
+  end if;
+  return new;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. HitPay server-side helpers (service_role only)
+-- -----------------------------------------------------------------------------
+-- Stores the HitPay payment-request id and checkout URL. A pending (or failed,
+-- i.e. being retried) payment becomes 'processing'.
+create or replace function public.hitpay_set_checkout(
+  p_order_id text,
+  p_payment_id text,
+  p_url text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pay public.payments;
+begin
+  select * into v_pay from public.payments where order_id = p_order_id for update;
+  if not found then raise exception 'Order % has no payment record.', p_order_id; end if;
+
+  update public.payments
+  set gateway = 'hitpay',
+      gateway_payment_id = nullif(trim(coalesce(p_payment_id, '')), ''),
+      gateway_checkout_url = nullif(trim(coalesce(p_url, '')), '')
+  where id = v_pay.id;
+
+  if v_pay.status in ('pending', 'failed') then
+    update public.payments set status = 'processing' where id = v_pay.id;
+  end if;
+end;
+$$;
+
+-- Applies a HitPay payment result to the order's payment row. 'success' and
+-- 'failed' only move a payment that is still open; a success is never
+-- downgraded. A payment that an earlier failed attempt marked 'failed' may
+-- still succeed (HitPay lets the buyer retry on the same page), so it goes
+-- failed -> processing -> success, both steps valid transitions. Any other
+-- status is ignored. Returns the resulting payment status (null if no row).
+create or replace function public.hitpay_apply_payment(
+  p_order_id text,
+  p_status text,
+  p_method text,
+  p_gateway_payment_id text,
+  p_reference_number text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pay public.payments;
+  v_method text := lower(trim(coalesce(p_method, '')));
+  v_gateway_payment_id text := nullif(trim(coalesce(p_gateway_payment_id, '')), '');
+  v_reference text := nullif(trim(coalesce(p_reference_number, '')), '');
+begin
+  if p_status is null or p_status not in ('success', 'failed') then
+    return null;
+  end if;
+
+  select * into v_pay from public.payments where order_id = p_order_id for update;
+  if not found then return null; end if;
+
+  if v_pay.status = 'success' or v_pay.status = 'refunded' then
+    return v_pay.status;
+  end if;
+  if p_status = 'failed' and v_pay.status = 'failed' then
+    return v_pay.status;
+  end if;
+
+  if v_pay.status = 'failed' then
+    update public.payments set status = 'processing' where id = v_pay.id;
+  end if;
+
+  perform set_config('app.allow_payment_method_change', 'on', true);
+  update public.payments
+  set status = p_status,
+      method = case when v_method in ('gcash', 'maya', 'card') then v_method else method end,
+      gateway = 'hitpay',
+      gateway_payment_id = coalesce(v_gateway_payment_id, gateway_payment_id),
+      reference_number = coalesce(v_reference, reference_number)
+  where id = v_pay.id;
+  perform set_config('app.allow_payment_method_change', 'off', true);
+
+  return p_status;
+end;
+$$;
+
+revoke all on function public.hitpay_set_checkout(text, text, text) from public, anon, authenticated;
+grant execute on function public.hitpay_set_checkout(text, text, text) to service_role;
+revoke all on function public.hitpay_apply_payment(text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.hitpay_apply_payment(text, text, text, text, text) to service_role;
+
+
+-- >>>>>>>>>> 20261008000000_owner_sales_summary.sql <<<<<<<<<<
+-- =============================================================================
+-- Owner sales summary
+--
+-- One owner-only, read-only RPC that powers the owner analytics screens. All
+-- figures are computed here, from the real orders / order_items tables; the
+-- app never calculates revenue itself.
+--
+-- A "sale" uses the same definition as staff_get_dashboard: an order that is
+-- `completed`, or `completed` with a refund request pending. Cancelled and
+-- refunded orders are excluded. Days are Asia/Manila calendar days.
+--
+--   branches[]  per branch: revenue + number of sales for today, the last 7
+--               days (today included) and the requested window.
+--   products[]  top 50 products over the window by item sales (quantity x
+--               unit_price, before vouchers and delivery fees). order_items
+--               records no product id, so products are grouped by the product
+--               name stored on the order.
+--   daily[]     one row per day of the window (zero-filled), order totals.
+-- =============================================================================
+create or replace function public.owner_sales_summary(p_days int default 30)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_owner public.staff_members;
+  v_days int := least(greatest(coalesce(p_days, 30), 1), 365);
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  v_day_start timestamptz := date_trunc('day', now() at time zone 'Asia/Manila') at time zone 'Asia/Manila';
+  v_week_start timestamptz := (date_trunc('day', now() at time zone 'Asia/Manila') - interval '6 days') at time zone 'Asia/Manila';
+  v_window_start timestamptz := (date_trunc('day', now() at time zone 'Asia/Manila') - make_interval(days => v_days - 1)) at time zone 'Asia/Manila';
+  v_branches jsonb;
+  v_products jsonb;
+  v_daily jsonb;
+begin
+  v_owner := public._require_owner();
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'branch_id', b.id,
+           'name', b.name,
+           'today_revenue', coalesce(s.today_revenue, 0),
+           'week_revenue', coalesce(s.week_revenue, 0),
+           'window_revenue', coalesce(s.window_revenue, 0),
+           'orders_today', coalesce(s.orders_today, 0),
+           'orders_week', coalesce(s.orders_week, 0),
+           'orders_window', coalesce(s.orders_window, 0)
+         ) order by b.name), '[]'::jsonb)
+    into v_branches
+  from public.branches b
+  left join lateral (
+    select
+      sum(o.total) filter (where o.created_at >= v_day_start) as today_revenue,
+      sum(o.total) filter (where o.created_at >= v_week_start) as week_revenue,
+      sum(o.total) filter (where o.created_at >= v_window_start) as window_revenue,
+      count(*) filter (where o.created_at >= v_day_start) as orders_today,
+      count(*) filter (where o.created_at >= v_week_start) as orders_week,
+      count(*) filter (where o.created_at >= v_window_start) as orders_window
+    from public.orders o
+    where o.branch_id = b.id
+      and o.status in ('completed', 'refundRequested')
+      and o.created_at >= least(v_week_start, v_window_start)
+  ) s on true;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'product_name', t.product_name,
+           'units', t.units,
+           'revenue', t.revenue
+         ) order by t.revenue desc, t.product_name), '[]'::jsonb)
+    into v_products
+  from (
+    select oi.product_name,
+           sum(oi.quantity)::int as units,
+           sum(oi.quantity * oi.unit_price) as revenue
+    from public.order_items oi
+    join public.orders o on o.id = oi.order_id
+    where o.status in ('completed', 'refundRequested')
+      and o.created_at >= v_window_start
+    group by oi.product_name
+    order by revenue desc, oi.product_name
+    limit 50
+  ) t;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'date', d.day,
+           'revenue', coalesce(s.revenue, 0)
+         ) order by d.day), '[]'::jsonb)
+    into v_daily
+  from (
+    select (v_today - (v_days - 1) + g) as day
+    from generate_series(0, v_days - 1) as g
+  ) d
+  left join lateral (
+    select sum(o.total) as revenue
+    from public.orders o
+    where o.status in ('completed', 'refundRequested')
+      and o.created_at >= v_window_start
+      and (o.created_at at time zone 'Asia/Manila')::date = d.day
+  ) s on true;
+
+  return jsonb_build_object(
+    'generated_at', now(),
+    'days', v_days,
+    'branches', v_branches,
+    'products', v_products,
+    'daily', v_daily
+  );
+end;
+$$;
+
+revoke all on function public.owner_sales_summary(int) from public, anon;
+grant execute on function public.owner_sales_summary(int) to authenticated;
+
+
+-- >>>>>>>>>> 20261008010000_fix_staff_products_policy.sql <<<<<<<<<<
+-- Fix: "staff read all products" had no TO clause, so it applied to anon too.
+-- anon cannot execute is_active_staff(), which made every signed-out read of
+-- public.products fail (guest catalog, product search). Scope it to authenticated.
+-- Idempotent. Requires 20261001000000.
+begin;
+drop policy if exists "staff read all products" on public.products;
+create policy "staff read all products" on public.products
+  for select to authenticated using (public.is_active_staff());
+commit;
+
+
+-- >>>>>>>>>> 20261008020000_staff_idempotency_keys.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — idempotency keys for stock adjustments and transfer requests
+-- =============================================================================
+-- Problem: staff_adjust_batch (+/- delta) and staff_request_transfer are not
+-- idempotent. If a response is lost (timeout, dropped connection) and the app
+-- retries — or an offline queue replays — the change is applied twice.
+-- Verified before this migration: the same adjustment sent twice was applied
+-- 2x, and the same transfer request created 2 rows.
+--
+-- Fix: both RPCs accept an optional p_idempotency_key. With a key:
+--   * first call  -> runs normally and stores (key, request hash, result)
+--   * same key + same request     -> returns the ORIGINAL result, changes nothing
+--   * same key + DIFFERENT request -> refused (a key identifies one request)
+-- Keys are scoped per staff member. Without a key the behaviour is unchanged,
+-- so existing callers keep working.
+--
+-- Safe to run more than once. Requires 20260930010000 (staff foundation).
+-- =============================================================================
+
+begin;
+
+create table if not exists public.staff_request_keys (
+  firebase_uid    text        not null,
+  idempotency_key text        not null,
+  operation       text        not null,
+  request_hash    text        not null,
+  result          jsonb       not null,
+  created_at      timestamptz not null default now(),
+  primary key (firebase_uid, idempotency_key),
+  constraint staff_request_keys_key_length check (char_length(idempotency_key) between 8 and 100)
+);
+
+create index if not exists staff_request_keys_created_at_idx
+  on public.staff_request_keys (created_at);
+
+-- Internal bookkeeping: no client ever reads or writes this directly.
+alter table public.staff_request_keys enable row level security;
+revoke all on public.staff_request_keys from public, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- Helpers (internal; not callable by clients)
+-- -----------------------------------------------------------------------------
+
+-- Returns the stored result when this exact request was already processed,
+-- NULL when it is new. Raises when the key was used for a different request.
+-- Takes a per-key advisory lock so two simultaneous duplicates serialize.
+create or replace function public._idem_begin(
+  p_uid text,
+  p_key text,
+  p_operation text,
+  p_request jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.staff_request_keys;
+  v_hash text := encode(sha256(convert_to(p_request::text, 'UTF8')), 'hex');
+begin
+  if p_key is null then
+    return null;
+  end if;
+  if char_length(p_key) < 8 or char_length(p_key) > 100 then
+    raise exception 'The request key is not valid.';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_uid || ':' || p_key, 0));
+
+  select * into v_row
+  from public.staff_request_keys
+  where firebase_uid = p_uid and idempotency_key = p_key;
+
+  if not found then
+    -- Housekeeping: a few expired keys per call keeps the table small.
+    delete from public.staff_request_keys
+    where ctid in (
+      select ctid from public.staff_request_keys
+      where created_at < now() - interval '30 days'
+      limit 20
+    );
+    return null;
+  end if;
+
+  if v_row.operation <> p_operation or v_row.request_hash <> v_hash then
+    raise exception 'This request key was already used for a different request.';
+  end if;
+  return v_row.result;
+end;
+$$;
+
+create or replace function public._idem_finish(
+  p_uid text,
+  p_key text,
+  p_operation text,
+  p_request jsonb,
+  p_result jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_key is null then
+    return;
+  end if;
+  insert into public.staff_request_keys (firebase_uid, idempotency_key, operation, request_hash, result)
+  values (p_uid, p_key, p_operation,
+          encode(sha256(convert_to(p_request::text, 'UTF8')), 'hex'), p_result);
+end;
+$$;
+
+revoke all on function public._idem_begin(text, text, text, jsonb) from public, anon, authenticated;
+revoke all on function public._idem_finish(text, text, text, jsonb, jsonb) from public, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- staff_adjust_batch: + p_idempotency_key
+-- -----------------------------------------------------------------------------
+drop function if exists public.staff_adjust_batch(uuid, int, text, text);
+
+create or replace function public.staff_adjust_batch(
+  p_batch_id uuid,
+  p_delta int,
+  p_reason text,
+  p_note text default null,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  b public.inventory_batches;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_new int;
+  v_total int;
+  v_request jsonb;
+  v_replay jsonb;
+  v_result jsonb;
+begin
+  select * into b from public.inventory_batches where id = p_batch_id for update;
+  if not found then raise exception 'That batch could not be found.'; end if;
+  v_staff := public._require_staff(b.branch_id, 'inventory');
+
+  -- Idempotency: after authorization (only permitted staff reach the key table).
+  v_request := jsonb_build_object('batch_id', p_batch_id, 'delta', p_delta,
+                                  'reason', v_reason, 'note', coalesce(trim(p_note), ''));
+  v_replay := public._idem_begin(v_staff.firebase_uid, p_idempotency_key, 'adjust_batch', v_request);
+  if v_replay is not null then
+    return v_replay;
+  end if;
+
+  if p_delta is null or p_delta = 0 or abs(p_delta) > 100000 then raise exception 'Enter an adjustment other than zero.'; end if;
+  if v_reason = '' or length(v_reason) > 100 then raise exception 'Please choose a reason for this adjustment.'; end if;
+  v_new := b.quantity + p_delta;
+  if v_new < 0 then raise exception 'Stock cannot go below 0. Reduce the adjustment.'; end if;
+
+  perform set_config('app.inventory_managed', '1', true);
+  select quantity into v_total from public.branch_inventory
+  where branch_id = b.branch_id and product_id = b.product_id and variant_id = b.variant_id for update;
+  if coalesce(v_total, 0) + p_delta < 0 then raise exception 'Stock cannot go below 0. Reduce the adjustment.'; end if;
+
+  update public.inventory_batches
+  set quantity = v_new,
+      initial_quantity = greatest(1, v_new,
+        case when p_delta < 0 then b.initial_quantity + p_delta else b.initial_quantity end)
+  where id = b.id;
+  update public.branch_inventory set quantity = quantity + p_delta
+  where branch_id = b.branch_id and product_id = b.product_id and variant_id = b.variant_id;
+
+  insert into public.stock_movements
+    (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reason, created_by)
+  values (b.branch_id, b.product_id, b.variant_id, b.id, 'adjust', p_delta, v_new,
+          left(v_reason || case when nullif(trim(coalesce(p_note, '')), '') is null then '' else ': ' || trim(p_note) end, 300),
+          v_staff.firebase_uid);
+
+  v_result := jsonb_build_object('previous_quantity', b.quantity, 'new_quantity', v_new, 'adjustment', p_delta);
+  perform public._idem_finish(v_staff.firebase_uid, p_idempotency_key, 'adjust_batch', v_request, v_result);
+  return v_result;
+end;
+$$;
+
+revoke all on function public.staff_adjust_batch(uuid, int, text, text, text) from public, anon;
+grant execute on function public.staff_adjust_batch(uuid, int, text, text, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- staff_request_transfer: + p_idempotency_key
+-- -----------------------------------------------------------------------------
+drop function if exists public.staff_request_transfer(uuid, uuid, uuid, int, text);
+
+create or replace function public.staff_request_transfer(
+  p_from_branch_id uuid,
+  p_to_branch_id uuid,
+  p_variant_id uuid,
+  p_quantity int,
+  p_note text default null,
+  p_idempotency_key text default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_product uuid;
+  v_available int;
+  v_id text;
+  v_request jsonb;
+  v_replay jsonb;
+begin
+  -- The requester works at the DESTINATION branch.
+  v_staff := public._require_staff(p_to_branch_id, 'inventory');
+
+  v_request := jsonb_build_object('from', p_from_branch_id, 'to', p_to_branch_id,
+                                  'variant', p_variant_id, 'quantity', p_quantity,
+                                  'note', coalesce(trim(p_note), ''));
+  v_replay := public._idem_begin(v_staff.firebase_uid, p_idempotency_key, 'request_transfer', v_request);
+  if v_replay is not null then
+    return v_replay ->> 'transfer_id';
+  end if;
+
+  if p_from_branch_id is null or p_to_branch_id is null or p_from_branch_id = p_to_branch_id then
+    raise exception 'Choose a different branch to transfer from.';
+  end if;
+  if not exists (select 1 from public.branches where id = p_from_branch_id) then
+    raise exception 'That branch could not be found.';
+  end if;
+  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then raise exception 'Quantity must be between 1 and 100000.'; end if;
+  select pv.product_id into v_product
+  from public.product_variants pv join public.products p on p.id = pv.product_id
+  where pv.id = p_variant_id and p.is_active;
+  if v_product is null then raise exception 'That product variant could not be found.'; end if;
+
+  select coalesce(quantity, 0) into v_available from public.branch_inventory
+  where branch_id = p_from_branch_id and variant_id = p_variant_id;
+  if coalesce(v_available, 0) < p_quantity then
+    raise exception 'The source branch only has % of this item.', coalesce(v_available, 0);
+  end if;
+
+  insert into public.stock_transfers
+    (from_branch_id, to_branch_id, product_id, variant_id, quantity, note, requested_by)
+  values (p_from_branch_id, p_to_branch_id, v_product, p_variant_id, p_quantity,
+          left(coalesce(trim(p_note), ''), 300), v_staff.firebase_uid)
+  returning id into v_id;
+
+  perform public._idem_finish(v_staff.firebase_uid, p_idempotency_key, 'request_transfer', v_request,
+                              jsonb_build_object('transfer_id', v_id));
+  return v_id;
+end;
+$$;
+
+revoke all on function public.staff_request_transfer(uuid, uuid, uuid, int, text, text) from public, anon;
+grant execute on function public.staff_request_transfer(uuid, uuid, uuid, int, text, text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261008030000_staff_replay_safe_receive_and_transfer.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — replay-safe receive-batch and transfer responses
+-- =============================================================================
+-- Follows 20261008020000 (idempotency keys for adjustments / transfer requests).
+--
+-- staff_respond_transfer (ship | reject | cancel | receive)
+--   Already a guarded state machine, so it never double-applied — but a REPLAY
+--   (lost response, double tap, queued retry) failed with "no longer waiting".
+--   It is now idempotent by OUTCOME: asking for the state the transfer is
+--   already in (ship on in_transit, reject on rejected, cancel on cancelled,
+--   receive on received) succeeds as a no-op. Authorization still runs first,
+--   and a genuinely conflicting action (e.g. ship a rejected transfer) still
+--   raises. No key needed, so it also covers plain double taps.
+--
+-- staff_receive_batch
+--   Could never double-apply (unique batch code rolls the call back) but a
+--   replay raised "Batch code already exists". It now accepts the optional
+--   p_idempotency_key from 20261008020000: same key + same request returns the
+--   ORIGINAL batch id; same key + different request is refused.
+--
+-- Safe to run more than once. Requires 20261008020000.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- staff_respond_transfer: replay of an already-applied action is a no-op
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_respond_transfer(p_transfer_id text, p_action text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  t public.stock_transfers;
+  v_lines jsonb;
+  l jsonb;
+  v_new int;
+  v_from_stock int;
+  v_code text;
+begin
+  select * into t from public.stock_transfers where id = p_transfer_id for update;
+  if not found then raise exception 'That transfer could not be found.'; end if;
+
+  if p_action in ('ship', 'reject') then
+    v_staff := public._require_staff(t.from_branch_id, 'inventory');
+    -- Replay: the transfer is already in the state this action produces.
+    if (p_action = 'ship' and t.status = 'in_transit')
+       or (p_action = 'reject' and t.status = 'rejected') then
+      return;
+    end if;
+    if t.status <> 'requested' then raise exception 'This transfer is no longer waiting for approval.'; end if;
+  elsif p_action in ('cancel', 'receive') then
+    v_staff := public._require_staff(t.to_branch_id, 'inventory');
+    if (p_action = 'cancel' and t.status = 'cancelled')
+       or (p_action = 'receive' and t.status = 'received') then
+      return;
+    end if;
+    if p_action = 'cancel' and t.status <> 'requested' then raise exception 'Only a pending request can be cancelled.'; end if;
+    if p_action = 'receive' and t.status <> 'in_transit' then raise exception 'This transfer is not on its way.'; end if;
+  else
+    raise exception 'Unsupported transfer action.';
+  end if;
+
+  perform set_config('app.inventory_managed', '1', true);
+
+  if p_action = 'reject' then
+    update public.stock_transfers set status = 'rejected', reviewed_by = v_staff.firebase_uid where id = t.id;
+
+  elsif p_action = 'cancel' then
+    update public.stock_transfers set status = 'cancelled' where id = t.id;
+
+  elsif p_action = 'ship' then
+    select quantity into v_from_stock from public.branch_inventory
+    where branch_id = t.from_branch_id and product_id = t.product_id and variant_id = t.variant_id for update;
+    if coalesce(v_from_stock, 0) < t.quantity then
+      raise exception 'Not enough stock at your branch to ship this transfer.';
+    end if;
+    v_lines := public._consume_batches_fefo(t.from_branch_id, t.product_id, t.variant_id, t.quantity,
+                                            'transfer_out', t.id, v_staff.firebase_uid, true);
+    update public.branch_inventory set quantity = quantity - t.quantity
+    where branch_id = t.from_branch_id and product_id = t.product_id and variant_id = t.variant_id;
+    for l in select * from jsonb_array_elements(v_lines) loop
+      insert into public.stock_transfer_batches (transfer_id, batch_code, received_date, expiration_date, quantity)
+      values (t.id, l ->> 'batch_code', (l ->> 'received_date')::date, (l ->> 'expiration_date')::date, (l ->> 'quantity')::int);
+    end loop;
+    update public.stock_transfers
+    set status = 'in_transit', reviewed_by = v_staff.firebase_uid, shipped_at = now()
+    where id = t.id;
+
+  else -- receive
+    insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
+    values (t.to_branch_id, t.product_id, t.variant_id, 0)
+    on conflict (branch_id, product_id, variant_id) do nothing;
+    update public.branch_inventory set quantity = quantity + t.quantity
+    where branch_id = t.to_branch_id and product_id = t.product_id and variant_id = t.variant_id;
+
+    for l in
+      select to_jsonb(sb) from public.stock_transfer_batches sb where sb.transfer_id = t.id
+    loop
+      v_code := l ->> 'batch_code';
+      insert into public.inventory_batches
+        (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity, created_by)
+      values (t.to_branch_id, t.product_id, t.variant_id, v_code,
+              (l ->> 'received_date')::date, (l ->> 'expiration_date')::date,
+              (l ->> 'quantity')::int, (l ->> 'quantity')::int, v_staff.firebase_uid)
+      on conflict (branch_id, variant_id, batch_code) do update
+        set quantity = public.inventory_batches.quantity + excluded.quantity,
+            initial_quantity = public.inventory_batches.initial_quantity + excluded.initial_quantity,
+            expiration_date = least(public.inventory_batches.expiration_date, excluded.expiration_date)
+      returning quantity into v_new;
+      insert into public.stock_movements
+        (branch_id, product_id, variant_id, movement_type, quantity_change, batch_quantity_after, reference, created_by)
+      values (t.to_branch_id, t.product_id, t.variant_id, 'transfer_in', (l ->> 'quantity')::int, v_new, t.id, v_staff.firebase_uid);
+    end loop;
+
+    update public.stock_transfers
+    set status = 'received', received_by = v_staff.firebase_uid, received_at = now()
+    where id = t.id;
+  end if;
+end;
+$$;
+
+revoke all on function public.staff_respond_transfer(text, text) from public, anon;
+grant execute on function public.staff_respond_transfer(text, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- staff_receive_batch: + p_idempotency_key
+-- -----------------------------------------------------------------------------
+drop function if exists public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean);
+
+create or replace function public.staff_receive_batch(
+  p_branch_id uuid,
+  p_variant_id uuid,
+  p_batch_code text,
+  p_quantity int,
+  p_expiration_date date,
+  p_received_date date default null,
+  p_restock_threshold int default null,
+  p_assign_existing boolean default false,
+  p_idempotency_key text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_variant record;
+  v_code text := trim(coalesce(p_batch_code, ''));
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  v_received date;
+  v_batch_id uuid;
+  v_current int;
+  v_batched int;
+  v_request jsonb;
+  v_replay jsonb;
+begin
+  v_staff := public._require_staff(p_branch_id, 'inventory');
+
+  -- Idempotency: after authorization, before validation, so a replay made after
+  -- the expiry date has passed still returns the original batch.
+  v_request := jsonb_build_object('branch', p_branch_id, 'variant', p_variant_id, 'code', v_code,
+                                  'quantity', p_quantity, 'expiration', p_expiration_date,
+                                  'received', p_received_date, 'threshold', p_restock_threshold,
+                                  'assign_existing', coalesce(p_assign_existing, false));
+  v_replay := public._idem_begin(v_staff.firebase_uid, p_idempotency_key, 'receive_batch', v_request);
+  if v_replay is not null then
+    return (v_replay ->> 'batch_id')::uuid;
+  end if;
+
+  if v_code = '' or length(v_code) > 40 then raise exception 'Please enter a batch code (up to 40 characters).'; end if;
+  if p_quantity is null or p_quantity <= 0 or p_quantity > 100000 then raise exception 'Quantity must be between 1 and 100000.'; end if;
+  v_received := coalesce(p_received_date, v_today);
+  if v_received > v_today then raise exception 'The received date cannot be in the future.'; end if;
+  if p_expiration_date is null or p_expiration_date <= v_today then
+    raise exception 'The expiration date must be in the future.';
+  end if;
+  if p_expiration_date < v_received then raise exception 'The expiration date cannot be before the received date.'; end if;
+
+  select pv.id, pv.product_id into v_variant
+  from public.product_variants pv join public.products p on p.id = pv.product_id
+  where pv.id = p_variant_id and p.is_active;
+  if not found then raise exception 'That product variant could not be found.'; end if;
+
+  perform set_config('app.inventory_managed', '1', true);
+
+  insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
+  values (p_branch_id, v_variant.product_id, p_variant_id, 0)
+  on conflict (branch_id, product_id, variant_id) do nothing;
+  select quantity into v_current from public.branch_inventory
+  where branch_id = p_branch_id and product_id = v_variant.product_id and variant_id = p_variant_id
+  for update;
+
+  if p_assign_existing then
+    select coalesce(sum(quantity), 0) into v_batched from public.inventory_batches
+    where branch_id = p_branch_id and variant_id = p_variant_id;
+    if p_quantity > v_current - v_batched then
+      raise exception 'Only % unit(s) at this branch are not yet assigned to a batch.', greatest(v_current - v_batched, 0);
+    end if;
+  else
+    update public.branch_inventory set quantity = quantity + p_quantity
+    where branch_id = p_branch_id and product_id = v_variant.product_id and variant_id = p_variant_id;
+  end if;
+
+  begin
+    insert into public.inventory_batches
+      (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity, created_by)
+    values (p_branch_id, v_variant.product_id, p_variant_id, v_code, v_received, p_expiration_date,
+            p_quantity, p_quantity, v_staff.firebase_uid)
+    returning id into v_batch_id;
+  exception when unique_violation then
+    raise exception 'Batch code % already exists for this product at this branch.', v_code;
+  end;
+
+  insert into public.stock_movements
+    (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reason, created_by)
+  values (p_branch_id, v_variant.product_id, p_variant_id, v_batch_id,
+          case when p_assign_existing then 'assign' else 'receive' end,
+          case when p_assign_existing then 0 else p_quantity end, p_quantity,
+          case when p_assign_existing then 'Assigned existing stock to a batch' else 'Batch received' end,
+          v_staff.firebase_uid);
+
+  if p_restock_threshold is not null then
+    if p_restock_threshold < 0 or p_restock_threshold > 100000 then raise exception 'Invalid restock threshold.'; end if;
+    insert into public.stock_thresholds (branch_id, variant_id, restock_threshold)
+    values (p_branch_id, p_variant_id, p_restock_threshold)
+    on conflict (branch_id, variant_id) do update
+      set restock_threshold = excluded.restock_threshold, updated_at = now();
+  end if;
+
+  perform public._idem_finish(v_staff.firebase_uid, p_idempotency_key, 'receive_batch', v_request,
+                              jsonb_build_object('batch_id', v_batch_id));
+  return v_batch_id;
+end;
+$$;
+
+revoke all on function public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean, text) from public, anon;
+grant execute on function public.staff_receive_batch(uuid, uuid, text, int, date, date, int, boolean, text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261009000000_admin_portal.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261009000000
+-- Admin web portal (Laravel, folder `admin/`) on the SAME Supabase database.
+-- =============================================================================
+-- RUN ORDER: after every earlier file in supabase/migrations/. Safe to re-run.
+--
+-- WHY
+--   The admin dashboard used to read mock data and keep its own copies of
+--   refund decisions, COD confirmations and loyalty points in a local SQLite
+--   database. That would have been a second source of truth next to Supabase.
+--   Now the admin portal reads and writes the shared Supabase data through the
+--   same rules the mobile app uses:
+--     * every call runs as the `authenticated` role with the Firebase UID of a
+--       registered `staff_members` row (owner or staff), exactly like the app;
+--     * every write goes through a SECURITY DEFINER function that checks that
+--       staff row, locks the rows it changes and keeps the existing state
+--       machines / triggers (payments, refunds, loyalty ledger) in charge.
+--
+-- WHAT THIS FILE ADDS
+--   1. loyalty_cart_settings.earn_pesos_per_point (default 50 = current rule),
+--      compute_points_earned() now reads it, and get_loyalty_earn_rate() lets
+--      the customer app show it.
+--   2. loyalty_transactions.source accepts 'admin_adjust'.
+--   3. Read functions for the portal: admin_portal_orders, admin_portal_stock,
+--      admin_portal_products, admin_portal_stock_movements,
+--      admin_portal_loyalty_summary, admin_portal_loyalty_members,
+--      admin_portal_loyalty_member, admin_portal_loyalty_settings,
+--      admin_portal_audit_logs, admin_portal_staff_directory.
+--   4. Writes: owner_update_loyalty_settings, owner_adjust_loyalty_points
+--      (owner only, idempotent per request key) and admin_portal_review_refund
+--      (staff with the refunds permission; wraps staff_review_refund).
+--   5. The `melai_admin_portal` login role the Laravel server connects with.
+--      It owns nothing and is granted nothing except the right to become
+--      `authenticated` (SET ROLE), i.e. it can do only what the app can do.
+--      Set its password once in the SQL editor (never commit it):
+--        alter role melai_admin_portal with login password '<long random>';
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Earn rate becomes a setting (default keeps today's 1 point per PHP 50)
+-- -----------------------------------------------------------------------------
+alter table public.loyalty_cart_settings
+  add column if not exists earn_pesos_per_point numeric(10, 2) not null default 50;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'loyalty_cart_settings_earn_rate_positive') then
+    alter table public.loyalty_cart_settings
+      add constraint loyalty_cart_settings_earn_rate_positive check (earn_pesos_per_point >= 1);
+  end if;
+end $$;
+
+-- Same trigger, same timing (before insert on orders); only the divisor moved
+-- from a literal into the settings row. Falls back to 50 if the row is missing.
+create or replace function public.compute_points_earned()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rate numeric;
+begin
+  select earn_pesos_per_point into v_rate from public.loyalty_cart_settings where id = 'default';
+  new.points_earned := greatest(0, floor(new.total / greatest(coalesce(v_rate, 50), 1))::int);
+  return new;
+end;
+$$;
+
+-- The customer app shows "Earn 1 pt per PHP X"; X is public, so anyone may read it.
+create or replace function public.get_loyalty_earn_rate()
+returns numeric
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((select earn_pesos_per_point from public.loyalty_cart_settings where id = 'default'), 50)
+$$;
+revoke all on function public.get_loyalty_earn_rate() from public;
+grant execute on function public.get_loyalty_earn_rate() to anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 2. Ledger source for manual owner adjustments (superset of the old list)
+-- -----------------------------------------------------------------------------
+alter table public.loyalty_transactions drop constraint if exists loyalty_transactions_source_check;
+alter table public.loyalty_transactions add constraint loyalty_transactions_source_check
+  check (source is null or source in ('order_earn', 'order_redeem', 'order_return', 'order_clawback', 'admin_adjust'));
+
+-- -----------------------------------------------------------------------------
+-- 3. Read functions
+-- -----------------------------------------------------------------------------
+
+-- Orders with their payment and latest refund request, for the caller's
+-- authorized branches (owner: all; staff: own branch). Refund details are only
+-- included for callers allowed to review refunds.
+create or replace function public.admin_portal_orders(
+  p_from timestamptz,
+  p_to timestamptz,
+  p_branch_id uuid default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_branches uuid[];
+  v_refunds boolean;
+begin
+  v_staff := public._require_staff();
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Choose a valid date range.';
+  end if;
+  if p_to - p_from > interval '400 days' then
+    raise exception 'Date range is too long (maximum 400 days).';
+  end if;
+  v_branches := public.staff_authorized_branch_ids();
+  if p_branch_id is not null then
+    if not (p_branch_id = any (v_branches)) then
+      raise exception 'You can only work in your assigned branch.';
+    end if;
+    v_branches := array[p_branch_id];
+  end if;
+  v_refunds := public.staff_has_permission('refunds');
+
+  return (
+    select coalesce(jsonb_agg(x.j order by x.created_at desc), '[]'::jsonb)
+    from (
+      select o.created_at,
+        jsonb_build_object(
+          'id', o.id, 'created_at', o.created_at, 'updated_at', o.updated_at, 'status', o.status,
+          'branch_id', o.branch_id, 'branch_name', o.branch_name, 'is_delivery', o.is_delivery,
+          'subtotal', o.subtotal, 'discount', o.discount, 'delivery_fee', o.delivery_fee, 'total', o.total,
+          'payment_label', o.payment_method, 'points_earned', o.points_earned,
+          'customer_uid', case when o.firebase_uid = 'walk-in' then null else o.firebase_uid end,
+          'customer_name', case when o.firebase_uid = 'walk-in' then 'Walk-in' else nullif(cp.full_name, '') end,
+          'is_pos', exists (select 1 from public.pos_sales ps where ps.order_id = o.id),
+          'items', (select coalesce(jsonb_agg(jsonb_build_object(
+                      'product_name', i.product_name, 'variant_label', i.variant_label,
+                      'quantity', i.quantity, 'unit_price', i.unit_price)), '[]'::jsonb)
+                    from public.order_items i where i.order_id = o.id),
+          'payment', (select jsonb_build_object('id', pay.id, 'method', pay.method, 'status', pay.status,
+                                                'reference_number', pay.reference_number, 'amount', pay.amount,
+                                                'updated_at', pay.updated_at)
+                      from public.payments pay where pay.order_id = o.id
+                      order by pay.created_at desc limit 1),
+          'refund', case when v_refunds then (
+                      select jsonb_build_object('id', r.id, 'status', r.status, 'amount', r.amount,
+                                                'reason', r.reason, 'notes', r.notes,
+                                                'payment_method', r.payment_method,
+                                                'created_at', r.created_at, 'updated_at', r.updated_at)
+                      from public.refund_requests r where r.order_id = o.id
+                      order by r.created_at desc limit 1) end
+        ) as j
+      from public.orders o
+      left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+      where o.branch_id = any (v_branches)
+        and o.created_at >= p_from and o.created_at <= p_to
+      order by o.created_at desc
+      limit 5000
+    ) x
+  );
+end;
+$$;
+
+-- Stock per authorized branch and variant, with the branch's restock threshold.
+create or replace function public.admin_portal_stock()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_staff();
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'branch_id', b.id, 'branch_name', b.name,
+             'items', (
+               select coalesce(jsonb_agg(jsonb_build_object(
+                        'product_id', p.id, 'product_name', p.name,
+                        'variant_id', pv.id, 'variant_label', pv.label, 'sku', pv.sku,
+                        'quantity', coalesce(bi.quantity, 0),
+                        'restock_threshold', coalesce(th.restock_threshold, public._default_restock_threshold()))
+                      order by p.name, pv.sort_order, pv.label), '[]'::jsonb)
+               from public.products p
+               join public.product_variants pv on pv.product_id = p.id
+               left join public.branch_inventory bi on bi.branch_id = b.id and bi.variant_id = pv.id
+               left join public.stock_thresholds th on th.branch_id = b.id and th.variant_id = pv.id
+               where p.is_active)
+           ) order by b.name), '[]'::jsonb)
+    from public.branches b
+    where b.id = any (public.staff_authorized_branch_ids())
+  );
+end;
+$$;
+
+-- Full catalog for staff (inactive products included) with stock summed over
+-- the caller's authorized branches.
+create or replace function public.admin_portal_products()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_branches uuid[];
+begin
+  perform public._require_staff();
+  v_branches := public.staff_authorized_branch_ids();
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'id', p.id, 'name', p.name, 'sku', p.sku, 'unit', p.unit, 'price', p.price,
+             'is_active', p.is_active, 'is_featured', p.is_featured,
+             'category', nullif(c.label, ''),
+             'updated_at', p.updated_at,
+             'variants', (select coalesce(jsonb_agg(jsonb_build_object(
+                             'id', pv.id, 'label', pv.label, 'sku', pv.sku, 'price', pv.price,
+                             'stock', coalesce((select sum(bi.quantity) from public.branch_inventory bi
+                                                where bi.variant_id = pv.id and bi.branch_id = any (v_branches)), 0))
+                           order by pv.sort_order, pv.label), '[]'::jsonb)
+                          from public.product_variants pv where pv.product_id = p.id)
+           ) order by p.is_active desc, p.name), '[]'::jsonb)
+    from public.products p
+    left join public.product_categories c on c.id = p.category_id
+  );
+end;
+$$;
+
+create or replace function public.admin_portal_stock_movements(
+  p_branch_id uuid default null,
+  p_limit int default 100
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_branches uuid[];
+begin
+  perform public._require_staff();
+  v_branches := public.staff_authorized_branch_ids();
+  if p_branch_id is not null then
+    if not (p_branch_id = any (v_branches)) then
+      raise exception 'You can only work in your assigned branch.';
+    end if;
+    v_branches := array[p_branch_id];
+  end if;
+  return (
+    select coalesce(jsonb_agg(to_jsonb(x) order by x.created_at desc), '[]'::jsonb)
+    from (
+      select m.id, m.created_at, m.branch_id, b.name as branch_name, m.movement_type,
+             m.quantity_change, m.reason, m.reference,
+             p.name as product_name, pv.label as variant_label,
+             nullif(s.full_name, '') as staff_name
+      from public.stock_movements m
+      join public.branches b on b.id = m.branch_id
+      left join public.products p on p.id = m.product_id
+      left join public.product_variants pv on pv.id = m.variant_id
+      left join public.staff_members s on s.firebase_uid = m.created_by
+      where m.branch_id = any (v_branches)
+      order by m.created_at desc
+      limit least(greatest(coalesce(p_limit, 100), 1), 500)
+    ) x
+  );
+end;
+$$;
+
+-- Loyalty: staff may read (they already look customers up at the counter);
+-- only owners may change settings or balances.
+create or replace function public.admin_portal_loyalty_summary()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_month_start timestamptz := date_trunc('month', now() at time zone 'Asia/Manila') at time zone 'Asia/Manila';
+begin
+  perform public._require_staff();
+  return jsonb_build_object(
+    'members', (select count(*) from public.loyalty_accounts where firebase_uid <> 'walk-in'),
+    'issued_month', (select coalesce(sum(points), 0) from public.loyalty_transactions
+                     where points > 0 and created_at >= v_month_start),
+    'redeemed_month', (select coalesce(-sum(points), 0) from public.loyalty_transactions
+                       where points < 0 and created_at >= v_month_start)
+  );
+end;
+$$;
+
+create or replace function public.admin_portal_loyalty_members(
+  p_search text default null,
+  p_limit int default 200
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := nullif(lower(trim(coalesce(p_search, ''))), '');
+begin
+  perform public._require_staff();
+  return (
+    select coalesce(jsonb_agg(to_jsonb(x) order by x.name, x.id), '[]'::jsonb)
+    from (
+      select a.firebase_uid as id,
+             coalesce(nullif(cp.full_name, ''), 'Customer') as name,
+             cp.email, cp.rfid_card_number as card_number,
+             a.points_balance as balance, a.lifetime_points as lifetime,
+             coalesce((select sum(t.points) from public.loyalty_transactions t
+                       where t.firebase_uid = a.firebase_uid and t.source = 'order_earn'), 0) as earned,
+             coalesce((select -sum(t.points) from public.loyalty_transactions t
+                       where t.firebase_uid = a.firebase_uid and t.type = 'redeem'
+                         and coalesce(t.source, '') not in ('order_clawback', 'admin_adjust')), 0) as redeemed,
+             coalesce((select -sum(t.points) from public.loyalty_transactions t
+                       where t.firebase_uid = a.firebase_uid and t.source = 'order_clawback'), 0) as refunded,
+             coalesce((select sum(t.points) from public.loyalty_transactions t
+                       where t.firebase_uid = a.firebase_uid and t.source = 'admin_adjust'), 0) as adjusted
+      from public.loyalty_accounts a
+      join public.customer_profiles cp on cp.firebase_uid = a.firebase_uid
+      where a.firebase_uid <> 'walk-in'
+        and (v_q is null
+             or lower(cp.full_name) like '%' || v_q || '%'
+             or lower(cp.email) like '%' || v_q || '%'
+             or lower(coalesce(cp.rfid_card_number, '')) like '%' || v_q || '%')
+      order by coalesce(nullif(cp.full_name, ''), 'Customer'), a.firebase_uid
+      limit least(greatest(coalesce(p_limit, 200), 1), 1000)
+    ) x
+  );
+end;
+$$;
+
+create or replace function public.admin_portal_loyalty_member(p_firebase_uid text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_member jsonb;
+begin
+  perform public._require_staff();
+  select to_jsonb(x) into v_member
+  from (
+    select cp.firebase_uid as id, coalesce(nullif(cp.full_name, ''), 'Customer') as name,
+           cp.email, cp.rfid_card_number as card_number,
+           coalesce(a.points_balance, 0) as balance, coalesce(a.lifetime_points, 0) as lifetime
+    from public.customer_profiles cp
+    left join public.loyalty_accounts a on a.firebase_uid = cp.firebase_uid
+    where cp.firebase_uid = p_firebase_uid and cp.firebase_uid <> 'walk-in'
+  ) x;
+  if v_member is null then
+    return null;
+  end if;
+  return v_member || jsonb_build_object('history', (
+    select coalesce(jsonb_agg(to_jsonb(t) order by t.created_at desc, t.id desc), '[]'::jsonb)
+    from (
+      select id, type, points, description, order_id, source, created_at
+      from public.loyalty_transactions
+      where firebase_uid = p_firebase_uid
+      order by created_at desc
+      limit 500
+    ) t
+  ));
+end;
+$$;
+
+create or replace function public.admin_portal_loyalty_settings()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_staff();
+  return (
+    select jsonb_build_object('earn_pesos_per_point', s.earn_pesos_per_point,
+                              'points_per_peso', s.points_per_peso,
+                              'max_discount_percent', s.max_discount_percent,
+                              'updated_at', s.updated_at)
+    from public.loyalty_cart_settings s where s.id = 'default'
+  );
+end;
+$$;
+
+-- Staff audit trail with readable names. Owners see everything; staff see
+-- their own entries (same rule as the table's RLS policy).
+create or replace function public.admin_portal_audit_logs(
+  p_limit int default 100,
+  p_before timestamptz default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+begin
+  v_staff := public._require_staff();
+  return (
+    select coalesce(jsonb_agg(to_jsonb(x) order by x.created_at desc), '[]'::jsonb)
+    from (
+      select l.id, l.created_at, l.action, l.entity_type, l.entity_id, l.metadata,
+             nullif(s.full_name, '') as staff_name, s.email as staff_email, b.name as branch_name
+      from public.staff_audit_logs l
+      left join public.staff_members s on s.firebase_uid = l.staff_firebase_uid
+      left join public.branches b on b.id = l.branch_id
+      where (v_staff.role = 'owner' or l.staff_firebase_uid = v_staff.firebase_uid)
+        and (p_before is null or l.created_at < p_before)
+      order by l.created_at desc
+      limit least(greatest(coalesce(p_limit, 100), 1), 500)
+    ) x
+  );
+end;
+$$;
+
+-- Owners pick from this list when linking an admin-portal login to a
+-- registered staff/owner account.
+create or replace function public.admin_portal_staff_directory()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_owner();
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'firebase_uid', s.firebase_uid, 'full_name', s.full_name, 'email', s.email,
+             'role', s.role, 'branch_id', s.branch_id, 'branch_name', b.name,
+             'is_active', s.is_active, 'account_status', s.account_status)
+           order by s.role desc, s.full_name), '[]'::jsonb)
+    from public.staff_members s
+    left join public.branches b on b.id = s.branch_id
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. Owner-only writes
+-- -----------------------------------------------------------------------------
+create or replace function public.owner_update_loyalty_settings(
+  p_earn_pesos_per_point numeric,
+  p_points_per_peso numeric,
+  p_max_discount_percent numeric
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner public.staff_members;
+  v_old public.loyalty_cart_settings;
+begin
+  v_owner := public._require_owner();
+  if p_earn_pesos_per_point is null or p_earn_pesos_per_point < 1 or p_earn_pesos_per_point > 100000 then
+    raise exception 'Earn rate must be between PHP 1 and PHP 100,000 per point.';
+  end if;
+  if p_points_per_peso is null or p_points_per_peso <= 0 or p_points_per_peso > 10000 then
+    raise exception 'Redeem rate must be more than 0 and at most 10,000 points per peso.';
+  end if;
+  if p_max_discount_percent is null or p_max_discount_percent <= 0 or p_max_discount_percent > 100 then
+    raise exception 'Maximum discount must be more than 0%% and at most 100%%.';
+  end if;
+
+  select * into v_old from public.loyalty_cart_settings where id = 'default' for update;
+  insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point, updated_at)
+  values ('default', p_points_per_peso, p_max_discount_percent, p_earn_pesos_per_point, now())
+  on conflict (id) do update
+    set points_per_peso = excluded.points_per_peso,
+        max_discount_percent = excluded.max_discount_percent,
+        earn_pesos_per_point = excluded.earn_pesos_per_point,
+        updated_at = now();
+
+  perform public._write_audit(v_owner.firebase_uid, null, 'loyalty.settings_updated', 'loyalty_settings', 'default',
+    jsonb_build_object(
+      'before', jsonb_build_object('earn_pesos_per_point', v_old.earn_pesos_per_point,
+                                   'points_per_peso', v_old.points_per_peso,
+                                   'max_discount_percent', v_old.max_discount_percent),
+      'after', jsonb_build_object('earn_pesos_per_point', p_earn_pesos_per_point,
+                                  'points_per_peso', p_points_per_peso,
+                                  'max_discount_percent', p_max_discount_percent)));
+  return public.admin_portal_loyalty_settings();
+end;
+$$;
+
+-- Manual add (+) / deduct (-) with a required reason. Appends to the ledger
+-- (never edits it), keeps the balance >= 0, notifies the customer and audits.
+-- p_request_key makes a double-submitted form apply once: the second call
+-- returns {"duplicate": true} and changes nothing.
+create or replace function public.owner_adjust_loyalty_points(
+  p_firebase_uid text,
+  p_points int,
+  p_reason text,
+  p_request_key text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner public.staff_members;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_key text := trim(coalesce(p_request_key, ''));
+  v_balance int;
+  v_tx_id text;
+begin
+  v_owner := public._require_owner();
+  if p_points is null or p_points = 0 then raise exception 'Enter a non-zero whole number of points.'; end if;
+  if abs(p_points) > 100000 then raise exception 'That adjustment is too large (maximum 100,000 points).'; end if;
+  if char_length(v_reason) < 3 or char_length(v_reason) > 255 then
+    raise exception 'A reason of 3 to 255 characters is required for a manual adjustment.';
+  end if;
+  if v_key !~ '^[A-Za-z0-9_-]{8,64}$' then raise exception 'Missing or invalid request key.'; end if;
+  if p_firebase_uid is null or p_firebase_uid = 'walk-in'
+     or not exists (select 1 from public.customer_profiles where firebase_uid = p_firebase_uid) then
+    raise exception 'That loyalty member could not be found.';
+  end if;
+
+  -- Serialise retries of the same request, then check whether it already ran.
+  perform pg_advisory_xact_lock(hashtextextended('loyalty_adjust:' || v_owner.firebase_uid || ':' || v_key, 0));
+  if exists (select 1 from public.staff_audit_logs
+             where staff_firebase_uid = v_owner.firebase_uid and client_operation_id = 'loyalty_adjust:' || v_key) then
+    return jsonb_build_object('duplicate', true);
+  end if;
+
+  insert into public.loyalty_accounts (firebase_uid) values (p_firebase_uid) on conflict (firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid = p_firebase_uid for update;
+  if p_points < 0 and abs(p_points) > v_balance then
+    raise exception 'You cannot deduct more points than the member''s current balance (%).', v_balance;
+  end if;
+
+  update public.loyalty_accounts
+  set points_balance = points_balance + p_points,
+      lifetime_points = lifetime_points + greatest(p_points, 0)
+  where firebase_uid = p_firebase_uid;
+
+  insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+  values (p_firebase_uid, case when p_points > 0 then 'earn' else 'redeem' end, p_points,
+          'Adjustment by Melai Nuts: ' || v_reason, null, 'admin_adjust')
+  returning id into v_tx_id;
+
+  perform public.notify_customer(p_firebase_uid, 'loyalty',
+    case when p_points > 0 then 'Points added' else 'Points deducted' end,
+    abs(p_points)::text || ' points were ' || case when p_points > 0 then 'added to' else 'deducted from' end
+      || ' your account. Reason: ' || v_reason);
+
+  perform public._write_audit(v_owner.firebase_uid, null, 'loyalty.adjusted', 'loyalty_account', p_firebase_uid,
+    jsonb_build_object('points', p_points, 'reason', v_reason, 'transaction_id', v_tx_id,
+                       'balance_after', v_balance + p_points),
+    'loyalty_adjust:' || v_key);
+
+  return jsonb_build_object('duplicate', false, 'transaction_id', v_tx_id, 'balance', v_balance + p_points);
+end;
+$$;
+
+-- Refund review from the portal. Wraps staff_review_refund (which checks the
+-- branch + refunds permission and lets the state-machine trigger validate the
+-- move) and adds what the portal needs on top:
+--   'approve'       pending -> approved (online payments: money goes back
+--                   through the gateway / e-wallet, then 'complete')
+--   'approve_cash'  pending -> approved -> completed in one transaction, only
+--                   for cash payments (cash handed back at the counter)
+--   'complete'      approved/processing -> completed; p_note = the gateway or
+--                   e-wallet refund reference (required, 4+ characters)
+--   'reject'        p_note = reason (required); the customer is told why
+-- Every action is written to staff_audit_logs.
+create or replace function public.admin_portal_review_refund(
+  p_refund_id text,
+  p_action text,
+  p_note text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r public.refund_requests;
+  v_staff public.staff_members;
+  v_branch uuid;
+  v_pay_method text;
+  v_note text := nullif(trim(coalesce(p_note, '')), '');
+begin
+  select * into r from public.refund_requests where id = p_refund_id for update;
+  if not found then raise exception 'That refund request could not be found.'; end if;
+  select o.branch_id, (select pay.method from public.payments pay where pay.order_id = o.id order by pay.created_at desc limit 1)
+    into v_branch, v_pay_method
+  from public.orders o where o.id = r.order_id;
+  v_staff := public._require_staff(v_branch, 'refunds');
+
+  if p_action = 'approve' then
+    perform public.staff_review_refund(r.id, 'approve');
+  elsif p_action = 'approve_cash' then
+    if v_pay_method is distinct from 'cash' then
+      raise exception 'Only cash payments can be refunded in one step. Approve it, refund through the payment provider, then mark it completed.';
+    end if;
+    perform public.staff_review_refund(r.id, 'approve');
+    perform public.staff_review_refund(r.id, 'complete');
+  elsif p_action = 'complete' then
+    if v_note is null or char_length(v_note) < 4 or char_length(v_note) > 120 then
+      raise exception 'Enter the refund reference from the payment provider (4 to 120 characters).';
+    end if;
+    perform public.staff_review_refund(r.id, 'complete');
+  elsif p_action = 'reject' then
+    if v_note is null or char_length(v_note) < 5 or char_length(v_note) > 500 then
+      raise exception 'A written reason (5 to 500 characters) is required to reject a refund.';
+    end if;
+    perform public.staff_review_refund(r.id, 'reject');
+    perform public.notify_customer(r.firebase_uid, 'refund', 'Refund request not approved',
+      'Request ' || r.id || ' for order ' || r.order_id || ': ' || v_note);
+  else
+    raise exception 'Unsupported refund action.';
+  end if;
+
+  perform public._write_audit(v_staff.firebase_uid, v_branch, 'refund.' || p_action, 'refund_request', r.id,
+    jsonb_build_object('order_id', r.order_id, 'amount', r.amount, 'payment_method', v_pay_method,
+                       'note', v_note, 'via', 'admin_portal'));
+
+  return (select jsonb_build_object('id', id, 'status', status, 'order_id', order_id)
+          from public.refund_requests where id = r.id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Grants: only signed-in callers (the functions check staff/owner inside)
+-- -----------------------------------------------------------------------------
+revoke all on function public.admin_portal_orders(timestamptz, timestamptz, uuid) from public, anon;
+revoke all on function public.admin_portal_stock() from public, anon;
+revoke all on function public.admin_portal_products() from public, anon;
+revoke all on function public.admin_portal_stock_movements(uuid, int) from public, anon;
+revoke all on function public.admin_portal_loyalty_summary() from public, anon;
+revoke all on function public.admin_portal_loyalty_members(text, int) from public, anon;
+revoke all on function public.admin_portal_loyalty_member(text) from public, anon;
+revoke all on function public.admin_portal_loyalty_settings() from public, anon;
+revoke all on function public.admin_portal_audit_logs(int, timestamptz) from public, anon;
+revoke all on function public.admin_portal_staff_directory() from public, anon;
+revoke all on function public.owner_update_loyalty_settings(numeric, numeric, numeric) from public, anon;
+revoke all on function public.owner_adjust_loyalty_points(text, int, text, text) from public, anon;
+revoke all on function public.admin_portal_review_refund(text, text, text) from public, anon;
+
+grant execute on function public.admin_portal_orders(timestamptz, timestamptz, uuid) to authenticated;
+grant execute on function public.admin_portal_stock() to authenticated;
+grant execute on function public.admin_portal_products() to authenticated;
+grant execute on function public.admin_portal_stock_movements(uuid, int) to authenticated;
+grant execute on function public.admin_portal_loyalty_summary() to authenticated;
+grant execute on function public.admin_portal_loyalty_members(text, int) to authenticated;
+grant execute on function public.admin_portal_loyalty_member(text) to authenticated;
+grant execute on function public.admin_portal_loyalty_settings() to authenticated;
+grant execute on function public.admin_portal_audit_logs(int, timestamptz) to authenticated;
+grant execute on function public.admin_portal_staff_directory() to authenticated;
+grant execute on function public.owner_update_loyalty_settings(numeric, numeric, numeric) to authenticated;
+grant execute on function public.owner_adjust_loyalty_points(text, int, text, text) to authenticated;
+grant execute on function public.admin_portal_review_refund(text, text, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 6. Login role for the Laravel server (no password here; set it manually)
+-- -----------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'melai_admin_portal') then
+    create role melai_admin_portal noinherit nologin;
+  end if;
+end $$;
+-- NOINHERIT: the role has no privileges of its own. Each request must
+-- `SET LOCAL ROLE authenticated` inside a transaction with a staff UID in
+-- request.jwt.claims, which puts it under exactly the app's RLS and checks.
+grant authenticated to melai_admin_portal;
+alter role melai_admin_portal set statement_timeout = '15s';
+
+commit;
+
+
+-- >>>>>>>>>> 20261010000000_pos_shifts_voids_returns.sql <<<<<<<<<<
+-- =============================================================================
+-- POS cash drawer shifts, POS voids, counter returns and returned-stock receipt
+-- =============================================================================
+-- Run after 20261009000000_admin_portal.sql. Idempotent, additive: no table is
+-- dropped and no existing row is changed.
+--
+-- What it adds
+--   * cash_drawer_sessions  one shift per cashier: opening cash, closing count,
+--                           expected cash, difference. A POS sale is attached to
+--                           the cashier's open shift automatically (trigger), so
+--                           the existing app keeps working unchanged.
+--   * cash_drawer_events    cash that leaves/enters the drawer outside a sale
+--                           (cash refunds, paid-in, paid-out).
+--   * pos_voids             a voided POS sale (same shift, manager permission).
+--   * refund_returned_items what physically came back for a refund and in what
+--                           condition. Only 'sellable' units go back into stock;
+--                           before this migration nothing ever restocked a refund.
+--   * permission 'void_pos_sales' (owner always; staff only by explicit grant).
+--   * branches.pos_requires_shift (default false): when true, a branch refuses
+--     POS sales from a cashier with no open shift.
+--
+-- Definitions used by every summary here (and by the analytics migration):
+--   gross sales  = sum of order subtotals (before discounts, without delivery
+--                  fee) whose payment is verified (payments.status success or
+--                  refunded)
+--   discounts    = sum of order discounts on those orders
+--   refunds      = completed refund amounts, dated by when they completed
+--   net sales    = gross sales - discounts - refunds
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Permission catalog: + void_pos_sales  (superset of the old list)
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_permission_catalog()
+returns text[]
+language sql
+immutable
+as $$
+  select array[
+    'view_dashboard',
+    'view_products',    'manage_products',
+    'view_inventory',   'manage_inventory',
+    'view_orders',      'manage_orders',
+    'view_payments',
+    'manage_refunds',
+    'view_reports',
+    'manage_stock_transfers',
+    'view_notifications',
+    'void_pos_sales'
+  ]
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Stock movement types: + return_restock. The batch-sync trigger labels an
+--    increase with app.stock_increase_type when a caller sets it.
+-- -----------------------------------------------------------------------------
+alter table public.stock_movements drop constraint if exists stock_movements_movement_type_check;
+alter table public.stock_movements add constraint stock_movements_movement_type_check
+  check (movement_type in ('receive', 'assign', 'adjust', 'sale', 'sale_cancel',
+                           'transfer_out', 'transfer_in', 'return_restock'));
+
+create or replace function public._sync_batches_with_inventory()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delta int;
+  v_remaining int;
+  v_take int;
+  v_after int;
+  b record;
+  v_ref text := nullif(current_setting('app.stock_reference', true), '');
+  v_inc_type text := coalesce(nullif(current_setting('app.stock_increase_type', true), ''), 'sale_cancel');
+begin
+  if coalesce(current_setting('app.inventory_managed', true), '') = '1' then return new; end if;
+  if new.variant_id is null then return new; end if;
+  v_delta := new.quantity - old.quantity;
+  if v_delta = 0 then return new; end if;
+  if v_inc_type not in ('sale_cancel', 'return_restock') then v_inc_type := 'sale_cancel'; end if;
+
+  if v_delta < 0 then
+    perform public._consume_batches_fefo(new.branch_id, new.product_id, new.variant_id, -v_delta,
+                                         'sale', v_ref, null, false);
+  else
+    v_remaining := v_delta;
+    for b in
+      select id, quantity, initial_quantity from public.inventory_batches
+      where branch_id = new.branch_id and variant_id = new.variant_id and quantity < initial_quantity
+      order by expiration_date, received_date
+      for update
+    loop
+      exit when v_remaining <= 0;
+      v_take := least(b.initial_quantity - b.quantity, v_remaining);
+      update public.inventory_batches set quantity = quantity + v_take
+      where id = b.id returning quantity into v_after;
+      insert into public.stock_movements
+        (branch_id, product_id, variant_id, batch_id, movement_type, quantity_change, batch_quantity_after, reference)
+      values (new.branch_id, new.product_id, new.variant_id, b.id, v_inc_type, v_take, v_after, v_ref);
+      v_remaining := v_remaining - v_take;
+    end loop;
+  end if;
+  return new;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Tables
+-- -----------------------------------------------------------------------------
+alter table public.branches add column if not exists pos_requires_shift boolean not null default false;
+
+create sequence if not exists public.cash_drawer_session_seq start 1001;
+
+create table if not exists public.cash_drawer_sessions (
+  id text primary key default ('SHIFT-' || nextval('public.cash_drawer_session_seq')::text),
+  branch_id uuid not null references public.branches(id) on delete restrict,
+  staff_uid text not null references public.staff_members(firebase_uid) on delete restrict,
+  staff_name text not null default '',
+  status text not null default 'open' check (status in ('open', 'closed')),
+  opening_cash numeric(12, 2) not null check (opening_cash >= 0 and opening_cash <= 1000000),
+  opened_at timestamptz not null default now(),
+  closed_at timestamptz,
+  closed_by text,
+  counted_cash numeric(12, 2) check (counted_cash is null or (counted_cash >= 0 and counted_cash <= 10000000)),
+  expected_cash numeric(12, 2),
+  cash_difference numeric(12, 2),
+  closing_notes text check (closing_notes is null or char_length(closing_notes) <= 500),
+  constraint cash_drawer_closed_complete check (
+    status = 'open'
+    or (closed_at is not null and counted_cash is not null and expected_cash is not null and cash_difference is not null))
+);
+-- One open drawer per cashier.
+create unique index if not exists cash_drawer_one_open_per_staff
+  on public.cash_drawer_sessions (staff_uid) where status = 'open';
+create index if not exists cash_drawer_branch_idx on public.cash_drawer_sessions (branch_id, opened_at desc);
+alter table public.cash_drawer_sessions enable row level security;
+
+create table if not exists public.cash_drawer_events (
+  id uuid primary key default gen_random_uuid(),
+  session_id text not null references public.cash_drawer_sessions(id) on delete restrict,
+  event_type text not null check (event_type in ('cash_refund', 'paid_in', 'paid_out')),
+  amount numeric(12, 2) not null check (amount > 0 and amount <= 1000000),
+  reference text,
+  reason text not null default '' check (char_length(reason) <= 200),
+  created_by text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists cash_drawer_events_session_idx on public.cash_drawer_events (session_id, created_at);
+-- A refund leaves the drawer at most once.
+create unique index if not exists cash_drawer_events_one_refund
+  on public.cash_drawer_events (reference) where event_type = 'cash_refund';
+alter table public.cash_drawer_events enable row level security;
+
+alter table public.pos_sales add column if not exists session_id text references public.cash_drawer_sessions(id);
+create index if not exists pos_sales_session_idx on public.pos_sales (session_id);
+
+create table if not exists public.pos_voids (
+  order_id text primary key references public.orders(id) on delete restrict,
+  refund_id text not null unique references public.refund_requests(id) on delete restrict,
+  branch_id uuid not null references public.branches(id),
+  session_id text references public.cash_drawer_sessions(id),
+  reason text not null check (char_length(reason) between 3 and 200),
+  voided_by text not null,
+  voided_by_name text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists pos_voids_branch_idx on public.pos_voids (branch_id, created_at desc);
+alter table public.pos_voids enable row level security;
+
+create table if not exists public.refund_returned_items (
+  id uuid primary key default gen_random_uuid(),
+  refund_id text not null references public.refund_requests(id) on delete restrict,
+  branch_id uuid not null references public.branches(id),
+  variant_id uuid references public.product_variants(id) on delete set null,
+  product_name text not null,
+  variant_label text not null,
+  quantity int not null check (quantity > 0),
+  condition text not null check (condition in ('sellable', 'damaged', 'expired')),
+  received_by text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists refund_returned_items_refund_idx on public.refund_returned_items (refund_id);
+alter table public.refund_returned_items enable row level security;
+
+-- Reads go through the RPCs below; staff may also read their branch rows
+-- directly (owner: all). No client writes.
+drop policy if exists "staff read branch shifts" on public.cash_drawer_sessions;
+create policy "staff read branch shifts" on public.cash_drawer_sessions
+  for select to authenticated using (public.staff_can_see_branch(branch_id));
+drop policy if exists "staff read branch drawer events" on public.cash_drawer_events;
+create policy "staff read branch drawer events" on public.cash_drawer_events
+  for select to authenticated using (exists (
+    select 1 from public.cash_drawer_sessions s
+    where s.id = cash_drawer_events.session_id and public.staff_can_see_branch(s.branch_id)));
+drop policy if exists "staff read branch voids" on public.pos_voids;
+create policy "staff read branch voids" on public.pos_voids
+  for select to authenticated using (public.staff_can_see_branch(branch_id));
+drop policy if exists "staff read branch returned items" on public.refund_returned_items;
+create policy "staff read branch returned items" on public.refund_returned_items
+  for select to authenticated using (public.staff_can_see_branch(branch_id));
+
+revoke insert, update, delete, truncate on public.cash_drawer_sessions, public.cash_drawer_events,
+  public.pos_voids, public.refund_returned_items from anon, authenticated;
+revoke all on public.cash_drawer_sessions, public.cash_drawer_events,
+  public.pos_voids, public.refund_returned_items from anon;
+grant select on public.cash_drawer_sessions, public.cash_drawer_events,
+  public.pos_voids, public.refund_returned_items to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 4. Attach POS sales to the cashier's open shift
+-- -----------------------------------------------------------------------------
+create or replace function public._trg_pos_sale_attach_shift()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_required boolean;
+begin
+  if new.session_id is null then
+    select id into new.session_id from public.cash_drawer_sessions
+    where staff_uid = new.staff_uid and branch_id = new.branch_id and status = 'open';
+  end if;
+  if new.session_id is null then
+    select pos_requires_shift into v_required from public.branches where id = new.branch_id;
+    if coalesce(v_required, false) then
+      raise exception 'Open your cash drawer shift before ringing up sales.';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists pos_sales_attach_shift on public.pos_sales;
+create trigger pos_sales_attach_shift before insert on public.pos_sales
+  for each row execute function public._trg_pos_sale_attach_shift();
+
+-- -----------------------------------------------------------------------------
+-- 5. Shift summary (internal; callers authorize first)
+-- -----------------------------------------------------------------------------
+create or replace function public._shift_summary(p_session_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  s public.cash_drawer_sessions;
+  v_cash_sales numeric := 0;
+  v_cash_refunds numeric := 0;
+  v_paid_in numeric := 0;
+  v_paid_out numeric := 0;
+  v_expected numeric;
+  v_methods jsonb;
+  v_tx int := 0;
+  v_gross numeric := 0;
+  v_voids int := 0;
+  v_void_amount numeric := 0;
+begin
+  select * into s from public.cash_drawer_sessions where id = p_session_id;
+  if not found then return null; end if;
+
+  -- Every sale rung up in this shift (voided ones included: they were sold,
+  -- and their refund is counted separately).
+  select count(*), coalesce(sum(o.subtotal), 0),
+         coalesce(sum(o.total) filter (where p.method = 'cash'), 0)
+    into v_tx, v_gross, v_cash_sales
+  from public.pos_sales ps
+  join public.orders o on o.id = ps.order_id
+  left join public.payments p on p.order_id = o.id
+  where ps.session_id = s.id;
+
+  select coalesce(jsonb_object_agg(m.method, jsonb_build_object('count', m.n, 'amount', m.amount)), '{}'::jsonb)
+    into v_methods
+  from (
+    select p.method, count(*) as n, sum(o.total) as amount
+    from public.pos_sales ps
+    join public.orders o on o.id = ps.order_id
+    join public.payments p on p.order_id = o.id
+    where ps.session_id = s.id
+    group by p.method
+  ) m;
+
+  select coalesce(sum(amount) filter (where event_type = 'cash_refund'), 0),
+         coalesce(sum(amount) filter (where event_type = 'paid_in'), 0),
+         coalesce(sum(amount) filter (where event_type = 'paid_out'), 0)
+    into v_cash_refunds, v_paid_in, v_paid_out
+  from public.cash_drawer_events where session_id = s.id;
+
+  select count(*), coalesce(sum(o.total), 0) into v_voids, v_void_amount
+  from public.pos_voids v join public.orders o on o.id = v.order_id
+  where v.session_id = s.id;
+
+  v_expected := s.opening_cash + v_cash_sales - v_cash_refunds + v_paid_in - v_paid_out;
+
+  return jsonb_build_object(
+    'session_id', s.id,
+    'branch_id', s.branch_id,
+    'staff_uid', s.staff_uid,
+    'staff_name', s.staff_name,
+    'status', s.status,
+    'opened_at', s.opened_at,
+    'closed_at', s.closed_at,
+    'opening_cash', s.opening_cash,
+    'transaction_count', v_tx,
+    'gross_sales', v_gross,
+    'by_method', v_methods,
+    'cash_sales', v_cash_sales,
+    'cash_refunds', v_cash_refunds,
+    'paid_in', v_paid_in,
+    'paid_out', v_paid_out,
+    'void_count', v_voids,
+    'void_amount', v_void_amount,
+    'expected_cash', case when s.status = 'closed' then s.expected_cash else v_expected end,
+    'counted_cash', s.counted_cash,
+    'cash_difference', s.cash_difference,
+    'closing_notes', s.closing_notes
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Shift RPCs
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_open_shift(
+  p_branch_id uuid,
+  p_opening_cash numeric,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('branch', p_branch_id, 'cash', p_opening_cash);
+  v_prev jsonb;
+  v_id text;
+  v_result jsonb;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  if p_branch_id is null or not exists (select 1 from public.branches where id = p_branch_id) then
+    raise exception 'That branch could not be found.';
+  end if;
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'open_shift', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if p_opening_cash is null or p_opening_cash < 0 or p_opening_cash > 1000000 then
+    raise exception 'Enter the opening cash in the drawer (0 or more).';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('shift:' || v_staff.firebase_uid, 0));
+  if exists (select 1 from public.cash_drawer_sessions where staff_uid = v_staff.firebase_uid and status = 'open') then
+    raise exception 'You already have an open shift. Close it before opening a new one.';
+  end if;
+
+  insert into public.cash_drawer_sessions (branch_id, staff_uid, staff_name, opening_cash)
+  values (p_branch_id, v_staff.firebase_uid, v_staff.full_name, round(p_opening_cash, 2))
+  returning id into v_id;
+
+  perform public._write_audit(v_staff.firebase_uid, p_branch_id, 'pos.shift_open', 'cash_drawer_session', v_id,
+                              jsonb_build_object('opening_cash', round(p_opening_cash, 2)));
+  v_result := public._shift_summary(v_id);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'open_shift', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+-- The caller's open shift (any branch they may use), with live totals; null if none.
+create or replace function public.staff_get_current_shift()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_id text;
+begin
+  v_staff := public._require_staff();
+  select id into v_id from public.cash_drawer_sessions
+  where staff_uid = v_staff.firebase_uid and status = 'open';
+  if v_id is null then return null; end if;
+  return public._shift_summary(v_id);
+end;
+$$;
+
+create or replace function public.staff_get_shift(p_session_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  s public.cash_drawer_sessions;
+  v_staff public.staff_members;
+begin
+  select * into s from public.cash_drawer_sessions where id = p_session_id;
+  if not found then raise exception 'That shift could not be found.'; end if;
+  v_staff := public._require_staff(s.branch_id);
+  return public._shift_summary(s.id);
+end;
+$$;
+
+-- Paid-in / paid-out (change fund top-up, small purchases paid from the drawer).
+create or replace function public.staff_record_cash_movement(
+  p_session_id text,
+  p_type text,
+  p_amount numeric,
+  p_reason text,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  s public.cash_drawer_sessions;
+  v_staff public.staff_members;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('s', p_session_id, 't', p_type, 'a', p_amount, 'r', p_reason);
+  v_prev jsonb;
+  v_result jsonb;
+  v_reason text := trim(coalesce(p_reason, ''));
+begin
+  select * into s from public.cash_drawer_sessions where id = p_session_id for update;
+  if not found then raise exception 'That shift could not be found.'; end if;
+  v_staff := public._require_staff(s.branch_id);
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'cash_movement', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if s.staff_uid <> v_staff.firebase_uid and v_staff.role <> 'owner' then
+    raise exception 'Only the cashier who opened this shift can record cash movements.';
+  end if;
+  if s.status <> 'open' then raise exception 'This shift is already closed.'; end if;
+  if p_type not in ('paid_in', 'paid_out') then raise exception 'Choose paid in or paid out.'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount > 1000000 then raise exception 'Enter an amount greater than zero.'; end if;
+  if char_length(v_reason) < 3 or char_length(v_reason) > 200 then
+    raise exception 'Please give a reason (3 to 200 characters).';
+  end if;
+  if p_type = 'paid_out' and p_amount > (public._shift_summary(s.id) ->> 'expected_cash')::numeric then
+    raise exception 'There is not that much cash in the drawer.';
+  end if;
+
+  insert into public.cash_drawer_events (session_id, event_type, amount, reason, created_by)
+  values (s.id, p_type, round(p_amount, 2), v_reason, v_staff.firebase_uid);
+  perform public._write_audit(v_staff.firebase_uid, s.branch_id, 'pos.cash_' || p_type, 'cash_drawer_session', s.id,
+                              jsonb_build_object('amount', round(p_amount, 2), 'reason', v_reason));
+  v_result := public._shift_summary(s.id);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'cash_movement', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+create or replace function public.staff_close_shift(
+  p_session_id text,
+  p_counted_cash numeric,
+  p_notes text default null,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  s public.cash_drawer_sessions;
+  v_staff public.staff_members;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('s', p_session_id, 'c', p_counted_cash, 'n', p_notes);
+  v_prev jsonb;
+  v_expected numeric;
+  v_diff numeric;
+  v_notes text := nullif(trim(coalesce(p_notes, '')), '');
+  v_result jsonb;
+begin
+  select * into s from public.cash_drawer_sessions where id = p_session_id for update;
+  if not found then raise exception 'That shift could not be found.'; end if;
+  v_staff := public._require_staff(s.branch_id);
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'close_shift', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if s.staff_uid <> v_staff.firebase_uid and v_staff.role <> 'owner'
+     and not ('void_pos_sales' = any (public.staff_permission_keys())) then
+    raise exception 'Only the cashier, a manager or the owner can close this shift.';
+  end if;
+  if s.status <> 'open' then raise exception 'This shift is already closed.'; end if;
+  if p_counted_cash is null or p_counted_cash < 0 or p_counted_cash > 10000000 then
+    raise exception 'Enter the cash you counted in the drawer.';
+  end if;
+  if v_notes is not null and char_length(v_notes) > 500 then raise exception 'Notes are too long.'; end if;
+
+  v_expected := (public._shift_summary(s.id) ->> 'expected_cash')::numeric;
+  v_diff := round(p_counted_cash, 2) - v_expected;
+  if v_diff <> 0 and v_notes is null then
+    raise exception 'The count is off by %. Add a note explaining the difference.', v_diff;
+  end if;
+
+  update public.cash_drawer_sessions
+     set status = 'closed', closed_at = now(), closed_by = v_staff.firebase_uid,
+         counted_cash = round(p_counted_cash, 2), expected_cash = v_expected,
+         cash_difference = v_diff, closing_notes = v_notes
+   where id = s.id;
+
+  perform public._write_audit(v_staff.firebase_uid, s.branch_id, 'pos.shift_close', 'cash_drawer_session', s.id,
+    jsonb_build_object('expected_cash', v_expected, 'counted_cash', round(p_counted_cash, 2), 'difference', v_diff));
+  if v_diff <> 0 then
+    perform public._notify_staff(s.branch_id, 'system', 'Cash difference on ' || s.id,
+      s.staff_name || '''s drawer was off by ' || v_diff || '.', s.id, 'refunds');
+  end if;
+  v_result := public._shift_summary(s.id);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'close_shift', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+create or replace function public.staff_list_shifts(
+  p_branch_id uuid default null,
+  p_from date default null,
+  p_to date default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_from date := coalesce(p_from, (now() at time zone 'Asia/Manila')::date - 6);
+  v_to date := coalesce(p_to, (now() at time zone 'Asia/Manila')::date);
+begin
+  v_staff := public._require_staff(p_branch_id);
+  if v_to < v_from or v_to - v_from > 400 then raise exception 'Choose a date range of up to 400 days.'; end if;
+  return (
+    select coalesce(jsonb_agg(public._shift_summary(s.id) order by s.opened_at desc), '[]'::jsonb)
+    from public.cash_drawer_sessions s
+    where (s.opened_at at time zone 'Asia/Manila')::date between v_from and v_to
+      and (case when v_staff.role = 'owner' then p_branch_id is null or s.branch_id = p_branch_id
+                else s.branch_id = v_staff.branch_id end)
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Daily cashier summary for one branch and one day (Asia/Manila)
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_cashier_daily_summary(
+  p_branch_id uuid,
+  p_date date default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_day date := coalesce(p_date, (now() at time zone 'Asia/Manila')::date);
+  v_start timestamptz;
+  v_end timestamptz;
+  v_cashiers jsonb;
+  v_totals jsonb;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  if p_branch_id is null then raise exception 'Choose a branch.'; end if;
+  v_start := v_day::timestamp at time zone 'Asia/Manila';
+  v_end := (v_day + 1)::timestamp at time zone 'Asia/Manila';
+
+  with sales as (
+    select ps.staff_uid, max(ps.staff_name) as staff_name,
+           count(*) as tx,
+           coalesce(sum(o.subtotal), 0) as gross,
+           coalesce(sum(o.discount), 0) as discounts,
+           coalesce(sum(o.total) filter (where p.method = 'cash'), 0) as cash,
+           coalesce(sum(o.total) filter (where p.method <> 'cash'), 0) as non_cash
+    from public.pos_sales ps
+    join public.orders o on o.id = ps.order_id
+    join public.payments p on p.order_id = o.id and p.status in ('success', 'refunded')
+    where ps.branch_id = p_branch_id and ps.created_at >= v_start and ps.created_at < v_end
+    group by ps.staff_uid
+  ),
+  refunds as (
+    -- Refunds and voids count against the cashier who rang up the sale.
+    select ps.staff_uid as staff_uid,
+           count(*) filter (where v.order_id is not null) as voids,
+           coalesce(sum(r.amount), 0) as refunded
+    from public.refund_requests r
+    join public.pos_sales ps on ps.order_id = r.order_id
+    left join public.pos_voids v on v.refund_id = r.id
+    join lateral (
+      select max(e.created_at) as done_at from public.refund_status_events e
+      where e.refund_request_id = r.id and e.status = 'completed'
+    ) d on true
+    where r.status = 'completed' and ps.branch_id = p_branch_id
+      and d.done_at >= v_start and d.done_at < v_end
+    group by 1
+  ),
+  people as (
+    select staff_uid from sales union select staff_uid from refunds
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'staff_uid', pe.staff_uid,
+           'staff_name', coalesce(sa.staff_name, sm.full_name, ''),
+           'transaction_count', coalesce(sa.tx, 0),
+           'gross_sales', coalesce(sa.gross, 0),
+           'discounts', coalesce(sa.discounts, 0),
+           'refunds', coalesce(rf.refunded, 0),
+           'void_count', coalesce(rf.voids, 0),
+           'net_sales', coalesce(sa.gross, 0) - coalesce(sa.discounts, 0) - coalesce(rf.refunded, 0),
+           'cash_sales', coalesce(sa.cash, 0),
+           'non_cash_sales', coalesce(sa.non_cash, 0)
+         ) order by coalesce(sa.staff_name, sm.full_name)), '[]'::jsonb),
+         jsonb_build_object(
+           'transaction_count', coalesce(sum(sa.tx), 0),
+           'gross_sales', coalesce(sum(sa.gross), 0),
+           'discounts', coalesce(sum(sa.discounts), 0),
+           'refunds', coalesce(sum(rf.refunded), 0),
+           'void_count', coalesce(sum(rf.voids), 0),
+           'net_sales', coalesce(sum(sa.gross), 0) - coalesce(sum(sa.discounts), 0) - coalesce(sum(rf.refunded), 0),
+           'cash_sales', coalesce(sum(sa.cash), 0),
+           'non_cash_sales', coalesce(sum(sa.non_cash), 0))
+    into v_cashiers, v_totals
+  from people pe
+  left join sales sa on sa.staff_uid = pe.staff_uid
+  left join refunds rf on rf.staff_uid = pe.staff_uid
+  left join public.staff_members sm on sm.firebase_uid = pe.staff_uid;
+
+  return jsonb_build_object(
+    'branch_id', p_branch_id,
+    'date', v_day,
+    'totals', v_totals,
+    'cashiers', v_cashiers,
+    'shifts', (
+      select coalesce(jsonb_agg(public._shift_summary(s.id) order by s.opened_at), '[]'::jsonb)
+      from public.cash_drawer_sessions s
+      where s.branch_id = p_branch_id and s.opened_at >= v_start and s.opened_at < v_end)
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Receiving returned items (any refund, online or POS)
+--    Only 'sellable' units go back into branch stock (FEFO batches refilled,
+--    movement 'return_restock'). 'damaged' / 'expired' are recorded only.
+--    p_items: [{"variant_id": "<uuid>", "quantity": 1, "condition": "sellable"}]
+-- -----------------------------------------------------------------------------
+create or replace function public._receive_returned_items(
+  p_refund public.refund_requests,
+  p_branch_id uuid,
+  p_items jsonb,
+  p_staff_uid text
+)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_line record;
+  v_ordered int;
+  v_refunded int;
+  v_already int;
+  v_restocked int := 0;
+  v_prod uuid;
+  v_name text;
+  v_label text;
+begin
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'List the items that came back.';
+  end if;
+  if jsonb_array_length(p_items) > 100 then raise exception 'Too many lines.'; end if;
+
+  for v_line in
+    select (e ->> 'variant_id')::uuid as variant_id,
+           coalesce(nullif(e ->> 'condition', ''), 'sellable') as condition,
+           sum((e ->> 'quantity')::int)::int as qty
+    from jsonb_array_elements(p_items) e
+    group by 1, 2 order by 1, 2
+  loop
+    if v_line.condition not in ('sellable', 'damaged', 'expired') then
+      raise exception 'Condition must be sellable, damaged or expired.';
+    end if;
+    if v_line.qty is null or v_line.qty <= 0 then raise exception 'Quantities must be greater than zero.'; end if;
+
+    select (array_agg(oi.product_id))[1], max(oi.product_name), max(oi.variant_label), sum(oi.quantity)::int
+      into v_prod, v_name, v_label, v_ordered
+    from public.order_items oi
+    where oi.order_id = p_refund.order_id and oi.variant_id = v_line.variant_id;
+    if v_ordered is null then raise exception 'An item is not part of this order.'; end if;
+
+    select coalesce(sum(ri.quantity), 0)::int into v_refunded
+    from public.refund_items ri
+    where ri.refund_request_id = p_refund.id and ri.product_name = v_name and ri.variant_label = v_label;
+    select coalesce(sum(quantity), 0)::int into v_already
+    from public.refund_returned_items
+    where refund_id = p_refund.id and variant_id = v_line.variant_id;
+    if v_already + v_line.qty > v_refunded then
+      raise exception 'Only % of % (%) were refunded and % already received.', v_refunded, v_name, v_label, v_already;
+    end if;
+
+    insert into public.refund_returned_items
+      (refund_id, branch_id, variant_id, product_name, variant_label, quantity, condition, received_by)
+    values (p_refund.id, p_branch_id, v_line.variant_id, v_name, v_label, v_line.qty, v_line.condition, p_staff_uid);
+
+    if v_line.condition = 'sellable' then
+      perform set_config('app.stock_reference', p_refund.id, true);
+      perform set_config('app.stock_increase_type', 'return_restock', true);
+      insert into public.branch_inventory (branch_id, product_id, variant_id, quantity)
+      values (p_branch_id, v_prod, v_line.variant_id, 0)
+      on conflict (branch_id, product_id, variant_id) do nothing;
+      update public.branch_inventory set quantity = quantity + v_line.qty
+      where branch_id = p_branch_id and variant_id = v_line.variant_id;
+      perform set_config('app.stock_increase_type', '', true);
+      v_restocked := v_restocked + v_line.qty;
+    end if;
+  end loop;
+  return v_restocked;
+end;
+$$;
+
+create or replace function public.staff_receive_returned_items(
+  p_refund_id text,
+  p_items jsonb,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r public.refund_requests;
+  v_branch uuid;
+  v_staff public.staff_members;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('r', p_refund_id, 'i', p_items);
+  v_prev jsonb;
+  v_restocked int;
+  v_result jsonb;
+begin
+  select * into r from public.refund_requests where id = p_refund_id for update;
+  if not found then raise exception 'That refund request could not be found.'; end if;
+  select branch_id into v_branch from public.orders where id = r.order_id;
+  v_staff := public._require_staff(v_branch, 'refunds');
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'receive_return', v_req);
+  if v_prev is not null then return v_prev; end if;
+  if r.status not in ('approved', 'processing', 'completed') then
+    raise exception 'Items can only be received for an approved refund.';
+  end if;
+
+  v_restocked := public._receive_returned_items(r, v_branch, p_items, v_staff.firebase_uid);
+  perform public._write_audit(v_staff.firebase_uid, v_branch, 'refund.items_received', 'refund_request', r.id,
+                              jsonb_build_object('items', p_items, 'restocked_units', v_restocked));
+  v_result := jsonb_build_object('refund_id', r.id, 'restocked_units', v_restocked,
+    'received', (select coalesce(jsonb_agg(jsonb_build_object('variant_id', variant_id, 'product_name', product_name,
+                   'variant_label', variant_label, 'quantity', quantity, 'condition', condition)), '[]'::jsonb)
+                 from public.refund_returned_items where refund_id = r.id));
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'receive_return', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9. Counter return of a POS sale (customer present with the receipt)
+--    p_items: [{"variant_id": "<uuid>", "quantity": 1, "condition": "sellable"}]
+--    Cash sale  -> refund completed now, cash leaves the caller's open shift.
+--    GCash/card -> refund stays 'approved'; refund through the terminal/wallet,
+--                  then complete it with staff_review_refund(id, 'complete').
+-- -----------------------------------------------------------------------------
+create or replace function public._create_counter_refund(
+  p_order public.orders,
+  p_items jsonb,
+  p_reason text,
+  p_staff public.staff_members
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_line record;
+  v_ordered record;
+  v_amount numeric := 0;
+  v_refund_id text;
+begin
+  for v_line in
+    select (e ->> 'variant_id')::uuid as variant_id, sum((e ->> 'quantity')::int)::int as qty
+    from jsonb_array_elements(p_items) e group by 1 order by 1
+  loop
+    if v_line.qty is null or v_line.qty <= 0 then raise exception 'Quantities must be greater than zero.'; end if;
+    select sum(quantity)::int as qty, max(unit_price) as unit_price, max(product_name) as product_name
+      into v_ordered
+    from public.order_items where order_id = p_order.id and variant_id = v_line.variant_id;
+    if v_ordered.qty is null then raise exception 'An item is not part of this sale.'; end if;
+    if v_line.qty > v_ordered.qty then
+      raise exception 'You can return at most % of %.', v_ordered.qty, v_ordered.product_name;
+    end if;
+    v_amount := v_amount + v_line.qty * v_ordered.unit_price;
+  end loop;
+  if p_order.subtotal > 0 then
+    v_amount := v_amount * greatest(0, p_order.subtotal - p_order.discount) / p_order.subtotal;
+  end if;
+  v_amount := least(round(v_amount, 2), p_order.total);
+  if v_amount <= 0 then raise exception 'Nothing to refund on this sale.'; end if;
+
+  insert into public.refund_requests (order_id, firebase_uid, reason, notes, amount, payment_method)
+  values (p_order.id, p_order.firebase_uid, left(p_reason, 200),
+          'Processed at the counter by ' || p_staff.full_name, v_amount, p_order.payment_method)
+  returning id into v_refund_id;
+
+  insert into public.refund_items (refund_request_id, product_name, variant_label, quantity, unit_price)
+  select v_refund_id, oi.product_name, oi.variant_label, l.qty, oi.unit_price
+  from (
+    select (e ->> 'variant_id')::uuid as variant_id, sum((e ->> 'quantity')::int)::int as qty
+    from jsonb_array_elements(p_items) e group by 1
+  ) l
+  join lateral (
+    select product_name, variant_label, max(unit_price) as unit_price
+    from public.order_items where order_id = p_order.id and variant_id = l.variant_id
+    group by product_name, variant_label limit 1
+  ) oi on true;
+
+  return v_refund_id;
+end;
+$$;
+
+create or replace function public.staff_pos_return(
+  p_order_id text,
+  p_items jsonb,
+  p_reason text,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  o public.orders;
+  v_staff public.staff_members;
+  v_pay public.payments;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('o', p_order_id, 'i', p_items, 'r', p_reason);
+  v_prev jsonb;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_refund_id text;
+  v_amount numeric;
+  v_shift text;
+  v_restocked int;
+  v_result jsonb;
+begin
+  select * into o from public.orders where id = p_order_id for update;
+  if not found or not exists (select 1 from public.pos_sales where order_id = p_order_id) then
+    raise exception 'That in-store sale could not be found.';
+  end if;
+  v_staff := public._require_staff(o.branch_id, 'refunds');
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'pos_return', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if char_length(v_reason) < 3 or char_length(v_reason) > 200 then
+    raise exception 'Please give a reason for the return (3 to 200 characters).';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'Select at least one item to return.';
+  end if;
+  if o.status <> 'completed' then raise exception 'Only a completed sale can be returned (this one is %).', o.status; end if;
+  if exists (select 1 from public.refund_requests where order_id = o.id and status <> 'rejected') then
+    raise exception 'This sale already has a refund.';
+  end if;
+  select * into v_pay from public.payments where order_id = o.id;
+
+  if v_pay.method = 'cash' then
+    select id into v_shift from public.cash_drawer_sessions
+    where staff_uid = v_staff.firebase_uid and branch_id = o.branch_id and status = 'open';
+    if v_shift is null then raise exception 'Open your cash drawer shift to pay out a cash refund.'; end if;
+  end if;
+
+  v_refund_id := public._create_counter_refund(o, p_items, v_reason, v_staff);
+  select amount into v_amount from public.refund_requests where id = v_refund_id;
+  update public.refund_requests set status = 'approved' where id = v_refund_id;
+
+  if v_pay.method = 'cash' then
+    if v_amount > (public._shift_summary(v_shift) ->> 'expected_cash')::numeric then
+      raise exception 'There is not enough cash in your drawer for this refund.';
+    end if;
+    update public.refund_requests set status = 'completed' where id = v_refund_id;
+    insert into public.cash_drawer_events (session_id, event_type, amount, reference, reason, created_by)
+    values (v_shift, 'cash_refund', v_amount, v_refund_id, left('Return ' || o.id || ': ' || v_reason, 200), v_staff.firebase_uid);
+  end if;
+
+  v_restocked := public._receive_returned_items(
+    (select r from public.refund_requests r where r.id = v_refund_id), o.branch_id, p_items, v_staff.firebase_uid);
+
+  perform public._write_audit(v_staff.firebase_uid, o.branch_id, 'pos.return', 'order', o.id,
+    jsonb_build_object('refund_id', v_refund_id, 'amount', v_amount, 'reason', v_reason, 'restocked_units', v_restocked));
+
+  v_result := jsonb_build_object(
+    'refund_id', v_refund_id, 'order_id', o.id, 'amount', v_amount,
+    'refund_status', (select status from public.refund_requests where id = v_refund_id),
+    'cash_paid_out', v_pay.method = 'cash', 'restocked_units', v_restocked);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'pos_return', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 10. Void a POS sale: same day, the sale's shift still open, whole sale,
+--     permission 'void_pos_sales'. Everything goes back to stock; money goes
+--     back the way it came (cash from the drawer; GCash/card refund stays
+--     'approved' until the terminal/wallet reversal is confirmed).
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_void_pos_sale(
+  p_order_id text,
+  p_reason text,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  o public.orders;
+  ps public.pos_sales;
+  v_staff public.staff_members;
+  v_pay public.payments;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('o', p_order_id, 'r', p_reason);
+  v_prev jsonb;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_items jsonb;
+  v_refund_id text;
+  v_shift_status text;
+  v_restocked int;
+  v_result jsonb;
+begin
+  select * into o from public.orders where id = p_order_id for update;
+  select * into ps from public.pos_sales where order_id = p_order_id;
+  if o.id is null or ps.order_id is null then raise exception 'That in-store sale could not be found.'; end if;
+  v_staff := public._require_staff(o.branch_id);
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'pos_void', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if not ('void_pos_sales' = any (public.staff_permission_keys())) then
+    raise exception 'You do not have permission to void sales. Ask a manager.';
+  end if;
+  if char_length(v_reason) < 3 or char_length(v_reason) > 200 then
+    raise exception 'Please give a reason for the void (3 to 200 characters).';
+  end if;
+  if exists (select 1 from public.pos_voids where order_id = o.id) then raise exception 'This sale is already voided.'; end if;
+  if o.status <> 'completed' then raise exception 'Only a completed sale can be voided (this one is %).', o.status; end if;
+  if (ps.created_at at time zone 'Asia/Manila')::date <> (now() at time zone 'Asia/Manila')::date then
+    raise exception 'Only today''s sales can be voided. Use a return instead.';
+  end if;
+  if exists (select 1 from public.refund_requests where order_id = o.id and status <> 'rejected') then
+    raise exception 'This sale already has a refund.';
+  end if;
+  select * into v_pay from public.payments where order_id = o.id;
+  if ps.session_id is not null then
+    select status into v_shift_status from public.cash_drawer_sessions where id = ps.session_id for update;
+    if v_shift_status <> 'open' then raise exception 'The shift for this sale is closed. Use a return instead.'; end if;
+  elsif v_pay.method = 'cash' then
+    raise exception 'This cash sale has no shift to take the cash from. Use a return instead.';
+  end if;
+
+  select jsonb_agg(jsonb_build_object('variant_id', variant_id, 'quantity', qty, 'condition', 'sellable'))
+    into v_items
+  from (select variant_id, sum(quantity)::int as qty from public.order_items
+        where order_id = o.id and variant_id is not null group by variant_id) t;
+  if v_items is null then raise exception 'This sale has no items that can be voided.'; end if;
+
+  v_refund_id := public._create_counter_refund(o, v_items, 'Void: ' || v_reason, v_staff);
+  update public.refund_requests set status = 'approved' where id = v_refund_id;
+  if v_pay.method = 'cash' then
+    update public.refund_requests set status = 'completed' where id = v_refund_id;
+    insert into public.cash_drawer_events (session_id, event_type, amount, reference, reason, created_by)
+    values (ps.session_id, 'cash_refund', (select amount from public.refund_requests where id = v_refund_id),
+            v_refund_id, left('Void ' || o.id || ': ' || v_reason, 200), v_staff.firebase_uid);
+  end if;
+
+  insert into public.pos_voids (order_id, refund_id, branch_id, session_id, reason, voided_by, voided_by_name)
+  values (o.id, v_refund_id, o.branch_id, ps.session_id, v_reason, v_staff.firebase_uid, v_staff.full_name);
+
+  v_restocked := public._receive_returned_items(
+    (select r from public.refund_requests r where r.id = v_refund_id), o.branch_id, v_items, v_staff.firebase_uid);
+
+  perform public._write_audit(v_staff.firebase_uid, o.branch_id, 'pos.void', 'order', o.id,
+    jsonb_build_object('refund_id', v_refund_id, 'reason', v_reason, 'total', o.total, 'method', v_pay.method));
+
+  v_result := jsonb_build_object('order_id', o.id, 'refund_id', v_refund_id,
+    'refund_status', (select status from public.refund_requests where id = v_refund_id),
+    'amount', (select amount from public.refund_requests where id = v_refund_id),
+    'restocked_units', v_restocked);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'pos_void', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 11. Grants
+-- -----------------------------------------------------------------------------
+revoke all on function public._trg_pos_sale_attach_shift() from public, anon, authenticated;
+revoke all on function public._shift_summary(text) from public, anon, authenticated;
+revoke all on function public._receive_returned_items(public.refund_requests, uuid, jsonb, text) from public, anon, authenticated;
+revoke all on function public._create_counter_refund(public.orders, jsonb, text, public.staff_members) from public, anon, authenticated;
+
+revoke all on function public.staff_open_shift(uuid, numeric, text) from public, anon;
+revoke all on function public.staff_get_current_shift() from public, anon;
+revoke all on function public.staff_get_shift(text) from public, anon;
+revoke all on function public.staff_record_cash_movement(text, text, numeric, text, text) from public, anon;
+revoke all on function public.staff_close_shift(text, numeric, text, text) from public, anon;
+revoke all on function public.staff_list_shifts(uuid, date, date) from public, anon;
+revoke all on function public.staff_cashier_daily_summary(uuid, date) from public, anon;
+revoke all on function public.staff_receive_returned_items(text, jsonb, text) from public, anon;
+revoke all on function public.staff_pos_return(text, jsonb, text, text) from public, anon;
+revoke all on function public.staff_void_pos_sale(text, text, text) from public, anon;
+
+grant execute on function public.staff_open_shift(uuid, numeric, text) to authenticated;
+grant execute on function public.staff_get_current_shift() to authenticated;
+grant execute on function public.staff_get_shift(text) to authenticated;
+grant execute on function public.staff_record_cash_movement(text, text, numeric, text, text) to authenticated;
+grant execute on function public.staff_close_shift(text, numeric, text, text) to authenticated;
+grant execute on function public.staff_list_shifts(uuid, date, date) to authenticated;
+grant execute on function public.staff_cashier_daily_summary(uuid, date) to authenticated;
+grant execute on function public.staff_receive_returned_items(text, jsonb, text) to authenticated;
+grant execute on function public.staff_pos_return(text, jsonb, text, text) to authenticated;
+grant execute on function public.staff_void_pos_sale(text, text, text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261010010000_driver_module.sql <<<<<<<<<<
+-- =============================================================================
+-- Driver module: driver accounts, assignment, driver workflow, live location,
+-- proof of delivery, failed-delivery hand-back, customer tracking.
+-- =============================================================================
+-- Run after 20261010000000_pos_shifts_voids_returns.sql. Idempotent, additive.
+--
+-- Before this migration a "delivery" account existed only in Firebase: the
+-- database did not know riders, so a rider who signed in could read nothing,
+-- and a delivery run only carried a free-text rider name.
+--
+-- Identity: a driver is a Firebase UID registered in public.drivers (owner
+-- only). Drivers are deliberately NOT staff_members, so no existing staff RPC
+-- or policy (which all start from staff_members) can ever be reached by a
+-- driver. One Firebase UID is either staff or driver, never both.
+--
+-- Run workflow (deliveries.driver_status)
+--   null -> assigned (staff) -> accepted | rejected->null (driver)
+--        -> picked_up (driver, at the branch) -> in_transit (first stop en route)
+--        -> completed (every stop delivered / failed / skipped)
+-- Stop outcomes (driver): enRoute, delivered (proof required; COD cash must be
+-- collected in full), failed (reason required; the order goes back to the
+-- branch as 'confirmed' so it can be re-dispatched).
+--
+-- Location privacy
+--   * Points are accepted only from the run's driver, only between pickup and
+--     completion, with plausible coordinates and timestamps, and throttled.
+--   * When a run completes or is cancelled, tracking switches off and EVERY
+--     stored point for that run is deleted (trigger), so nothing is kept after
+--     the delivery. A driver's own client is told to stop sending.
+--   * A customer sees only the latest point, only for their own order, only
+--     while that order is out for delivery and not yet delivered, and only if
+--     the point is fresh (10 minutes).
+--   * Customer addresses are shown to the driver only for runs assigned to
+--     them and not yet finished.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Coordinates for branches and customer addresses (optional, for maps)
+-- -----------------------------------------------------------------------------
+alter table public.branches add column if not exists latitude double precision;
+alter table public.branches add column if not exists longitude double precision;
+alter table public.branches drop constraint if exists branches_coordinates_valid;
+alter table public.branches add constraint branches_coordinates_valid check (
+  (latitude is null and longitude is null)
+  or (latitude between -90 and 90 and longitude between -180 and 180));
+
+alter table public.customer_addresses add column if not exists latitude double precision;
+alter table public.customer_addresses add column if not exists longitude double precision;
+alter table public.customer_addresses drop constraint if exists customer_addresses_coordinates_valid;
+alter table public.customer_addresses add constraint customer_addresses_coordinates_valid check (
+  (latitude is null and longitude is null)
+  or (latitude between -90 and 90 and longitude between -180 and 180));
+
+-- -----------------------------------------------------------------------------
+-- 2. Drivers
+-- -----------------------------------------------------------------------------
+create table if not exists public.drivers (
+  firebase_uid text primary key,
+  full_name text not null check (char_length(full_name) between 1 and 120),
+  email text not null default '',
+  phone text check (phone is null or char_length(phone) <= 32),
+  branch_id uuid not null references public.branches(id) on delete restrict,
+  vehicle text check (vehicle is null or char_length(vehicle) <= 80),
+  account_status text not null default 'active' check (account_status in ('active', 'inactive', 'suspended')),
+  is_available boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+drop trigger if exists drivers_set_updated_at on public.drivers;
+create trigger drivers_set_updated_at before update on public.drivers
+  for each row execute function public.set_updated_at();
+create index if not exists drivers_branch_idx on public.drivers (branch_id);
+alter table public.drivers enable row level security;
+
+drop policy if exists "driver reads own row" on public.drivers;
+create policy "driver reads own row" on public.drivers for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+drop policy if exists "staff read branch drivers" on public.drivers;
+create policy "staff read branch drivers" on public.drivers for select to authenticated
+  using (public.staff_can_see_branch(branch_id));
+revoke all on public.drivers from anon;
+revoke insert, update, delete, truncate on public.drivers from authenticated;
+grant select on public.drivers to authenticated;
+
+-- A UID is staff OR driver.
+create or replace function public._trg_staff_not_driver()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from public.drivers where firebase_uid = new.firebase_uid) then
+    raise exception 'This account is registered as a driver and cannot also be staff.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists staff_members_not_driver on public.staff_members;
+create trigger staff_members_not_driver before insert on public.staff_members
+  for each row execute function public._trg_staff_not_driver();
+
+create or replace function public._require_driver()
+returns public.drivers
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+begin
+  select * into v from public.drivers where firebase_uid = public.current_firebase_uid();
+  if not found then raise exception 'Your driver account is not set up yet. Please contact the owner.'; end if;
+  if v.account_status = 'suspended' then raise exception 'Your driver account has been suspended. Please contact the owner.'; end if;
+  if v.account_status <> 'active' then raise exception 'Your driver account has been deactivated. Please contact the owner.'; end if;
+  return v;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Runs and stops: driver columns
+-- -----------------------------------------------------------------------------
+alter table public.deliveries add column if not exists driver_uid text references public.drivers(firebase_uid) on delete restrict;
+alter table public.deliveries add column if not exists driver_status text;
+alter table public.deliveries add column if not exists assigned_at timestamptz;
+alter table public.deliveries add column if not exists accepted_at timestamptz;
+alter table public.deliveries add column if not exists picked_up_at timestamptz;
+alter table public.deliveries add column if not exists completed_at timestamptz;
+alter table public.deliveries add column if not exists tracking_active boolean not null default false;
+alter table public.deliveries drop constraint if exists deliveries_driver_status_valid;
+alter table public.deliveries add constraint deliveries_driver_status_valid check (
+  driver_status is null or driver_status in ('assigned', 'accepted', 'picked_up', 'in_transit', 'completed'));
+alter table public.deliveries drop constraint if exists deliveries_driver_status_needs_driver;
+alter table public.deliveries add constraint deliveries_driver_status_needs_driver check (
+  driver_status is null or driver_uid is not null);
+create index if not exists deliveries_driver_idx on public.deliveries (driver_uid, created_at desc);
+
+alter table public.delivery_stops drop constraint if exists delivery_stops_status_check;
+alter table public.delivery_stops add constraint delivery_stops_status_check
+  check (status in ('pending', 'enRoute', 'delivered', 'delayed', 'skipped', 'failed'));
+alter table public.delivery_stops add column if not exists proof_photo_path text;
+alter table public.delivery_stops add column if not exists recipient_name text;
+alter table public.delivery_stops add column if not exists delivered_at timestamptz;
+alter table public.delivery_stops add column if not exists failed_at timestamptz;
+alter table public.delivery_stops drop constraint if exists delivery_stops_proof_lengths;
+alter table public.delivery_stops add constraint delivery_stops_proof_lengths check (
+  (proof_photo_path is null or char_length(proof_photo_path) <= 300)
+  and (recipient_name is null or char_length(recipient_name) <= 120));
+
+create table if not exists public.delivery_assignment_events (
+  id uuid primary key default gen_random_uuid(),
+  delivery_id text not null references public.deliveries(id) on delete cascade,
+  driver_uid text,
+  event text not null check (event in ('assigned', 'unassigned', 'accepted', 'rejected', 'picked_up', 'completed')),
+  reason text check (reason is null or char_length(reason) <= 300),
+  actor_uid text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists delivery_assignment_events_delivery_idx on public.delivery_assignment_events (delivery_id, created_at);
+alter table public.delivery_assignment_events enable row level security;
+revoke all on public.delivery_assignment_events from anon, authenticated;
+
+create table if not exists public.driver_locations (
+  id bigserial primary key,
+  delivery_id text not null references public.deliveries(id) on delete cascade,
+  driver_uid text not null references public.drivers(firebase_uid) on delete cascade,
+  latitude double precision not null check (latitude between -90 and 90),
+  longitude double precision not null check (longitude between -180 and 180),
+  accuracy_m real check (accuracy_m is null or (accuracy_m >= 0 and accuracy_m <= 10000)),
+  heading real check (heading is null or (heading >= 0 and heading < 360)),
+  speed_mps real check (speed_mps is null or (speed_mps >= 0 and speed_mps <= 100)),
+  recorded_at timestamptz not null,
+  received_at timestamptz not null default now()
+);
+create index if not exists driver_locations_delivery_idx on public.driver_locations (delivery_id, recorded_at desc);
+alter table public.driver_locations enable row level security;
+revoke all on public.driver_locations from anon, authenticated;
+
+-- Tracking switches off and stored points are erased when a run ends.
+create or replace function public._trg_delivery_tracking_cleanup()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.status in ('completed', 'cancelled') and old.status is distinct from new.status then
+    new.tracking_active := false;
+    new.completed_at := coalesce(new.completed_at, now());
+    if new.driver_uid is not null and new.status = 'completed' then
+      new.driver_status := 'completed';
+    end if;
+    delete from public.driver_locations where delivery_id = new.id;
+  end if;
+  return new;
+end $$;
+drop trigger if exists deliveries_tracking_cleanup on public.deliveries;
+create trigger deliveries_tracking_cleanup before update of status on public.deliveries
+  for each row execute function public._trg_delivery_tracking_cleanup();
+
+-- -----------------------------------------------------------------------------
+-- 4. Read model (extends the existing one with driver fields; old keys kept)
+-- -----------------------------------------------------------------------------
+create or replace function public._delivery_to_jsonb(p_delivery_id text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', d.id,
+    'branch', d.branch_name,
+    'branch_id', d.branch_id,
+    'vehicle', d.vehicle,
+    'rider_name', d.rider_name,
+    'status', d.status,
+    'created_at', d.created_at,
+    'driver_uid', d.driver_uid,
+    'driver_status', d.driver_status,
+    'driver_phone', dr.phone,
+    'assigned_at', d.assigned_at,
+    'accepted_at', d.accepted_at,
+    'picked_up_at', d.picked_up_at,
+    'completed_at', d.completed_at,
+    'tracking_active', d.tracking_active,
+    'branch_latitude', b.latitude,
+    'branch_longitude', b.longitude,
+    'stops', (
+      select coalesce(jsonb_agg(to_jsonb(s) order by s.sequence_index), '[]'::jsonb)
+      from (
+        select
+          ds.id,
+          o.id as order_id,
+          coalesce(nullif(cp.full_name, ''), 'Customer') as customer_name,
+          coalesce(o.delivery_address_text, 'Address not provided') as address,
+          ca.latitude, ca.longitude,
+          o.contact_phone,
+          o.customer_notes,
+          o.total as order_total,
+          p.method as payment_method,
+          p.status as payment_status,
+          ds.sequence_index,
+          ds.distance_from_previous_km,
+          ds.travel_minutes_from_previous,
+          ds.eta_label as eta,
+          ds.status,
+          ds.issue_reason,
+          ds.proof_note,
+          ds.proof_photo_path,
+          ds.recipient_name,
+          ds.delivered_at,
+          ds.failed_at,
+          (select coalesce(jsonb_agg(
+                     oi.quantity::text || 'x ' || oi.product_name ||
+                     case when oi.variant_label is null or oi.variant_label = '' or oi.variant_label = 'Regular'
+                          then '' else ' (' || oi.variant_label || ')' end
+                   ), '[]'::jsonb)
+           from public.order_items oi where oi.order_id = o.id) as items
+        from public.delivery_stops ds
+        join public.orders o on o.id = ds.order_id
+        left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+        left join public.customer_addresses ca on ca.id = o.delivery_address_id
+        left join public.payments p on p.order_id = o.id
+        where ds.delivery_id = d.id
+      ) s
+    )
+  )
+  from public.deliveries d
+  join public.branches b on b.id = d.branch_id
+  left join public.drivers dr on dr.firebase_uid = d.driver_uid
+  where d.id = p_delivery_id
+$$;
+
+-- Same view for a driver: contact details and addresses only while the run is
+-- theirs and unfinished.
+create or replace function public._delivery_for_driver(p_delivery_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v jsonb := public._delivery_to_jsonb(p_delivery_id);
+  v_status text := v ->> 'status';
+begin
+  if v_status in ('completed', 'cancelled') then
+    v := jsonb_set(v, '{stops}', (
+      select coalesce(jsonb_agg(s - 'address' - 'latitude' - 'longitude' - 'contact_phone' - 'customer_notes'
+                                  || jsonb_build_object('address', 'Hidden after delivery')
+                                order by (s ->> 'sequence_index')::int), '[]'::jsonb)
+      from jsonb_array_elements(v -> 'stops') s));
+  end if;
+  return v;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Owner: manage drivers
+-- -----------------------------------------------------------------------------
+create or replace function public.owner_upsert_driver(
+  p_firebase_uid text,
+  p_full_name text,
+  p_email text,
+  p_branch_id uuid,
+  p_phone text default null,
+  p_vehicle text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner public.staff_members;
+  v_uid text := nullif(trim(coalesce(p_firebase_uid, '')), '');
+begin
+  v_owner := public._require_owner();
+  if v_uid is null or char_length(v_uid) > 128 then raise exception 'A valid account id is required.'; end if;
+  if char_length(trim(coalesce(p_full_name, ''))) = 0 then raise exception 'Enter the driver''s name.'; end if;
+  if p_branch_id is null or not exists (select 1 from public.branches where id = p_branch_id) then
+    raise exception 'Choose the driver''s branch.';
+  end if;
+  if exists (select 1 from public.staff_members where firebase_uid = v_uid) then
+    raise exception 'This account is already registered as staff.';
+  end if;
+
+  insert into public.drivers (firebase_uid, full_name, email, phone, branch_id, vehicle)
+  values (v_uid, trim(p_full_name), trim(coalesce(p_email, '')), nullif(trim(coalesce(p_phone, '')), ''),
+          p_branch_id, nullif(trim(coalesce(p_vehicle, '')), ''))
+  on conflict (firebase_uid) do update
+    set full_name = excluded.full_name, email = excluded.email, phone = excluded.phone,
+        branch_id = excluded.branch_id, vehicle = excluded.vehicle;
+
+  perform public._write_audit(v_owner.firebase_uid, p_branch_id, 'driver.upsert', 'driver', v_uid,
+                              jsonb_build_object('full_name', trim(p_full_name)));
+  return (select to_jsonb(d) from public.drivers d where firebase_uid = v_uid);
+end;
+$$;
+
+create or replace function public.owner_set_driver_status(p_firebase_uid text, p_status text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner public.staff_members;
+  v_driver public.drivers;
+begin
+  v_owner := public._require_owner();
+  if p_status not in ('active', 'inactive', 'suspended') then raise exception 'Unsupported status.'; end if;
+  update public.drivers set account_status = p_status,
+         is_available = case when p_status = 'active' then is_available else false end
+   where firebase_uid = p_firebase_uid returning * into v_driver;
+  if not found then raise exception 'That driver could not be found.'; end if;
+  perform public._write_audit(v_owner.firebase_uid, v_driver.branch_id, 'driver.status', 'driver', p_firebase_uid,
+                              jsonb_build_object('status', p_status));
+  return to_jsonb(v_driver);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Staff: drivers list, assign / unassign, tracking view
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_list_drivers(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'firebase_uid', d.firebase_uid, 'full_name', d.full_name, 'phone', d.phone,
+             'branch_id', d.branch_id, 'vehicle', d.vehicle, 'account_status', d.account_status,
+             'is_available', d.is_available,
+             'active_runs', (select count(*) from public.deliveries x
+                             where x.driver_uid = d.firebase_uid and x.status not in ('completed', 'cancelled')))
+           order by d.full_name), '[]'::jsonb)
+    from public.drivers d
+    where case when v_staff.role = 'owner' then p_branch_id is null or d.branch_id = p_branch_id
+               else d.branch_id = v_staff.branch_id end
+  );
+end;
+$$;
+
+create or replace function public.staff_assign_driver(p_delivery_id text, p_driver_uid text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delivery public.deliveries;
+  v_staff public.staff_members;
+  v_driver public.drivers;
+begin
+  select * into v_delivery from public.deliveries where id = p_delivery_id for update;
+  if not found then raise exception 'That delivery could not be found.'; end if;
+  v_staff := public._require_staff(v_delivery.branch_id);
+  if v_delivery.status in ('completed', 'cancelled') then raise exception 'This delivery is already %.', v_delivery.status; end if;
+  if v_delivery.driver_status in ('accepted', 'picked_up', 'in_transit') then
+    raise exception 'The driver has already accepted this delivery. Unassign is no longer possible.';
+  end if;
+
+  select * into v_driver from public.drivers where firebase_uid = p_driver_uid;
+  if not found then raise exception 'That driver could not be found.'; end if;
+  if v_driver.account_status <> 'active' then raise exception 'That driver account is not active.'; end if;
+  if v_driver.branch_id <> v_delivery.branch_id then raise exception 'That driver belongs to another branch.'; end if;
+
+  update public.deliveries
+     set driver_uid = v_driver.firebase_uid, driver_status = 'assigned', assigned_at = now(), accepted_at = null,
+         rider_name = v_driver.full_name, vehicle = coalesce(v_driver.vehicle, vehicle)
+   where id = v_delivery.id;
+  update public.orders o set rider_name = v_driver.full_name, rider_phone = v_driver.phone
+   from public.delivery_stops ds
+   where ds.delivery_id = v_delivery.id and ds.order_id = o.id and o.status = 'outForDelivery';
+
+  insert into public.delivery_assignment_events (delivery_id, driver_uid, event, actor_uid)
+  values (v_delivery.id, v_driver.firebase_uid, 'assigned', v_staff.firebase_uid);
+  insert into public.staff_notifications (recipient_uid, branch_id, category, title, body, reference)
+  values (v_driver.firebase_uid, v_delivery.branch_id, 'order', 'New delivery assigned',
+          'Delivery ' || v_delivery.id || ' is waiting for you to accept.', v_delivery.id);
+  perform public._write_audit(v_staff.firebase_uid, v_delivery.branch_id, 'delivery.assign', 'delivery', v_delivery.id,
+                              jsonb_build_object('driver_uid', v_driver.firebase_uid));
+  return public._delivery_to_jsonb(v_delivery.id);
+end;
+$$;
+
+create or replace function public.staff_unassign_driver(p_delivery_id text, p_reason text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delivery public.deliveries;
+  v_staff public.staff_members;
+begin
+  select * into v_delivery from public.deliveries where id = p_delivery_id for update;
+  if not found then raise exception 'That delivery could not be found.'; end if;
+  v_staff := public._require_staff(v_delivery.branch_id);
+  if v_delivery.driver_uid is null then raise exception 'No driver is assigned.'; end if;
+  if v_delivery.driver_status in ('picked_up', 'in_transit', 'completed') then
+    raise exception 'The driver already has the parcels. Cancel the delivery instead.';
+  end if;
+  update public.deliveries set driver_uid = null, driver_status = null, assigned_at = null, accepted_at = null
+   where id = v_delivery.id;
+  insert into public.delivery_assignment_events (delivery_id, driver_uid, event, reason, actor_uid)
+  values (v_delivery.id, v_delivery.driver_uid, 'unassigned', left(p_reason, 300), v_staff.firebase_uid);
+  insert into public.staff_notifications (recipient_uid, branch_id, category, title, body, reference)
+  values (v_delivery.driver_uid, v_delivery.branch_id, 'order', 'Delivery removed',
+          'Delivery ' || v_delivery.id || ' is no longer assigned to you.', v_delivery.id);
+  perform public._write_audit(v_staff.firebase_uid, v_delivery.branch_id, 'delivery.unassign', 'delivery', v_delivery.id,
+                              jsonb_build_object('driver_uid', v_delivery.driver_uid, 'reason', p_reason));
+  return public._delivery_to_jsonb(v_delivery.id);
+end;
+$$;
+
+create or replace function public.staff_get_delivery_tracking(p_delivery_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_delivery public.deliveries;
+begin
+  select * into v_delivery from public.deliveries where id = p_delivery_id;
+  if not found then raise exception 'That delivery could not be found.'; end if;
+  perform public._require_staff(v_delivery.branch_id);
+  return jsonb_build_object(
+    'delivery', public._delivery_to_jsonb(v_delivery.id),
+    'trail', (
+      select coalesce(jsonb_agg(jsonb_build_object('lat', latitude, 'lng', longitude, 'accuracy_m', accuracy_m,
+                                                   'recorded_at', recorded_at) order by recorded_at), '[]'::jsonb)
+      from (select * from public.driver_locations where delivery_id = v_delivery.id
+            order by recorded_at desc limit 200) t)
+  );
+end;
+$$;
+
+-- Latest point of every active run the caller may see (admin map, owner map).
+create or replace function public.staff_active_driver_positions(p_branch_id uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'delivery_id', d.id, 'branch_id', d.branch_id, 'branch', d.branch_name,
+             'driver_uid', d.driver_uid, 'driver_name', d.rider_name, 'driver_status', d.driver_status,
+             'lat', l.latitude, 'lng', l.longitude, 'recorded_at', l.recorded_at)), '[]'::jsonb)
+    from public.deliveries d
+    join lateral (
+      select latitude, longitude, recorded_at from public.driver_locations
+      where delivery_id = d.id order by recorded_at desc limit 1
+    ) l on true
+    where d.tracking_active
+      and case when v_staff.role = 'owner' then p_branch_id is null or d.branch_id = p_branch_id
+               else d.branch_id = v_staff.branch_id end
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Driver RPCs
+-- -----------------------------------------------------------------------------
+-- Never raises for "not a driver": answers a status like get_my_staff_context.
+create or replace function public.get_my_driver_context()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v public.drivers;
+begin
+  if v_uid is null then raise exception 'Not authenticated' using errcode = '28000'; end if;
+  select * into v from public.drivers where firebase_uid = v_uid;
+  if not found then return jsonb_build_object('status', 'not_provisioned'); end if;
+  if v.account_status <> 'active' then return jsonb_build_object('status', v.account_status); end if;
+  return jsonb_build_object('status', 'active', 'profile', jsonb_build_object(
+    'firebase_uid', v.firebase_uid, 'full_name', v.full_name, 'email', v.email, 'phone', v.phone,
+    'branch_id', v.branch_id, 'branch', (select name from public.branches where id = v.branch_id),
+    'vehicle', v.vehicle, 'is_available', v.is_available));
+end;
+$$;
+
+create or replace function public.driver_set_availability(p_available boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+begin
+  v := public._require_driver();
+  update public.drivers set is_available = coalesce(p_available, false) where firebase_uid = v.firebase_uid;
+  return public.get_my_driver_context();
+end;
+$$;
+
+create or replace function public.driver_list_my_deliveries(p_include_finished boolean default false)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+begin
+  v := public._require_driver();
+  return (
+    select coalesce(jsonb_agg(public._delivery_for_driver(d.id) order by d.created_at desc), '[]'::jsonb)
+    from (
+      select id, created_at from public.deliveries
+      where driver_uid = v.firebase_uid
+        and (coalesce(p_include_finished, false) or status not in ('completed', 'cancelled'))
+      order by created_at desc
+      limit 100
+    ) d
+  );
+end;
+$$;
+
+create or replace function public._lock_my_run(p_delivery_id text, p_driver public.drivers)
+returns public.deliveries
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_delivery public.deliveries;
+begin
+  select * into v_delivery from public.deliveries where id = p_delivery_id for update;
+  -- Same message for "missing" and "someone else's", so ids cannot be probed.
+  if not found or v_delivery.driver_uid is distinct from p_driver.firebase_uid then
+    raise exception 'That delivery is not assigned to you.';
+  end if;
+  return v_delivery;
+end;
+$$;
+
+create or replace function public.driver_respond_assignment(p_delivery_id text, p_action text, p_reason text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+  v_delivery public.deliveries;
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+begin
+  v := public._require_driver();
+  v_delivery := public._lock_my_run(p_delivery_id, v);
+  if v_delivery.status in ('completed', 'cancelled') then raise exception 'This delivery is already %.', v_delivery.status; end if;
+
+  if p_action = 'accept' then
+    if v_delivery.driver_status = 'accepted' then return public._delivery_for_driver(v_delivery.id); end if;
+    if v_delivery.driver_status <> 'assigned' then raise exception 'This delivery cannot be accepted now.'; end if;
+    update public.deliveries set driver_status = 'accepted', accepted_at = now() where id = v_delivery.id;
+    insert into public.delivery_assignment_events (delivery_id, driver_uid, event, actor_uid)
+    values (v_delivery.id, v.firebase_uid, 'accepted', v.firebase_uid);
+  elsif p_action = 'reject' then
+    if v_delivery.driver_status not in ('assigned', 'accepted') then
+      raise exception 'You already have the parcels for this delivery and cannot reject it.';
+    end if;
+    if v_reason is null then raise exception 'Please give a reason for rejecting.'; end if;
+    update public.deliveries set driver_uid = null, driver_status = null, assigned_at = null, accepted_at = null
+     where id = v_delivery.id;
+    insert into public.delivery_assignment_events (delivery_id, driver_uid, event, reason, actor_uid)
+    values (v_delivery.id, v.firebase_uid, 'rejected', left(v_reason, 300), v.firebase_uid);
+    perform public._notify_staff(v_delivery.branch_id, 'order', 'Delivery rejected by driver',
+      v.full_name || ' rejected ' || v_delivery.id || ': ' || left(v_reason, 120), v_delivery.id, null);
+    return jsonb_build_object('id', v_delivery.id, 'rejected', true);
+  else
+    raise exception 'Unsupported action.';
+  end if;
+  return public._delivery_for_driver(v_delivery.id);
+end;
+$$;
+
+create or replace function public.driver_mark_picked_up(p_delivery_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+  v_delivery public.deliveries;
+begin
+  v := public._require_driver();
+  v_delivery := public._lock_my_run(p_delivery_id, v);
+  if v_delivery.status in ('completed', 'cancelled') then raise exception 'This delivery is already %.', v_delivery.status; end if;
+  if v_delivery.driver_status in ('picked_up', 'in_transit') then return public._delivery_for_driver(v_delivery.id); end if;
+  if v_delivery.driver_status <> 'accepted' then raise exception 'Accept the delivery before picking it up.'; end if;
+
+  update public.deliveries
+     set driver_status = 'picked_up', picked_up_at = now(), tracking_active = true,
+         status = case when status in ('pending', 'optimized') then 'dispatched' else status end
+   where id = v_delivery.id;
+  insert into public.delivery_assignment_events (delivery_id, driver_uid, event, actor_uid)
+  values (v_delivery.id, v.firebase_uid, 'picked_up', v.firebase_uid);
+  perform public._write_audit(v.firebase_uid, v_delivery.branch_id, 'delivery.picked_up', 'delivery', v_delivery.id, '{}'::jsonb);
+  return public._delivery_for_driver(v_delivery.id);
+end;
+$$;
+
+-- p_status: 'enRoute' | 'delivered' | 'failed'
+-- delivered: proof = a photo path (uploaded to the private 'delivery-proofs'
+--   bucket under '<delivery id>/') and/or the recipient's name.
+--   Cash on delivery: p_cash_collected must equal the order total; the
+--   payment is then confirmed here (the rider is the one taking the cash).
+--   Online payments must already be confirmed by the gateway.
+-- failed: p_reason required; the order returns to the branch ('confirmed').
+create or replace function public.driver_update_stop(
+  p_stop_id uuid,
+  p_status text,
+  p_reason text default null,
+  p_proof_note text default null,
+  p_proof_photo_path text default null,
+  p_recipient_name text default null,
+  p_cash_collected numeric default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+  v_stop public.delivery_stops;
+  v_delivery public.deliveries;
+  v_order public.orders;
+  v_pay public.payments;
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+  v_photo text := nullif(trim(coalesce(p_proof_photo_path, '')), '');
+  v_recipient text := nullif(trim(coalesce(p_recipient_name, '')), '');
+  v_open int;
+begin
+  v := public._require_driver();
+  if p_status not in ('enRoute', 'delivered', 'failed') then raise exception 'Unsupported stop status.'; end if;
+  select * into v_stop from public.delivery_stops where id = p_stop_id;
+  if not found then raise exception 'That delivery is not assigned to you.'; end if;
+  v_delivery := public._lock_my_run(v_stop.delivery_id, v);
+  select * into v_stop from public.delivery_stops where id = p_stop_id for update;
+
+  -- A repeated tap (or an app retry) for an outcome already recorded is a
+  -- no-op, even when that outcome finished the whole run.
+  if v_stop.status in ('delivered', 'failed', 'skipped') then
+    if v_stop.status = p_status then return public._delivery_for_driver(v_delivery.id); end if;
+    raise exception 'This stop is already %.', v_stop.status;
+  end if;
+  if v_delivery.status in ('completed', 'cancelled') then raise exception 'This delivery is already %.', v_delivery.status; end if;
+  if v_delivery.driver_status not in ('picked_up', 'in_transit') then
+    raise exception 'Mark the delivery as picked up first.';
+  end if;
+
+  select * into v_order from public.orders where id = v_stop.order_id for update;
+  select * into v_pay from public.payments where order_id = v_order.id for update;
+
+  if p_status = 'enRoute' then
+    update public.delivery_stops set status = 'enRoute' where id = v_stop.id;
+    update public.deliveries set driver_status = 'in_transit',
+           status = case when status in ('pending', 'optimized', 'dispatched') then 'inTransit' else status end
+     where id = v_delivery.id;
+    perform public.notify_customer(v_order.firebase_uid, 'order', 'Your order is on the way',
+      v.full_name || ' is heading to you with order ' || v_order.id || '.');
+
+  elsif p_status = 'delivered' then
+    if v_photo is null and v_recipient is null then
+      raise exception 'Add a proof of delivery: a photo or the name of the person who received it.';
+    end if;
+    if v_photo is not null and v_photo not like v_delivery.id || '/%' then
+      raise exception 'The proof photo must be uploaded under this delivery''s folder.';
+    end if;
+    if v_order.total > 0 and coalesce(v_pay.status, '') <> 'success' then
+      if v_pay.method = 'cash' then
+        if p_cash_collected is null or round(p_cash_collected, 2) <> round(v_pay.amount, 2) then
+          raise exception 'Collect the full cash amount of % before completing.', v_pay.amount;
+        end if;
+        update public.payments set status = 'success', reference_number = 'COD-' || v_order.id || '-' || left(v.firebase_uid, 8)
+         where id = v_pay.id;
+        perform public._write_audit(v.firebase_uid, v_delivery.branch_id, 'payment.cod_collected', 'order', v_order.id,
+                                    jsonb_build_object('amount', v_pay.amount, 'delivery_id', v_delivery.id));
+      else
+        raise exception 'The online payment for % is not confirmed yet. Contact the branch before handing it over.', v_order.id;
+      end if;
+    end if;
+    update public.delivery_stops
+       set status = 'delivered', delivered_at = now(), proof_photo_path = v_photo, recipient_name = v_recipient,
+           proof_note = coalesce(nullif(trim(coalesce(p_proof_note, '')), ''), proof_note)
+     where id = v_stop.id;
+    update public.orders set status = 'completed' where id = v_order.id;
+
+  else -- failed
+    if v_reason is null then raise exception 'Please give the reason the delivery failed.'; end if;
+    update public.delivery_stops
+       set status = 'failed', failed_at = now(), issue_reason = left(v_reason, 300),
+           proof_note = coalesce(nullif(trim(coalesce(p_proof_note, '')), ''), proof_note)
+     where id = v_stop.id;
+    -- Return to branch: the order goes back to the dispatch queue.
+    update public.orders set status = 'confirmed', rider_name = null, rider_phone = null
+     where id = v_order.id and status = 'outForDelivery';
+    perform public._notify_staff(v_delivery.branch_id, 'order', 'Failed delivery: ' || v_order.id,
+      'Returning to branch. Reason: ' || left(v_reason, 150), v_order.id, null);
+    perform public.notify_customer(v_order.firebase_uid, 'order', 'Delivery attempt failed',
+      'We could not deliver order ' || v_order.id || ' (' || left(v_reason, 120) || '). The branch will contact you.');
+    perform public._write_audit(v.firebase_uid, v_delivery.branch_id, 'delivery.failed', 'order', v_order.id,
+                                jsonb_build_object('delivery_id', v_delivery.id, 'reason', v_reason));
+  end if;
+
+  select count(*) into v_open from public.delivery_stops
+  where delivery_id = v_delivery.id and status not in ('delivered', 'failed', 'skipped');
+  if v_open = 0 then
+    update public.deliveries set status = 'completed' where id = v_delivery.id;
+    insert into public.delivery_assignment_events (delivery_id, driver_uid, event, actor_uid)
+    values (v_delivery.id, v.firebase_uid, 'completed', v.firebase_uid);
+  end if;
+  return public._delivery_for_driver(v_delivery.id);
+end;
+$$;
+
+-- Returns {"accepted": bool, "tracking": bool}. tracking=false tells the
+-- client to stop collecting location for this run.
+create or replace function public.driver_post_location(
+  p_delivery_id text,
+  p_latitude double precision,
+  p_longitude double precision,
+  p_accuracy_m real default null,
+  p_recorded_at timestamptz default null,
+  p_heading real default null,
+  p_speed_mps real default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v public.drivers;
+  v_delivery public.deliveries;
+  v_at timestamptz := coalesce(p_recorded_at, now());
+  v_last timestamptz;
+begin
+  v := public._require_driver();
+  select * into v_delivery from public.deliveries where id = p_delivery_id;
+  if not found or v_delivery.driver_uid is distinct from v.firebase_uid then
+    raise exception 'That delivery is not assigned to you.';
+  end if;
+  if not v_delivery.tracking_active or v_delivery.driver_status not in ('picked_up', 'in_transit') then
+    return jsonb_build_object('accepted', false, 'tracking', false);
+  end if;
+  if p_latitude is null or p_longitude is null
+     or p_latitude not between -90 and 90 or p_longitude not between -180 and 180 then
+    raise exception 'Invalid coordinates.';
+  end if;
+  if v_at > now() + interval '2 minutes' or v_at < now() - interval '10 minutes' then
+    raise exception 'The location timestamp is not current.';
+  end if;
+
+  select max(recorded_at) into v_last from public.driver_locations where delivery_id = v_delivery.id;
+  if v_last is not null and v_at < v_last + interval '5 seconds' then
+    return jsonb_build_object('accepted', false, 'tracking', true);
+  end if;
+
+  insert into public.driver_locations (delivery_id, driver_uid, latitude, longitude, accuracy_m, heading, speed_mps, recorded_at)
+  values (v_delivery.id, v.firebase_uid, p_latitude, p_longitude, p_accuracy_m,
+          case when p_heading >= 0 and p_heading < 360 then p_heading end,
+          case when p_speed_mps >= 0 and p_speed_mps <= 100 then p_speed_mps end, v_at);
+  -- Keep the trail short.
+  delete from public.driver_locations
+   where delivery_id = v_delivery.id
+     and id < (select id from public.driver_locations where delivery_id = v_delivery.id
+               order by id desc offset 499 limit 1);
+  return jsonb_build_object('accepted', true, 'tracking', true);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Customer: tracking for their own order
+-- -----------------------------------------------------------------------------
+create or replace function public.customer_get_delivery_tracking(p_order_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_order public.orders;
+  v_stop public.delivery_stops;
+  v_delivery public.deliveries;
+  v_branch public.branches;
+  v_dest_lat double precision;
+  v_dest_lng double precision;
+  v_loc_lat double precision;
+  v_loc_lng double precision;
+  v_loc_at timestamptz;
+  v_ahead int;
+  v_live boolean;
+begin
+  if v_uid is null then raise exception 'Please sign in.'; end if;
+  select * into v_order from public.orders where id = p_order_id and firebase_uid = v_uid;
+  if not found then raise exception 'Order not found.'; end if;
+  select * into v_branch from public.branches where id = v_order.branch_id;
+
+  select ds.* into v_stop from public.delivery_stops ds
+  join public.deliveries d on d.id = ds.delivery_id
+  where ds.order_id = v_order.id and d.status <> 'cancelled'
+  order by ds.created_at desc limit 1;
+  if v_stop.id is not null then
+    select * into v_delivery from public.deliveries where id = v_stop.delivery_id;
+  end if;
+
+  select latitude, longitude into v_dest_lat, v_dest_lng from public.customer_addresses
+  where id = v_order.delivery_address_id and firebase_uid = v_uid;
+
+  v_live := coalesce(v_delivery.id is not null and v_order.status = 'outForDelivery' and v_delivery.tracking_active
+                     and v_stop.status in ('pending', 'enRoute', 'delayed'), false);
+  if v_live then
+    select latitude, longitude, recorded_at into v_loc_lat, v_loc_lng, v_loc_at from public.driver_locations
+    where delivery_id = v_delivery.id and recorded_at > now() - interval '10 minutes'
+    order by recorded_at desc limit 1;
+    select count(*) into v_ahead from public.delivery_stops
+    where delivery_id = v_delivery.id and sequence_index < v_stop.sequence_index
+      and status not in ('delivered', 'failed', 'skipped');
+  end if;
+
+  return jsonb_build_object(
+    'order_id', v_order.id,
+    'order_status', v_order.status,
+    'stop_status', v_stop.status,
+    'driver_status', v_delivery.driver_status,
+    'driver_name', case when v_live then split_part(coalesce(v_delivery.rider_name, ''), ' ', 1) end,
+    'driver_phone', case when v_live then v_order.rider_phone end,
+    'eta', v_stop.eta_label,
+    'stops_before_you', v_ahead,
+    'branch', jsonb_build_object('name', v_branch.name, 'lat', v_branch.latitude, 'lng', v_branch.longitude),
+    'destination', jsonb_build_object('lat', v_dest_lat, 'lng', v_dest_lng),
+    'driver_location', case when v_loc_at is not null then
+        jsonb_build_object('lat', v_loc_lat, 'lng', v_loc_lng, 'recorded_at', v_loc_at) end,
+    'tracking_available', v_live and v_loc_at is not null,
+    'delivered_at', v_stop.delivered_at
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9. Proof-of-delivery photos (Supabase Storage). Skipped on databases
+--    without the storage schema (local test databases).
+--    Bucket 'delivery-proofs' is private. A driver may upload only under a
+--    folder named after a run assigned to them; branch staff and the owner may
+--    read; nobody else.
+-- -----------------------------------------------------------------------------
+do $do$
+begin
+  if exists (select 1 from information_schema.schemata where schema_name = 'storage')
+     and exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'buckets') then
+    insert into storage.buckets (id, name, public) values ('delivery-proofs', 'delivery-proofs', false)
+    on conflict (id) do nothing;
+
+    execute $p$drop policy if exists "driver uploads own proof" on storage.objects$p$;
+    execute $p$create policy "driver uploads own proof" on storage.objects for insert to authenticated
+      with check (bucket_id = 'delivery-proofs' and exists (
+        select 1 from public.deliveries d
+        where d.id = split_part(name, '/', 1)
+          and d.driver_uid = public.current_firebase_uid()
+          and d.driver_status in ('picked_up', 'in_transit')))$p$;
+    execute $p$drop policy if exists "staff and driver read proof" on storage.objects$p$;
+    execute $p$create policy "staff and driver read proof" on storage.objects for select to authenticated
+      using (bucket_id = 'delivery-proofs' and exists (
+        select 1 from public.deliveries d
+        where d.id = split_part(name, '/', 1)
+          and (public.staff_can_see_branch(d.branch_id) or d.driver_uid = public.current_firebase_uid())))$p$;
+  end if;
+end
+$do$;
+
+-- -----------------------------------------------------------------------------
+-- 10. Grants
+-- -----------------------------------------------------------------------------
+revoke all on function public._trg_staff_not_driver() from public, anon, authenticated;
+revoke all on function public._trg_delivery_tracking_cleanup() from public, anon, authenticated;
+revoke all on function public._require_driver() from public, anon, authenticated;
+revoke all on function public._delivery_for_driver(text) from public, anon, authenticated;
+revoke all on function public._lock_my_run(text, public.drivers) from public, anon, authenticated;
+
+do $g$
+declare f text;
+begin
+  foreach f in array array[
+    'public.owner_upsert_driver(text, text, text, uuid, text, text)',
+    'public.owner_set_driver_status(text, text)',
+    'public.staff_list_drivers(uuid)',
+    'public.staff_assign_driver(text, text)',
+    'public.staff_unassign_driver(text, text)',
+    'public.staff_get_delivery_tracking(text)',
+    'public.staff_active_driver_positions(uuid)',
+    'public.get_my_driver_context()',
+    'public.driver_set_availability(boolean)',
+    'public.driver_list_my_deliveries(boolean)',
+    'public.driver_respond_assignment(text, text, text)',
+    'public.driver_mark_picked_up(text)',
+    'public.driver_update_stop(uuid, text, text, text, text, text, numeric)',
+    'public.driver_post_location(text, double precision, double precision, real, timestamptz, real, real)',
+    'public.customer_get_delivery_tracking(text)'
+  ] loop
+    execute 'revoke all on function ' || f || ' from public, anon';
+    execute 'grant execute on function ' || f || ' to authenticated';
+  end loop;
+end
+$g$;
+
+commit;
+
+
+-- >>>>>>>>>> 20261010020000_analytics_forecasting.sql <<<<<<<<<<
+-- =============================================================================
+-- Business analytics, linear-regression sales forecast, reorder suggestions,
+-- expiring-batch list.
+-- =============================================================================
+-- Run after 20261010010000_driver_module.sql. Idempotent, additive.
+--
+-- Who may read: the owner (all branches or one), or staff holding the
+-- 'view_reports' permission (their own branch only). Reorder suggestions and
+-- expiring batches: any active staff for their branch.
+--
+-- Definitions (the same everywhere; also used by staff_cashier_daily_summary):
+--   verified order  an order whose payment is 'success' or 'refunded'
+--                   (pending / processing / failed payments are NOT sales)
+--   gross sales     sum of verified orders' subtotals (before discount, without
+--                   delivery fee), dated by order date (Asia/Manila)
+--   discounts       sum of verified orders' discounts
+--   refunds         completed refund amounts, dated by completion date
+--   net sales       gross sales - discounts - refunds
+--   delivery fees   verified orders' delivery fees (reported apart)
+--   revenue         net sales + delivery fees
+--   pending         non-cancelled orders whose payment is not yet verified
+--
+-- Forecast model (analytics_sales_forecast)
+--   Ordinary least squares on one variable: y = a + b*t, t = period index.
+--   For daily data an optional day-of-week adjustment is added: the mean
+--   training residual for each weekday (an additive seasonal term).
+--   Series: units (or revenue) from verified orders, minus units refunded on
+--   those orders, per period. Days on which the branch recorded NO verified
+--   order at all are treated as closed/missing and left out of training.
+--   Evaluation is chronological: the last p_holdout periods of the training
+--   window are hidden, the model is fitted on the earlier periods and scored
+--   on the hidden ones (MAE, RMSE, and the MAE of a naive "training mean"
+--   baseline for comparison). The final model is then refitted on the whole
+--   window to produce the future forecast. Nothing after p_train_to is used.
+--   Intervals are approximate: prediction +/- 1.96 * residual standard error.
+--   Known limits: no stock-out detection (a day sold out reads as low
+--   demand), no holidays/promotions, linear trend only.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 0. Access helper
+-- -----------------------------------------------------------------------------
+create or replace function public._require_reports(p_branch_id uuid)
+returns public.staff_members
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v public.staff_members;
+begin
+  v := public._require_staff(p_branch_id);
+  if v.role <> 'owner' then
+    if p_branch_id is null then raise exception 'Choose your branch.'; end if;
+    if not ('view_reports' = any (public.staff_permission_keys())) then
+      raise exception 'You do not have permission to view reports.';
+    end if;
+  end if;
+  return v;
+end;
+$$;
+
+-- Verified order lines with their Manila date (one place for the definition).
+create or replace view public.analytics_verified_orders
+with (security_invoker = true) as
+select o.id as order_id, o.branch_id, o.firebase_uid, o.created_at,
+       (o.created_at at time zone 'Asia/Manila')::date as sale_date,
+       o.subtotal, o.discount, o.delivery_fee, o.total, o.is_delivery,
+       p.method as payment_method,
+       exists (select 1 from public.pos_sales ps where ps.order_id = o.id) as is_pos
+from public.orders o
+join public.payments p on p.order_id = o.id
+where p.status in ('success', 'refunded');
+revoke all on public.analytics_verified_orders from public, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 1. The report
+-- -----------------------------------------------------------------------------
+create or replace function public.analytics_report(
+  p_from date,
+  p_to date,
+  p_branch_id uuid default null
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_from date := coalesce(p_from, (now() at time zone 'Asia/Manila')::date - 29);
+  v_to date := coalesce(p_to, (now() at time zone 'Asia/Manila')::date);
+  v_start timestamptz;
+  v_end timestamptz;
+  v_summary jsonb;
+  v_gross numeric; v_disc numeric; v_refunds numeric; v_fees numeric; v_orders int;
+  v_refund_count int;
+begin
+  v_staff := public._require_reports(p_branch_id);
+  if v_to < v_from then raise exception 'The end date is before the start date.'; end if;
+  if v_to - v_from > 400 then raise exception 'Date range is too long (maximum 400 days).'; end if;
+  v_start := v_from::timestamp at time zone 'Asia/Manila';
+  v_end := (v_to + 1)::timestamp at time zone 'Asia/Manila';
+
+  create temp table if not exists _ar_orders (like public.analytics_verified_orders) on commit drop;
+  truncate _ar_orders;
+  insert into _ar_orders
+  select * from public.analytics_verified_orders v
+  where v.created_at >= v_start and v.created_at < v_end
+    and (p_branch_id is null or v.branch_id = p_branch_id);
+
+  create temp table if not exists _ar_refunds (refund_id text, order_id text, branch_id uuid, amount numeric,
+                                               done_date date, is_void boolean) on commit drop;
+  truncate _ar_refunds;
+  insert into _ar_refunds
+  select r.id, r.order_id, o.branch_id, r.amount, (d.done_at at time zone 'Asia/Manila')::date,
+         exists (select 1 from public.pos_voids pv where pv.refund_id = r.id)
+  from public.refund_requests r
+  join public.orders o on o.id = r.order_id
+  join lateral (select max(e.created_at) as done_at from public.refund_status_events e
+                where e.refund_request_id = r.id and e.status = 'completed') d on true
+  where r.status = 'completed' and d.done_at >= v_start and d.done_at < v_end
+    and (p_branch_id is null or o.branch_id = p_branch_id);
+
+  select coalesce(sum(subtotal), 0), coalesce(sum(discount), 0), coalesce(sum(delivery_fee), 0), count(*)
+    into v_gross, v_disc, v_fees, v_orders from _ar_orders;
+  select coalesce(sum(amount), 0), count(*) into v_refunds, v_refund_count from _ar_refunds;
+
+  v_summary := jsonb_build_object(
+    'verified_orders', v_orders,
+    'gross_sales', v_gross,
+    'discounts', v_disc,
+    'refunds', v_refunds,
+    'refund_count', v_refund_count,
+    'net_sales', v_gross - v_disc - v_refunds,
+    'delivery_fees', v_fees,
+    'revenue', v_gross - v_disc - v_refunds + v_fees,
+    'refund_rate', case when v_gross - v_disc > 0 then round(v_refunds / (v_gross - v_disc), 4) end,
+    'average_order_value', case when v_orders > 0 then round((v_gross - v_disc) / v_orders, 2) end,
+    'pos_orders', (select count(*) from _ar_orders where is_pos),
+    'online_orders', (select count(*) from _ar_orders where not is_pos),
+    'pending_payments', (
+      select jsonb_build_object('count', count(*), 'amount', coalesce(sum(o.total), 0))
+      from public.orders o join public.payments p on p.order_id = o.id
+      where p.status in ('pending', 'processing') and o.status <> 'cancelled'
+        and o.created_at >= v_start and o.created_at < v_end
+        and (p_branch_id is null or o.branch_id = p_branch_id)),
+    'cancelled_orders', (
+      select count(*) from public.orders o
+      where o.status = 'cancelled' and o.created_at >= v_start and o.created_at < v_end
+        and (p_branch_id is null or o.branch_id = p_branch_id)),
+    'voids', (select count(*) from _ar_refunds where is_void),
+    'completed_deliveries', (
+      select count(*) from public.delivery_stops ds join public.deliveries d on d.id = ds.delivery_id
+      join public.orders o on o.id = ds.order_id
+      where ds.status = 'delivered' and o.status = 'completed'
+        and coalesce(ds.delivered_at, ds.updated_at) >= v_start and coalesce(ds.delivered_at, ds.updated_at) < v_end
+        and (p_branch_id is null or d.branch_id = p_branch_id)),
+    'failed_deliveries', (
+      select count(*) from public.delivery_stops ds join public.deliveries d on d.id = ds.delivery_id
+      where ds.status = 'failed' and ds.failed_at >= v_start and ds.failed_at < v_end
+        and (p_branch_id is null or d.branch_id = p_branch_id))
+  );
+
+  return jsonb_build_object(
+    'from', v_from, 'to', v_to, 'branch_id', p_branch_id,
+    'definitions', jsonb_build_object(
+      'gross_sales', 'Subtotal of orders with a verified payment (before discounts, without delivery fee), by order date',
+      'refunds', 'Completed refunds, by completion date',
+      'net_sales', 'Gross sales - discounts - refunds',
+      'revenue', 'Net sales + delivery fees',
+      'pending_payments', 'Orders not cancelled whose payment is not verified yet (not counted as sales)'),
+    'summary', v_summary,
+
+    'by_day', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'date', d.day, 'orders', coalesce(s.n, 0), 'gross_sales', coalesce(s.gross, 0),
+               'discounts', coalesce(s.disc, 0), 'refunds', coalesce(r.amount, 0),
+               'net_sales', coalesce(s.gross, 0) - coalesce(s.disc, 0) - coalesce(r.amount, 0)) order by d.day), '[]'::jsonb)
+      from generate_series(v_from, v_to, interval '1 day') as d0(ts)
+      cross join lateral (select d0.ts::date as day) d
+      left join (select sale_date, count(*) n, sum(subtotal) gross, sum(discount) disc from _ar_orders group by sale_date) s
+        on s.sale_date = d.day
+      left join (select done_date, sum(amount) amount from _ar_refunds group by done_date) r on r.done_date = d.day),
+
+    'by_branch', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'branch_id', b.id, 'branch', b.name, 'orders', coalesce(s.n, 0),
+               'gross_sales', coalesce(s.gross, 0), 'discounts', coalesce(s.disc, 0), 'refunds', coalesce(r.amount, 0),
+               'net_sales', coalesce(s.gross, 0) - coalesce(s.disc, 0) - coalesce(r.amount, 0)) order by b.name), '[]'::jsonb)
+      from public.branches b
+      left join (select branch_id, count(*) n, sum(subtotal) gross, sum(discount) disc from _ar_orders group by branch_id) s on s.branch_id = b.id
+      left join (select branch_id, sum(amount) amount from _ar_refunds group by branch_id) r on r.branch_id = b.id
+      where p_branch_id is null or b.id = p_branch_id),
+
+    'by_payment_method', (
+      select coalesce(jsonb_agg(jsonb_build_object('method', payment_method, 'orders', n, 'amount', amount) order by amount desc), '[]'::jsonb)
+      from (select payment_method, count(*) n, sum(total) amount from _ar_orders group by payment_method) t),
+
+    'by_category', (
+      select coalesce(jsonb_agg(jsonb_build_object('category', category, 'units', units, 'gross_sales', gross) order by gross desc), '[]'::jsonb)
+      from (
+        select coalesce(pc.label, 'Uncategorised') as category, sum(oi.quantity)::int as units, sum(oi.quantity * oi.unit_price) as gross
+        from _ar_orders o join public.order_items oi on oi.order_id = o.order_id
+        left join public.products p on p.id = oi.product_id
+        left join public.product_categories pc on pc.id = p.category_id
+        group by 1) t),
+
+    'top_products', (
+      select coalesce(jsonb_agg(jsonb_build_object('product', product_name, 'variant', variant_label, 'variant_id', variant_id,
+                                                   'units', units, 'gross_sales', gross) order by gross desc), '[]'::jsonb)
+      from (
+        select oi.product_name, oi.variant_label, oi.variant_id, sum(oi.quantity)::int as units, sum(oi.quantity * oi.unit_price) as gross
+        from _ar_orders o join public.order_items oi on oi.order_id = o.order_id
+        group by 1, 2, 3 order by gross desc limit 15) t),
+
+    -- Active products that are in stock but sold least (including zero).
+    'slow_movers', (
+      select coalesce(jsonb_agg(jsonb_build_object('product', product, 'variant', variant, 'variant_id', variant_id,
+                                                   'in_stock', stock, 'units_sold', units) order by units, stock desc), '[]'::jsonb)
+      from (
+        select p.name as product, pv.label as variant, pv.id as variant_id, sum(bi.quantity)::int as stock,
+               coalesce((select sum(oi.quantity) from public.order_items oi join _ar_orders o on o.order_id = oi.order_id
+                         where oi.variant_id = pv.id), 0)::int as units
+        from public.product_variants pv
+        join public.products p on p.id = pv.product_id and p.is_active
+        join public.branch_inventory bi on bi.variant_id = pv.id and (p_branch_id is null or bi.branch_id = p_branch_id)
+        group by p.name, pv.label, pv.id
+        having sum(bi.quantity) > 0
+        order by units, stock desc limit 15) t),
+
+    'customers', (
+      select jsonb_build_object(
+        'new_customers', (select count(*) from public.customer_profiles c
+                          where c.firebase_uid <> 'walk-in' and c.created_at >= v_start and c.created_at < v_end),
+        'active_customers', count(distinct firebase_uid),
+        'repeat_customers', count(*) filter (where n >= 2),
+        'repeat_rate', case when count(*) > 0 then round(count(*) filter (where n >= 2)::numeric / count(*), 4) end)
+      from (select firebase_uid, count(*) n from _ar_orders where firebase_uid <> 'walk-in' group by firebase_uid) t),
+
+    'loyalty', (
+      select jsonb_build_object(
+        'points_earned', coalesce(sum(points) filter (where points > 0), 0),
+        'points_redeemed', coalesce(-sum(points) filter (where points < 0), 0),
+        'members_active', count(distinct firebase_uid))
+      from public.loyalty_transactions lt
+      where lt.created_at >= v_start and lt.created_at < v_end
+        and (p_branch_id is null or exists (select 1 from public.orders o where o.id = lt.order_id and o.branch_id = p_branch_id))),
+
+    'drivers', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'driver_uid', t.driver_uid, 'driver', t.full_name, 'runs', t.runs, 'delivered', t.delivered,
+               'failed', t.failed,
+               'success_rate', case when t.delivered + t.failed > 0 then round(t.delivered::numeric / (t.delivered + t.failed), 4) end,
+               'avg_minutes_pickup_to_delivered', t.avg_minutes) order by t.delivered desc), '[]'::jsonb)
+      from (
+        select dr.firebase_uid as driver_uid, dr.full_name,
+               count(distinct d.id) as runs,
+               count(*) filter (where ds.status = 'delivered') as delivered,
+               count(*) filter (where ds.status = 'failed') as failed,
+               round(avg(extract(epoch from ds.delivered_at - d.picked_up_at) / 60)
+                       filter (where ds.status = 'delivered' and d.picked_up_at is not null)::numeric, 1) as avg_minutes
+        from public.drivers dr
+        join public.deliveries d on d.driver_uid = dr.firebase_uid
+        join public.delivery_stops ds on ds.delivery_id = d.id
+        where d.created_at >= v_start and d.created_at < v_end
+          and (p_branch_id is null or d.branch_id = p_branch_id)
+        group by dr.firebase_uid, dr.full_name) t),
+
+    'inventory', (
+      select jsonb_build_object(
+        'units_on_hand', coalesce(sum(bi.quantity), 0),
+        'stock_value_at_cost', sum(bi.quantity * c.cost_price),
+        'variants_without_cost', count(*) filter (where c.cost_price is null and bi.quantity > 0),
+        'out_of_stock', count(*) filter (where bi.quantity = 0),
+        'low_stock', count(*) filter (where bi.quantity > 0 and bi.quantity <= coalesce(st.restock_threshold, public._default_restock_threshold())))
+      from public.branch_inventory bi
+      join public.products p on p.id = bi.product_id and p.is_active
+      left join public.product_variant_costs c on c.variant_id = bi.variant_id
+      left join public.stock_thresholds st on st.branch_id = bi.branch_id and st.variant_id = bi.variant_id
+      where p_branch_id is null or bi.branch_id = p_branch_id)
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Linear regression
+-- -----------------------------------------------------------------------------
+-- OLS of y on t (1..n) with optional additive weekday effect.
+-- p_t: period index, p_y: value, p_dow: 0..6 (ignored unless p_seasonal).
+create or replace function public._ols_fit(p_t float8[], p_y float8[], p_dow int[], p_seasonal boolean)
+returns jsonb
+language plpgsql
+immutable
+as $$
+-- Least squares of y = a + b*t (+ weekday effect s[dow] when p_seasonal).
+-- With weekday effects the joint least-squares solution is found by
+-- backfitting: fit the trend on y - s[dow], set s[dow] to the mean residual of
+-- each weekday, centre s so it sums to zero over the observations, repeat.
+-- Each step can only lower the squared error, so it converges to the same
+-- answer as a regression with weekday dummy variables.
+declare
+  v_a float8; v_b float8; v_n int; v_r2 float8; v_sd float8; v_eff float8; v_mean float8;
+  v_dow float8[] := array[0, 0, 0, 0, 0, 0, 0];
+  v_iter int;
+  i int;
+begin
+  for v_iter in 1 .. case when p_seasonal then 25 else 1 end loop
+    select regr_intercept(y - v_dow[d + 1], t), regr_slope(y - v_dow[d + 1], t), regr_count(y, t)
+      into v_a, v_b, v_n
+    from unnest(p_t, p_y, p_dow) as u(t, y, d);
+    if v_n is null or v_n < 2 then return null; end if;
+    v_a := coalesce(v_a, 0); v_b := coalesce(v_b, 0);
+    exit when not p_seasonal;
+    for i in 0..6 loop
+      select coalesce(avg(y - (v_a + v_b * t)), 0) into v_eff
+      from unnest(p_t, p_y, p_dow) as u(t, y, d) where d = i;
+      v_dow[i + 1] := v_eff;
+    end loop;
+    select avg(v_dow[d + 1]) into v_mean from unnest(p_dow) as u(d);
+    for i in 1..7 loop v_dow[i] := v_dow[i] - v_mean; end loop;
+  end loop;
+  if p_seasonal then
+    -- refit the trend once more against the final weekday effects
+    select regr_intercept(y - v_dow[d + 1], t), regr_slope(y - v_dow[d + 1], t)
+      into v_a, v_b
+    from unnest(p_t, p_y, p_dow) as u(t, y, d);
+    v_a := coalesce(v_a, 0); v_b := coalesce(v_b, 0);
+  end if;
+
+  select sqrt(sum(power(y - (v_a + v_b * t + v_dow[d + 1]), 2))
+              / greatest(count(*) - 2 - case when p_seasonal then 6 else 0 end, 1)),
+         case when sum(power(y - avg_y, 2)) > 0
+              then 1 - sum(power(y - (v_a + v_b * t + v_dow[d + 1]), 2)) / sum(power(y - avg_y, 2)) end
+    into v_sd, v_r2
+  from (select t, y, d, avg(y) over () as avg_y from unnest(p_t, p_y, p_dow) as u(t, y, d)) x;
+
+  return jsonb_build_object('intercept', v_a, 'slope', v_b, 'n', v_n, 'r2', v_r2,
+                            'residual_sd', coalesce(v_sd, 0), 'seasonal', p_seasonal,
+                            'weekday_effects', to_jsonb(v_dow));
+end;
+$$;
+
+create or replace function public._ols_predict(p_model jsonb, p_t float8, p_dow int)
+returns float8
+language sql
+immutable
+as $$
+  select (p_model ->> 'intercept')::float8 + (p_model ->> 'slope')::float8 * p_t
+         + case when (p_model ->> 'seasonal')::boolean then (p_model -> 'weekday_effects' ->> p_dow)::float8 else 0 end
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Forecast tables (saved runs, to compare against actuals later)
+-- -----------------------------------------------------------------------------
+create table if not exists public.forecast_runs (
+  id uuid primary key default gen_random_uuid(),
+  created_by text not null,
+  branch_id uuid not null references public.branches(id),
+  variant_id uuid references public.product_variants(id) on delete set null,
+  metric text not null check (metric in ('units', 'revenue')),
+  granularity text not null check (granularity in ('day', 'week')),
+  train_from date not null,
+  train_to date not null,
+  model jsonb not null,
+  metrics jsonb not null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.forecast_points (
+  run_id uuid not null references public.forecast_runs(id) on delete cascade,
+  period_start date not null,
+  predicted numeric(14, 2) not null,
+  lower_bound numeric(14, 2) not null,
+  upper_bound numeric(14, 2) not null,
+  primary key (run_id, period_start)
+);
+alter table public.forecast_runs enable row level security;
+alter table public.forecast_points enable row level security;
+revoke all on public.forecast_runs, public.forecast_points from anon, authenticated;
+
+-- Actual values per period (internal).
+create or replace function public._sales_series(
+  p_branch_id uuid, p_variant_id uuid, p_metric text, p_granularity text, p_from date, p_to date
+)
+returns table (period_start date, actual float8, open_days int)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with days as (
+    select d::date as day from generate_series(p_from, p_to, interval '1 day') d
+  ),
+  verified as (
+    select v.order_id, v.sale_date from public.analytics_verified_orders v
+    where v.branch_id = p_branch_id and v.sale_date between p_from and p_to
+  ),
+  open_day as (select distinct sale_date as day from verified),
+  sold as (
+    select v.sale_date as day,
+           sum(case when p_metric = 'revenue' then oi.quantity * oi.unit_price else oi.quantity end) as amt
+    from verified v join public.order_items oi on oi.order_id = v.order_id
+    where p_variant_id is null or oi.variant_id = p_variant_id
+    group by 1
+  ),
+  returned as (  -- refunded units take demand back out, on the original sale date
+    select v.sale_date as day,
+           sum(case when p_metric = 'revenue' then ri.quantity * ri.unit_price else ri.quantity end) as amt
+    from verified v
+    join public.refund_requests r on r.order_id = v.order_id and r.status = 'completed'
+    join public.refund_items ri on ri.refund_request_id = r.id
+    where p_variant_id is null or exists (
+      select 1 from public.order_items oi where oi.order_id = v.order_id and oi.variant_id = p_variant_id
+        and oi.product_name = ri.product_name and oi.variant_label = ri.variant_label)
+    group by 1
+  ),
+  daily as (
+    select d.day, (od.day is not null) as is_open,
+           greatest(coalesce(s.amt, 0) - coalesce(r.amt, 0), 0)::float8 as amt
+    from days d
+    left join open_day od on od.day = d.day
+    left join sold s on s.day = d.day
+    left join returned r on r.day = d.day
+  )
+  select case when p_granularity = 'week' then date_trunc('week', day)::date else day end as period_start,
+         sum(amt) filter (where is_open) as actual,
+         count(*) filter (where is_open)::int as open_days
+  from daily
+  group by 1
+  order by 1
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. Forecast RPC
+-- -----------------------------------------------------------------------------
+create or replace function public.analytics_sales_forecast(
+  p_branch_id uuid,
+  p_variant_id uuid default null,
+  p_metric text default 'units',
+  p_granularity text default 'day',
+  p_train_from date default null,
+  p_train_to date default null,
+  p_horizon int default 14,
+  p_holdout int default null,
+  p_save boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  v_to date;
+  v_from date;
+  v_step interval;
+  v_seasonal boolean;
+  v_hold int;
+  v_min_train int;
+  v_t float8[]; v_y float8[]; v_dow int[]; v_period date[];
+  v_n int;
+  v_model_eval jsonb;
+  v_model jsonb;
+  v_mae float8; v_rmse float8; v_base_mae float8; v_train_mean float8;
+  v_holdout jsonb := '[]'::jsonb;
+  v_forecast jsonb := '[]'::jsonb;
+  v_history jsonb;
+  v_last_t float8;
+  v_last_period date;
+  v_p float8; v_pd date; v_z float8 := 1.96;
+  v_run uuid;
+  i int;
+begin
+  v_staff := public._require_reports(p_branch_id);
+  if p_branch_id is null then raise exception 'Choose a branch.'; end if;
+  if p_metric not in ('units', 'revenue') then raise exception 'Metric must be units or revenue.'; end if;
+  if p_granularity not in ('day', 'week') then raise exception 'Granularity must be day or week.'; end if;
+  if p_horizon is null or p_horizon < 1 or p_horizon > (case when p_granularity = 'day' then 90 else 26 end) then
+    raise exception 'Forecast horizon must be 1-90 days or 1-26 weeks.';
+  end if;
+  if p_variant_id is not null and not exists (select 1 from public.product_variants where id = p_variant_id) then
+    raise exception 'That product variant could not be found.';
+  end if;
+
+  v_step := case when p_granularity = 'day' then interval '1 day' else interval '7 days' end;
+  v_seasonal := p_granularity = 'day';
+  -- Train up to yesterday (today is incomplete) or the last complete week.
+  v_to := least(coalesce(p_train_to, v_today - 1), v_today - 1);
+  if p_granularity = 'week' then v_to := (date_trunc('week', v_to + 1)::date - 1); end if;
+  v_from := coalesce(p_train_from, v_to - case when p_granularity = 'day' then 89 else 7 * 26 - 1 end);
+  if p_granularity = 'week' then v_from := date_trunc('week', v_from)::date; end if;
+  if v_from >= v_to then raise exception 'The training period is empty.'; end if;
+  if v_to - v_from > 730 then raise exception 'Training period is too long (maximum 2 years).'; end if;
+  v_hold := coalesce(p_holdout, case when p_granularity = 'day' then 14 else 4 end);
+  v_min_train := case when p_granularity = 'day' then 21 else 8 end;
+
+  -- Observed periods only (closed days / empty weeks are missing, not zero).
+  select array_agg(row_number::float8 order by period_start), array_agg(actual order by period_start),
+         array_agg(extract(dow from period_start)::int order by period_start), array_agg(period_start order by period_start)
+    into v_t, v_y, v_dow, v_period
+  from (
+    select s.period_start, s.actual,
+           -- t counts calendar periods from the start, so gaps keep their spacing
+           ((s.period_start - v_from) / case when p_granularity = 'day' then 1 else 7 end + 1) as row_number
+    from public._sales_series(p_branch_id, p_variant_id, p_metric, p_granularity, v_from, v_to) s
+    where s.open_days > 0 and (p_granularity = 'day' or s.open_days >= 4)
+  ) x;
+  v_n := coalesce(array_length(v_y, 1), 0);
+
+  select coalesce(jsonb_agg(jsonb_build_object('period', s.period_start,
+           'actual', case when s.open_days > 0 then round(s.actual::numeric, 2) end, 'open_days', s.open_days)
+           order by s.period_start), '[]'::jsonb)
+    into v_history
+  from public._sales_series(p_branch_id, p_variant_id, p_metric, p_granularity, v_from, v_to) s;
+
+  if v_n < v_min_train + v_hold then
+    return jsonb_build_object('status', 'insufficient_data',
+      'message', format('Need at least %s %s with verified sales in the training period (found %s).',
+                        v_min_train + v_hold, case when p_granularity = 'day' then 'open days' else 'weeks' end, v_n),
+      'history', v_history, 'train_from', v_from, 'train_to', v_to);
+  end if;
+
+  -- Chronological evaluation: fit on the first n - hold points, score on the rest.
+  v_model_eval := public._ols_fit(v_t[1:v_n - v_hold], v_y[1:v_n - v_hold], v_dow[1:v_n - v_hold], v_seasonal);
+  select avg(y) into v_train_mean from unnest(v_y[1:v_n - v_hold]) y;
+  v_mae := 0; v_rmse := 0; v_base_mae := 0;
+  for i in (v_n - v_hold + 1)..v_n loop
+    v_p := greatest(public._ols_predict(v_model_eval, v_t[i], v_dow[i]), 0);
+    v_mae := v_mae + abs(v_y[i] - v_p);
+    v_rmse := v_rmse + power(v_y[i] - v_p, 2);
+    v_base_mae := v_base_mae + abs(v_y[i] - v_train_mean);
+    v_holdout := v_holdout || jsonb_build_object('period', v_period[i], 'actual', round(v_y[i]::numeric, 2),
+                                                 'predicted', round(v_p::numeric, 2));
+  end loop;
+  v_mae := v_mae / v_hold; v_rmse := sqrt(v_rmse / v_hold); v_base_mae := v_base_mae / v_hold;
+
+  -- Final model on the whole window, then project forward.
+  v_model := public._ols_fit(v_t, v_y, v_dow, v_seasonal);
+  v_last_t := (v_to - v_from) / case when p_granularity = 'day' then 1 else 7 end + 1;
+  v_last_period := case when p_granularity = 'day' then v_to else date_trunc('week', v_to)::date end;
+  for i in 1..p_horizon loop
+    v_pd := (v_last_period + v_step * i)::date;
+    v_p := public._ols_predict(v_model, v_last_t + i, extract(dow from v_pd)::int);
+    v_forecast := v_forecast || jsonb_build_object(
+      'period', v_pd,
+      'predicted', round(greatest(v_p, 0)::numeric, 2),
+      'lower', round(greatest(v_p - v_z * (v_model ->> 'residual_sd')::float8, 0)::numeric, 2),
+      'upper', round(greatest(v_p + v_z * (v_model ->> 'residual_sd')::float8, 0)::numeric, 2));
+  end loop;
+
+  if coalesce(p_save, false) then
+    insert into public.forecast_runs (created_by, branch_id, variant_id, metric, granularity, train_from, train_to, model, metrics)
+    values (v_staff.firebase_uid, p_branch_id, p_variant_id, p_metric, p_granularity, v_from, v_to, v_model,
+            jsonb_build_object('mae', round(v_mae::numeric, 3), 'rmse', round(v_rmse::numeric, 3),
+                               'baseline_mae', round(v_base_mae::numeric, 3), 'holdout_periods', v_hold))
+    returning id into v_run;
+    insert into public.forecast_points (run_id, period_start, predicted, lower_bound, upper_bound)
+    select v_run, (e ->> 'period')::date, (e ->> 'predicted')::numeric, (e ->> 'lower')::numeric, (e ->> 'upper')::numeric
+    from jsonb_array_elements(v_forecast) e;
+  end if;
+
+  return jsonb_build_object(
+    'status', 'ok',
+    'run_id', v_run,
+    'branch_id', p_branch_id, 'variant_id', p_variant_id, 'metric', p_metric, 'granularity', p_granularity,
+    'train_from', v_from, 'train_to', v_to, 'observed_periods', v_n,
+    'model', jsonb_build_object(
+      'type', case when v_seasonal then 'linear trend + weekday adjustment (OLS)' else 'linear trend (OLS)' end,
+      'intercept', round((v_model ->> 'intercept')::numeric, 4),
+      'slope_per_period', round((v_model ->> 'slope')::numeric, 4),
+      'r2', round(coalesce((v_model ->> 'r2')::numeric, 0), 4),
+      'residual_sd', round((v_model ->> 'residual_sd')::numeric, 4),
+      'weekday_effects', case when v_seasonal then v_model -> 'weekday_effects' end),
+    'evaluation', jsonb_build_object(
+      'method', 'chronological hold-out (last periods of the training window)',
+      'holdout_periods', v_hold,
+      'mae', round(v_mae::numeric, 3), 'rmse', round(v_rmse::numeric, 3),
+      'baseline_mae', round(v_base_mae::numeric, 3),
+      'beats_baseline', v_mae < v_base_mae,
+      'points', v_holdout),
+    'history', v_history,
+    'forecast', v_forecast,
+    'notes', jsonb_build_array(
+      'Forecasts are estimates, not guaranteed sales.',
+      'Days with no verified sales at the branch are treated as closed and left out.',
+      'Sold-out days are not detected and can pull the forecast down.',
+      'The range is approximate (about 95% if errors are normal and the trend holds).')
+  );
+end;
+$$;
+
+-- Compare a saved forecast with what actually happened.
+create or replace function public.analytics_forecast_accuracy(p_run_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  r public.forecast_runs;
+  v_last date;
+begin
+  select * into r from public.forecast_runs where id = p_run_id;
+  if not found then raise exception 'That forecast could not be found.'; end if;
+  perform public._require_reports(r.branch_id);
+  select max(period_start) into v_last from public.forecast_points where run_id = r.id;
+  return (
+    with actuals as (
+      select * from public._sales_series(r.branch_id, r.variant_id, r.metric, r.granularity,
+        (select min(period_start) from public.forecast_points where run_id = r.id),
+        least(v_last + case when r.granularity = 'week' then 6 else 0 end, (now() at time zone 'Asia/Manila')::date - 1))
+    ),
+    joined as (
+      select fp.period_start, fp.predicted, fp.lower_bound, fp.upper_bound,
+             case when a.open_days > 0 then round(a.actual::numeric, 2) end as actual
+      from public.forecast_points fp left join actuals a on a.period_start = fp.period_start
+      where fp.run_id = r.id
+    )
+    select jsonb_build_object(
+      'run_id', r.id, 'created_at', r.created_at, 'metric', r.metric, 'granularity', r.granularity,
+      'model', r.model, 'evaluation_at_creation', r.metrics,
+      'periods_with_actuals', count(actual),
+      'mae', round(avg(abs(actual - predicted)), 3),
+      'rmse', round(sqrt(avg(power(actual - predicted, 2))), 3),
+      'within_range', count(*) filter (where actual between lower_bound and upper_bound),
+      'points', jsonb_agg(jsonb_build_object('period', period_start, 'predicted', predicted, 'lower', lower_bound,
+                                             'upper', upper_bound, 'actual', actual) order by period_start))
+    from joined
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Reorder suggestions and expiring batches (inventory)
+-- -----------------------------------------------------------------------------
+-- Average daily demand over the look-back (verified sales minus refunds, open
+-- days only). Usable stock excludes units in batches expiring within the lead
+-- time. Suggest an order when usable stock <= demand * (lead time + safety
+-- days); the quantity tops stock up to cover lead time + safety + cover days.
+create or replace function public.staff_reorder_suggestions(
+  p_branch_id uuid,
+  p_lookback_days int default 28,
+  p_lead_time_days int default 7,
+  p_safety_days int default 3,
+  p_cover_days int default 14
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  v_open int;
+begin
+  v_staff := public._require_staff(p_branch_id);
+  if p_branch_id is null then raise exception 'Choose a branch.'; end if;
+  if p_lookback_days not between 7 and 365 or p_lead_time_days not between 0 and 90
+     or p_safety_days not between 0 and 60 or p_cover_days not between 1 and 120 then
+    raise exception 'Look-back 7-365, lead time 0-90, safety 0-60, cover 1-120 days.';
+  end if;
+
+  select count(distinct sale_date) into v_open from public.analytics_verified_orders
+  where branch_id = p_branch_id and sale_date between v_today - p_lookback_days and v_today - 1;
+
+  return jsonb_build_object(
+    'branch_id', p_branch_id, 'lookback_days', p_lookback_days, 'open_days', v_open,
+    'lead_time_days', p_lead_time_days, 'safety_days', p_safety_days, 'cover_days', p_cover_days,
+    'items', (
+      select coalesce(jsonb_agg(to_jsonb(t) order by t.needs_reorder desc, t.days_of_cover nulls last), '[]'::jsonb)
+      from (
+        select p.name as product, pv.label as variant, pv.id as variant_id,
+               bi.quantity as on_hand,
+               bi.quantity - coalesce(exp.qty, 0) as usable,
+               coalesce(exp.qty, 0) as expiring_within_lead_time,
+               round(coalesce(dm.units, 0)::numeric / greatest(v_open, 1), 2) as avg_daily_demand,
+               case when coalesce(dm.units, 0) > 0
+                    then round((bi.quantity - coalesce(exp.qty, 0)) / (dm.units::numeric / greatest(v_open, 1)), 1) end as days_of_cover,
+               ceil(coalesce(dm.units, 0)::numeric / greatest(v_open, 1) * (p_lead_time_days + p_safety_days)) as reorder_point,
+               (bi.quantity - coalesce(exp.qty, 0))
+                 <= ceil(coalesce(dm.units, 0)::numeric / greatest(v_open, 1) * (p_lead_time_days + p_safety_days))
+                 and coalesce(dm.units, 0) > 0 as needs_reorder,
+               greatest(ceil(coalesce(dm.units, 0)::numeric / greatest(v_open, 1)
+                             * (p_lead_time_days + p_safety_days + p_cover_days))
+                        - (bi.quantity - coalesce(exp.qty, 0)), 0)::int as suggested_quantity
+        from public.branch_inventory bi
+        join public.product_variants pv on pv.id = bi.variant_id
+        join public.products p on p.id = pv.product_id and p.is_active
+        left join lateral (
+          select sum(oi.quantity) - coalesce((
+                   select sum(ri.quantity) from public.refund_requests r
+                   join public.refund_items ri on ri.refund_request_id = r.id
+                   join public.analytics_verified_orders v2 on v2.order_id = r.order_id
+                   where r.status = 'completed' and v2.branch_id = p_branch_id
+                     and v2.sale_date between v_today - p_lookback_days and v_today - 1
+                     and ri.product_name = p.name and ri.variant_label = pv.label), 0) as units
+          from public.analytics_verified_orders v
+          join public.order_items oi on oi.order_id = v.order_id and oi.variant_id = pv.id
+          where v.branch_id = p_branch_id and v.sale_date between v_today - p_lookback_days and v_today - 1
+        ) dm on true
+        left join lateral (
+          select sum(b.quantity) as qty from public.inventory_batches b
+          where b.branch_id = p_branch_id and b.variant_id = pv.id and b.quantity > 0
+            and b.expiration_date <= v_today + p_lead_time_days
+        ) exp on true
+        where bi.branch_id = p_branch_id
+      ) t)
+  );
+end;
+$$;
+
+create or replace function public.staff_expiring_batches(p_branch_id uuid, p_within_days int default 30)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+begin
+  perform public._require_staff(p_branch_id);
+  if p_branch_id is null then raise exception 'Choose a branch.'; end if;
+  if p_within_days not between 0 and 365 then raise exception 'Choose 0-365 days.'; end if;
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'batch_id', b.id, 'batch_code', b.batch_code, 'product', p.name, 'variant', pv.label,
+             'variant_id', b.variant_id, 'quantity', b.quantity, 'expiration_date', b.expiration_date,
+             'days_left', b.expiration_date - v_today, 'expired', b.expiration_date < v_today)
+           order by b.expiration_date), '[]'::jsonb)
+    from public.inventory_batches b
+    join public.product_variants pv on pv.id = b.variant_id
+    join public.products p on p.id = b.product_id
+    where b.branch_id = p_branch_id and b.quantity > 0 and b.expiration_date <= v_today + p_within_days
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Grants
+-- -----------------------------------------------------------------------------
+revoke all on function public._require_reports(uuid) from public, anon, authenticated;
+revoke all on function public._sales_series(uuid, uuid, text, text, date, date) from public, anon, authenticated;
+revoke all on function public._ols_fit(float8[], float8[], int[], boolean) from public, anon;
+revoke all on function public._ols_predict(jsonb, float8, int) from public, anon;
+
+do $g$
+declare f text;
+begin
+  foreach f in array array[
+    'public.analytics_report(date, date, uuid)',
+    'public.analytics_sales_forecast(uuid, uuid, text, text, date, date, int, int, boolean)',
+    'public.analytics_forecast_accuracy(uuid)',
+    'public.staff_reorder_suggestions(uuid, int, int, int, int)',
+    'public.staff_expiring_batches(uuid, int)'
+  ] loop
+    execute 'revoke all on function ' || f || ' from public, anon';
+    execute 'grant execute on function ' || f || ' to authenticated';
+  end loop;
+end
+$g$;
+
+commit;
+
+
+-- >>>>>>>>>> 20261011000000_loyalty_cards.sql <<<<<<<<<<
+-- =============================================================================
+-- RFID loyalty cards: card registry, register / replace / block / unblock,
+-- card tap lookup at the POS
+-- =============================================================================
+-- Run after 20261010020000_analytics_forecasting.sql. Idempotent and additive.
+--
+-- Why a registry (before: one free-text customer_profiles.rfid_card_number)
+--   * a lost card can be BLOCKED at once, so nobody can earn or redeem on it;
+--   * a new card REPLACES the old one and the points stay (points live on the
+--     customer's loyalty account, never on the card);
+--   * every register / block / unblock / replace is kept in an append-only history.
+--
+-- How a card is identified
+--   The reader (Arduino + RC522, or any USB "keyboard" reader) sends the card's
+--   UID, e.g. "04:A1:B2:C3" or "04A1B2C3". It is normalised (separators removed,
+--   upper case, 8–20 hex digits) and only its SHA-256 is stored. Staff and the
+--   customer see a short label derived from the hash (e.g. GK-3F9A-71C2), which
+--   is also written to customer_profiles.rfid_card_number so the app's existing
+--   card screen keeps working.
+--
+--   A card UID is NOT a password. It only identifies the customer to a signed-in,
+--   active staff member at the counter; every RPC here starts with _require_staff.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Tables
+-- -----------------------------------------------------------------------------
+create table if not exists public.loyalty_cards (
+  id uuid primary key default gen_random_uuid(),
+  card_uid_hash text not null,
+  card_label text not null,
+  firebase_uid text not null references public.customer_profiles(firebase_uid) on delete cascade,
+  status text not null default 'active' check (status in ('active', 'blocked', 'replaced')),
+  issued_branch_id uuid references public.branches(id) on delete set null,
+  issued_by text,
+  issued_at timestamptz not null default now(),
+  blocked_at timestamptz,
+  block_reason text,
+  replaced_by uuid references public.loyalty_cards(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists loyalty_cards_hash_key on public.loyalty_cards (card_uid_hash);
+create unique index if not exists loyalty_cards_label_key on public.loyalty_cards (card_label);
+-- One active card per customer.
+create unique index if not exists loyalty_cards_one_active
+  on public.loyalty_cards (firebase_uid) where (status = 'active');
+create index if not exists loyalty_cards_customer_idx on public.loyalty_cards (firebase_uid, issued_at desc);
+
+create table if not exists public.loyalty_card_events (
+  id bigserial primary key,
+  card_id uuid not null references public.loyalty_cards(id) on delete cascade,
+  event text not null check (event in ('registered', 'blocked', 'unblocked', 'replaced', 'migrated')),
+  staff_uid text,
+  branch_id uuid references public.branches(id) on delete set null,
+  note text,
+  created_at timestamptz not null default now()
+);
+create index if not exists loyalty_card_events_card_idx on public.loyalty_card_events (card_id, created_at);
+
+-- Only the functions below touch these tables.
+alter table public.loyalty_cards enable row level security;
+alter table public.loyalty_card_events enable row level security;
+revoke all on public.loyalty_cards from anon, authenticated;
+revoke all on public.loyalty_card_events from anon, authenticated;
+
+-- History is append-only, even for privileged roles.
+create or replace function public._trg_loyalty_card_events_append_only()
+returns trigger language plpgsql as $$
+begin
+  raise exception 'Loyalty card history cannot be changed or deleted.';
+end;
+$$;
+drop trigger if exists loyalty_card_events_append_only on public.loyalty_card_events;
+create trigger loyalty_card_events_append_only
+  before update or delete on public.loyalty_card_events
+  for each row execute function public._trg_loyalty_card_events_append_only();
+
+-- -----------------------------------------------------------------------------
+-- 2. Helpers
+-- -----------------------------------------------------------------------------
+-- "04:a1 b2-c3" -> "04A1B2C3"; null when it is not a plausible card UID.
+create or replace function public._normalize_card_uid(p_raw text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when v ~ '^[0-9A-F]{8,20}$' then v
+    else null
+  end
+  from (select upper(regexp_replace(coalesce(p_raw, ''), '[\s:\-\.]', '', 'g')) as v) t
+$$;
+
+create or replace function public._card_uid_hash(p_normalized text)
+returns text
+language sql
+immutable
+as $$
+  select encode(sha256(convert_to('melai-card:' || p_normalized, 'UTF8')), 'hex')
+$$;
+
+create or replace function public._card_label(p_hash text)
+returns text
+language sql
+immutable
+as $$
+  select 'GK-' || upper(substr(p_hash, 1, 4)) || '-' || upper(substr(p_hash, 5, 4))
+$$;
+
+create or replace function public._card_json(c public.loyalty_cards)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', c.id,
+    'label', c.card_label,
+    'status', c.status,
+    'firebase_uid', c.firebase_uid,
+    'customer_name', (select full_name from public.customer_profiles where firebase_uid = c.firebase_uid),
+    'issued_at', c.issued_at,
+    'issued_branch', (select name from public.branches where id = c.issued_branch_id),
+    'blocked_at', c.blocked_at,
+    'block_reason', c.block_reason,
+    'replaced_by', c.replaced_by)
+$$;
+
+-- Keeps the label the app shows in step with the active card.
+create or replace function public._sync_profile_card_label(p_uid text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.customer_profiles
+     set rfid_card_number = (select card_label from public.loyalty_cards
+                             where firebase_uid = p_uid and status = 'active')
+   where firebase_uid = p_uid;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Move existing customer_profiles.rfid_card_number values into the registry
+--    (only values that look like a card UID; anything else is left as it was).
+-- -----------------------------------------------------------------------------
+create or replace function public._migrate_legacy_rfid_cards()
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+  v_norm text;
+  v_hash text;
+  v_id uuid;
+  v_n int := 0;
+begin
+  for r in
+    select cp.firebase_uid, cp.rfid_card_number
+    from public.customer_profiles cp
+    where cp.rfid_card_number is not null
+      and cp.firebase_uid <> 'walk-in'
+      and not exists (select 1 from public.loyalty_cards c where c.firebase_uid = cp.firebase_uid)
+  loop
+    v_norm := public._normalize_card_uid(r.rfid_card_number);
+    continue when v_norm is null;
+    v_hash := public._card_uid_hash(v_norm);
+    continue when exists (select 1 from public.loyalty_cards where card_uid_hash = v_hash);
+    insert into public.loyalty_cards (card_uid_hash, card_label, firebase_uid, issued_by)
+    values (v_hash, public._card_label(v_hash), r.firebase_uid, 'migration')
+    returning id into v_id;
+    insert into public.loyalty_card_events (card_id, event, note)
+    values (v_id, 'migrated', 'Moved from customer_profiles.rfid_card_number');
+    perform public._sync_profile_card_label(r.firebase_uid);
+    v_n := v_n + 1;
+  end loop;
+  return v_n;
+end;
+$$;
+select public._migrate_legacy_rfid_cards();
+
+-- -----------------------------------------------------------------------------
+-- 4. Tap at the counter: who owns this card?
+--    {"status": "active", "card": {...}, "customer": {firebase_uid, full_name, points_balance}}
+--    {"status": "blocked" | "replaced", "card": {"label": ...}}   (no customer data)
+--    {"status": "unregistered"}                                 (offer "link to customer")
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_lookup_card(p_card_uid text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_norm text := public._normalize_card_uid(p_card_uid);
+  c public.loyalty_cards;
+begin
+  perform public._require_staff();
+  if v_norm is null then
+    raise exception 'That is not a card number the reader would send (8 to 20 letters A–F / digits).';
+  end if;
+  select * into c from public.loyalty_cards where card_uid_hash = public._card_uid_hash(v_norm);
+  if c.id is null then
+    return jsonb_build_object('status', 'unregistered');
+  end if;
+  if c.status <> 'active' then
+    return jsonb_build_object('status', c.status,
+      'card', jsonb_build_object('id', c.id, 'label', c.card_label, 'blocked_at', c.blocked_at));
+  end if;
+  return jsonb_build_object(
+    'status', 'active',
+    'card', public._card_json(c),
+    'customer', (
+      select jsonb_build_object(
+        'firebase_uid', cp.firebase_uid,
+        'full_name', cp.full_name,
+        'points_balance', coalesce(la.points_balance, 0))
+      from public.customer_profiles cp
+      left join public.loyalty_accounts la on la.firebase_uid = cp.firebase_uid
+      where cp.firebase_uid = c.firebase_uid));
+end;
+$$;
+
+-- The POS "find loyalty customer" box: a tapped card (registry), the printed
+-- label, phone or e-mail — exact matches only, as before. A blocked or replaced
+-- card is refused with a clear message instead of "not found".
+create or replace function public.staff_lookup_customer(p_query text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := trim(coalesce(p_query, ''));
+  v_norm text := public._normalize_card_uid(v_q);
+  c public.loyalty_cards;
+begin
+  perform public._require_staff();
+  if length(v_q) < 4 then raise exception 'Enter at least 4 characters to look up a customer.'; end if;
+
+  if v_norm is not null then
+    select * into c from public.loyalty_cards where card_uid_hash = public._card_uid_hash(v_norm);
+    if c.id is not null and c.status = 'blocked' then
+      raise exception 'Loyalty card % is blocked and cannot be used. Look the customer up by e-mail instead.', c.card_label;
+    elsif c.id is not null and c.status = 'replaced' then
+      raise exception 'Loyalty card % was replaced by a newer card and can no longer be used.', c.card_label;
+    end if;
+  end if;
+
+  return (
+    select coalesce(jsonb_agg(t.j), '[]'::jsonb)
+    from (
+      select jsonb_build_object(
+        'firebase_uid', cp.firebase_uid,
+        'full_name', cp.full_name,
+        'points_balance', coalesce(la.points_balance, 0)) as j
+      from public.customer_profiles cp
+      left join public.loyalty_accounts la on la.firebase_uid = cp.firebase_uid
+      where cp.firebase_uid <> 'walk-in'
+        and (cp.rfid_card_number = v_q
+             or upper(cp.rfid_card_number) = upper(v_q)
+             or cp.phone = v_q
+             or lower(cp.email) = lower(v_q)
+             or (c.id is not null and c.status = 'active' and cp.firebase_uid = c.firebase_uid))
+      limit 5
+    ) t
+  );
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Register a new card to a customer (staff at the counter)
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_register_loyalty_card(
+  p_card_uid text,
+  p_customer_uid text,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_norm text := public._normalize_card_uid(p_card_uid);
+  v_hash text;
+  v_uid text := trim(coalesce(p_customer_uid, ''));
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb;
+  v_prev jsonb;
+  c public.loyalty_cards;
+  v_result jsonb;
+begin
+  v_staff := public._require_staff();
+  if v_norm is null then
+    raise exception 'Tap the card on the reader (the card number was not readable).';
+  end if;
+  v_hash := public._card_uid_hash(v_norm);
+  v_req := jsonb_build_object('h', v_hash, 'u', v_uid);
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'card_register', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if v_uid = '' or v_uid = 'walk-in'
+     or not exists (select 1 from public.customer_profiles where firebase_uid = v_uid) then
+    raise exception 'Find the customer first, then tap the new card.';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('card:' || v_hash, 0));
+  perform pg_advisory_xact_lock(hashtextextended('card-owner:' || v_uid, 0));
+
+  select * into c from public.loyalty_cards where card_uid_hash = v_hash;
+  if c.id is not null then
+    if c.firebase_uid = v_uid and c.status = 'active' then
+      -- Same card, same customer: already done (double tap / retry).
+      v_result := public._card_json(c);
+      perform public._idem_finish(v_staff.firebase_uid, v_key, 'card_register', v_req, v_result);
+      return v_result;
+    elsif c.status = 'active' then
+      raise exception 'This card already belongs to another customer.';
+    elsif c.status = 'blocked' then
+      raise exception 'This card is blocked. Use a new card.';
+    else
+      raise exception 'This card was replaced earlier and cannot be used again. Use a new card.';
+    end if;
+  end if;
+
+  if exists (select 1 from public.loyalty_cards where firebase_uid = v_uid and status = 'active') then
+    raise exception 'This customer already has an active card. Use "Replace card" instead.';
+  end if;
+
+  insert into public.loyalty_cards (card_uid_hash, card_label, firebase_uid, issued_branch_id, issued_by)
+  values (v_hash, public._card_label(v_hash), v_uid, v_staff.branch_id, v_staff.firebase_uid)
+  returning * into c;
+  insert into public.loyalty_card_events (card_id, event, staff_uid, branch_id)
+  values (c.id, 'registered', v_staff.firebase_uid, v_staff.branch_id);
+  perform public._sync_profile_card_label(v_uid);
+  perform public.notify_customer(v_uid, 'loyalty', 'Loyalty card linked',
+    'Your Golden Kernel Club card ' || c.card_label || ' is now linked to your account.');
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id, 'loyalty.card_register', 'loyalty_card',
+    c.id::text, jsonb_build_object('label', c.card_label, 'customer', v_uid));
+
+  v_result := public._card_json(c);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'card_register', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Replace (lost / damaged): the old card stops working, the points stay.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_replace_loyalty_card(
+  p_customer_uid text,
+  p_new_card_uid text,
+  p_reason text,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_norm text := public._normalize_card_uid(p_new_card_uid);
+  v_hash text;
+  v_uid text := trim(coalesce(p_customer_uid, ''));
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb;
+  v_prev jsonb;
+  v_old public.loyalty_cards;
+  c public.loyalty_cards;
+  v_result jsonb;
+begin
+  v_staff := public._require_staff();
+  if v_norm is null then
+    raise exception 'Tap the new card on the reader (the card number was not readable).';
+  end if;
+  if char_length(v_reason) < 3 or char_length(v_reason) > 200 then
+    raise exception 'Give a reason for the replacement (3 to 200 characters), e.g. "lost".';
+  end if;
+  v_hash := public._card_uid_hash(v_norm);
+  v_req := jsonb_build_object('h', v_hash, 'u', v_uid, 'r', v_reason);
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'card_replace', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('card:' || v_hash, 0));
+  perform pg_advisory_xact_lock(hashtextextended('card-owner:' || v_uid, 0));
+
+  -- The card being replaced: the active one, else the most recently blocked one.
+  select * into v_old from public.loyalty_cards
+  where firebase_uid = v_uid and status in ('active', 'blocked')
+  order by (status = 'active') desc, issued_at desc
+  limit 1
+  for update;
+  if v_old.id is null then
+    raise exception 'This customer has no card to replace. Use "Register card" instead.';
+  end if;
+
+  select * into c from public.loyalty_cards where card_uid_hash = v_hash;
+  if c.id is not null then
+    if c.id = v_old.id then raise exception 'That is the same card. Tap the NEW card.'; end if;
+    raise exception 'This card is already registered. Use a new, unused card.';
+  end if;
+
+  update public.loyalty_cards
+     set status = 'replaced', updated_at = now(),
+         blocked_at = coalesce(blocked_at, now()),
+         block_reason = coalesce(block_reason, v_reason)
+   where id = v_old.id;
+
+  insert into public.loyalty_cards (card_uid_hash, card_label, firebase_uid, issued_branch_id, issued_by)
+  values (v_hash, public._card_label(v_hash), v_uid, v_staff.branch_id, v_staff.firebase_uid)
+  returning * into c;
+  update public.loyalty_cards set replaced_by = c.id where id = v_old.id;
+
+  insert into public.loyalty_card_events (card_id, event, staff_uid, branch_id, note) values
+    (v_old.id, 'replaced', v_staff.firebase_uid, v_staff.branch_id, v_reason || ' → ' || c.card_label),
+    (c.id, 'registered', v_staff.firebase_uid, v_staff.branch_id, 'Replaces ' || v_old.card_label);
+  perform public._sync_profile_card_label(v_uid);
+  perform public.notify_customer(v_uid, 'loyalty', 'Loyalty card replaced',
+    'Your old card ' || v_old.card_label || ' no longer works. Your new card is ' || c.card_label
+    || '. Your points were kept.');
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id, 'loyalty.card_replace', 'loyalty_card',
+    c.id::text, jsonb_build_object('old', v_old.card_label, 'new', c.card_label, 'customer', v_uid, 'reason', v_reason));
+
+  v_result := public._card_json(c);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'card_replace', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Block (any active staff: a customer reports a lost card) /
+--    unblock (owner only: the card was found again).
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_block_loyalty_card(p_card_id uuid, p_reason text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_reason text := trim(coalesce(p_reason, ''));
+  c public.loyalty_cards;
+begin
+  v_staff := public._require_staff();
+  if char_length(v_reason) < 3 or char_length(v_reason) > 200 then
+    raise exception 'Give a reason for blocking (3 to 200 characters), e.g. "reported lost".';
+  end if;
+  select * into c from public.loyalty_cards where id = p_card_id for update;
+  if c.id is null then raise exception 'That card could not be found.'; end if;
+  if c.status = 'blocked' then return public._card_json(c); end if;      -- already done
+  if c.status = 'replaced' then raise exception 'This card was already replaced; it no longer works.'; end if;
+
+  update public.loyalty_cards
+     set status = 'blocked', blocked_at = now(), block_reason = v_reason, updated_at = now()
+   where id = c.id
+  returning * into c;
+  insert into public.loyalty_card_events (card_id, event, staff_uid, branch_id, note)
+  values (c.id, 'blocked', v_staff.firebase_uid, v_staff.branch_id, v_reason);
+  perform public._sync_profile_card_label(c.firebase_uid);
+  perform public.notify_customer(c.firebase_uid, 'loyalty', 'Loyalty card blocked',
+    'Your card ' || c.card_label || ' was blocked (' || v_reason || '). Your points are safe. '
+    || 'Visit any branch for a replacement card.');
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id, 'loyalty.card_block', 'loyalty_card',
+    c.id::text, jsonb_build_object('label', c.card_label, 'customer', c.firebase_uid, 'reason', v_reason));
+  return public._card_json(c);
+end;
+$$;
+
+create or replace function public.owner_unblock_loyalty_card(p_card_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner public.staff_members;
+  c public.loyalty_cards;
+begin
+  v_owner := public._require_owner();
+  select * into c from public.loyalty_cards where id = p_card_id for update;
+  if c.id is null then raise exception 'That card could not be found.'; end if;
+  if c.status = 'active' then return public._card_json(c); end if;
+  if c.status = 'replaced' then raise exception 'A replaced card cannot be turned back on.'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('card-owner:' || c.firebase_uid, 0));
+  if exists (select 1 from public.loyalty_cards where firebase_uid = c.firebase_uid and status = 'active') then
+    raise exception 'This customer already has another active card.';
+  end if;
+
+  update public.loyalty_cards
+     set status = 'active', blocked_at = null, block_reason = null, updated_at = now()
+   where id = c.id
+  returning * into c;
+  insert into public.loyalty_card_events (card_id, event, staff_uid, branch_id)
+  values (c.id, 'unblocked', v_owner.firebase_uid, v_owner.branch_id);
+  perform public._sync_profile_card_label(c.firebase_uid);
+  perform public.notify_customer(c.firebase_uid, 'loyalty', 'Loyalty card active again',
+    'Your card ' || c.card_label || ' works again.');
+  perform public._write_audit(v_owner.firebase_uid, null, 'loyalty.card_unblock', 'loyalty_card',
+    c.id::text, jsonb_build_object('label', c.card_label, 'customer', c.firebase_uid));
+  return public._card_json(c);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 8. Reads
+-- -----------------------------------------------------------------------------
+-- A customer's cards with history (staff who already found that customer).
+create or replace function public.staff_customer_cards(p_customer_uid text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_staff();
+  return coalesce((
+    select jsonb_agg(public._card_json(c) || jsonb_build_object('events', (
+             select coalesce(jsonb_agg(jsonb_build_object(
+                      'event', e.event, 'note', e.note, 'at', e.created_at,
+                      'by', coalesce(sm.full_name, e.staff_uid),
+                      'branch', b.name) order by e.created_at, e.id), '[]'::jsonb)
+             from public.loyalty_card_events e
+             left join public.staff_members sm on sm.firebase_uid = e.staff_uid
+             left join public.branches b on b.id = e.branch_id
+             where e.card_id = c.id))
+           order by (c.status = 'active') desc, c.issued_at desc)
+    from public.loyalty_cards c
+    where c.firebase_uid = p_customer_uid), '[]'::jsonb);
+end;
+$$;
+
+-- Every card (owner only: it is a customer list).
+create or replace function public.owner_list_loyalty_cards(
+  p_query text default null,
+  p_status text default null,
+  p_limit int default 200
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := lower(trim(coalesce(p_query, '')));
+begin
+  perform public._require_owner();
+  return jsonb_build_object(
+    'counts', (select jsonb_build_object(
+                 'active', count(*) filter (where status = 'active'),
+                 'blocked', count(*) filter (where status = 'blocked'),
+                 'replaced', count(*) filter (where status = 'replaced'))
+               from public.loyalty_cards),
+    'cards', coalesce((
+      select jsonb_agg(public._card_json(c) || jsonb_build_object(
+               'points_balance', coalesce(la.points_balance, 0),
+               'phone', cp.phone, 'email', cp.email) order by c.issued_at desc)
+      from (select * from public.loyalty_cards c0
+            where (p_status is null or p_status = '' or c0.status = p_status)
+            order by c0.issued_at desc) c
+      join public.customer_profiles cp on cp.firebase_uid = c.firebase_uid
+      left join public.loyalty_accounts la on la.firebase_uid = c.firebase_uid
+      where v_q = ''
+         or lower(c.card_label) like '%' || v_q || '%'
+         or lower(coalesce(cp.full_name, '')) like '%' || v_q || '%'
+         or lower(coalesce(cp.email, '')) like '%' || v_q || '%'
+         or coalesce(cp.phone, '') like '%' || v_q || '%'
+      limit greatest(1, least(coalesce(p_limit, 200), 500))), '[]'::jsonb));
+end;
+$$;
+
+-- The customer's own card (label + status) for the app.
+create or replace function public.get_my_loyalty_card()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select (
+    select jsonb_build_object('label', c.card_label, 'status', c.status, 'issued_at', c.issued_at,
+                              'blocked_at', c.blocked_at)
+    from public.loyalty_cards c
+    where c.firebase_uid = public.current_firebase_uid()
+    order by (c.status = 'active') desc, c.issued_at desc
+    limit 1)
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 9. Grants
+-- -----------------------------------------------------------------------------
+revoke all on function public._trg_loyalty_card_events_append_only() from public, anon, authenticated;
+revoke all on function public._card_json(public.loyalty_cards) from public, anon, authenticated;
+revoke all on function public._sync_profile_card_label(text) from public, anon, authenticated;
+revoke all on function public._migrate_legacy_rfid_cards() from public, anon, authenticated;
+
+revoke all on function public.staff_lookup_card(text) from public, anon;
+revoke all on function public.staff_lookup_customer(text) from public, anon;
+revoke all on function public.staff_register_loyalty_card(text, text, text) from public, anon;
+revoke all on function public.staff_replace_loyalty_card(text, text, text, text) from public, anon;
+revoke all on function public.staff_block_loyalty_card(uuid, text) from public, anon;
+revoke all on function public.owner_unblock_loyalty_card(uuid) from public, anon;
+revoke all on function public.staff_customer_cards(text) from public, anon;
+revoke all on function public.owner_list_loyalty_cards(text, text, int) from public, anon;
+revoke all on function public.get_my_loyalty_card() from public, anon;
+
+grant execute on function public.staff_lookup_card(text) to authenticated;
+grant execute on function public.staff_lookup_customer(text) to authenticated;
+grant execute on function public.staff_register_loyalty_card(text, text, text) to authenticated;
+grant execute on function public.staff_replace_loyalty_card(text, text, text, text) to authenticated;
+grant execute on function public.staff_block_loyalty_card(uuid, text) to authenticated;
+grant execute on function public.owner_unblock_loyalty_card(uuid) to authenticated;
+grant execute on function public.staff_customer_cards(text) to authenticated;
+grant execute on function public.owner_list_loyalty_cards(text, text, int) to authenticated;
+grant execute on function public.get_my_loyalty_card() to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261011010000_suppliers_purchase_receipts.sql <<<<<<<<<<
+-- =============================================================================
+-- Suppliers, purchase receipts (supplier invoices) and the OCR review flow
+-- =============================================================================
+-- Run after 20261011000000_loyalty_cards.sql. Idempotent and additive.
+--
+-- The flow
+--   1. Staff photograph a supplier invoice in the admin website. OCR (Tesseract)
+--      turns the photo into text and the website pre-fills a DRAFT receipt:
+--      supplier, invoice number/date, and one line per item it could read.
+--   2. A person checks every line against the paper: product, quantity, unit cost,
+--      batch code, expiry. OCR text is never trusted on its own.
+--   3. Only "Approve" posts stock. Each line becomes a FEFO batch through the
+--      existing staff_receive_batch (same rules, same stock movements), the
+--      variant's cost price is updated to the latest purchase cost, and the
+--      receipt is locked. The same supplier invoice cannot be approved twice.
+--
+-- Who
+--   suppliers: any active staff can read; owner or staff with inventory
+--   permission can add / edit. Receipts: owner, or staff with inventory permission
+--   in their own branch.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 1. Tables
+-- -----------------------------------------------------------------------------
+create table if not exists public.suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(trim(name)) between 2 and 120),
+  contact_person text,
+  phone text,
+  email text,
+  address text,
+  tin text,
+  is_active boolean not null default true,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists suppliers_name_key on public.suppliers (lower(trim(name)));
+
+create sequence if not exists public.purchase_receipt_code_seq;
+
+create table if not exists public.purchase_receipts (
+  id uuid primary key default gen_random_uuid(),
+  receipt_code text not null unique default ('PR-' || lpad(nextval('public.purchase_receipt_code_seq')::text, 6, '0')),
+  branch_id uuid not null references public.branches(id) on delete restrict,
+  supplier_id uuid references public.suppliers(id) on delete restrict,
+  supplier_invoice_no text,
+  invoice_date date,
+  status text not null default 'draft' check (status in ('draft', 'approved', 'cancelled')),
+  source text not null default 'manual' check (source in ('manual', 'ocr')),
+  ocr_text text check (ocr_text is null or char_length(ocr_text) <= 20000),
+  ocr_confidence numeric(5, 2) check (ocr_confidence is null or ocr_confidence between 0 and 100),
+  document_path text,
+  notes text,
+  invoice_total numeric(12, 2) check (invoice_total is null or invoice_total >= 0),
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  approved_by text,
+  approved_at timestamptz,
+  cancelled_by text,
+  cancelled_at timestamptz,
+  cancel_reason text
+);
+create index if not exists purchase_receipts_branch_idx on public.purchase_receipts (branch_id, created_at desc);
+-- The same supplier invoice can be posted to stock only once.
+create unique index if not exists purchase_receipts_invoice_once
+  on public.purchase_receipts (supplier_id, lower(trim(supplier_invoice_no)))
+  where (status = 'approved' and supplier_id is not null and supplier_invoice_no is not null);
+
+create table if not exists public.purchase_receipt_lines (
+  id uuid primary key default gen_random_uuid(),
+  receipt_id uuid not null references public.purchase_receipts(id) on delete cascade,
+  line_no int not null check (line_no between 1 and 200),
+  raw_text text check (raw_text is null or char_length(raw_text) <= 500),
+  description text check (description is null or char_length(description) <= 200),
+  variant_id uuid references public.product_variants(id) on delete restrict,
+  quantity int check (quantity is null or quantity between 1 and 100000),
+  unit_cost numeric(10, 2) check (unit_cost is null or unit_cost between 0 and 1000000),
+  batch_code text check (batch_code is null or char_length(trim(batch_code)) between 1 and 40),
+  expiration_date date,
+  batch_id uuid references public.inventory_batches(id) on delete set null,
+  unique (receipt_id, line_no)
+);
+
+alter table public.suppliers enable row level security;
+alter table public.purchase_receipts enable row level security;
+alter table public.purchase_receipt_lines enable row level security;
+revoke all on public.suppliers, public.purchase_receipts, public.purchase_receipt_lines from anon, authenticated;
+
+-- An approved or cancelled receipt is a record: its lines cannot change.
+create or replace function public._trg_purchase_lines_locked()
+returns trigger language plpgsql as $$
+declare
+  v_status text;
+begin
+  select status into v_status from public.purchase_receipts
+  where id = coalesce(new.receipt_id, old.receipt_id);
+  if v_status is distinct from 'draft' then
+    raise exception 'This receipt is % and can no longer be changed.', v_status;
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+drop trigger if exists purchase_receipt_lines_locked on public.purchase_receipt_lines;
+create trigger purchase_receipt_lines_locked
+  before insert or update or delete on public.purchase_receipt_lines
+  for each row execute function public._trg_purchase_lines_locked();
+
+-- -----------------------------------------------------------------------------
+-- 2. Helpers
+-- -----------------------------------------------------------------------------
+-- Owner, or active staff with the inventory permission (in their branch when given).
+create or replace function public._require_inventory_staff(p_branch_id uuid default null)
+returns public.staff_members
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  return public._require_staff(p_branch_id, 'inventory');
+end;
+$$;
+
+create or replace function public._receipt_json(p_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', r.id, 'receipt_code', r.receipt_code, 'status', r.status, 'source', r.source,
+    'branch_id', r.branch_id, 'branch_name', b.name,
+    'supplier_id', r.supplier_id, 'supplier_name', s.name,
+    'supplier_invoice_no', r.supplier_invoice_no, 'invoice_date', r.invoice_date,
+    'invoice_total', r.invoice_total,
+    'ocr_text', r.ocr_text, 'ocr_confidence', r.ocr_confidence, 'document_path', r.document_path,
+    'notes', r.notes,
+    'created_by', coalesce(cb.full_name, r.created_by), 'created_at', r.created_at,
+    'approved_by', coalesce(ab.full_name, r.approved_by), 'approved_at', r.approved_at,
+    'cancelled_at', r.cancelled_at, 'cancel_reason', r.cancel_reason,
+    'lines_total', (select coalesce(sum(l.quantity * l.unit_cost), 0) from public.purchase_receipt_lines l where l.receipt_id = r.id),
+    'lines', (select coalesce(jsonb_agg(jsonb_build_object(
+                'id', l.id, 'line_no', l.line_no, 'raw_text', l.raw_text, 'description', l.description,
+                'variant_id', l.variant_id,
+                'variant_name', case when pv.id is null then null
+                                     else p.name || case when pv.label in ('', 'Regular') then '' else ' · ' || pv.label end end,
+                'quantity', l.quantity, 'unit_cost', l.unit_cost,
+                'line_total', l.quantity * l.unit_cost,
+                'batch_code', l.batch_code, 'expiration_date', l.expiration_date, 'batch_id', l.batch_id)
+              order by l.line_no), '[]'::jsonb)
+              from public.purchase_receipt_lines l
+              left join public.product_variants pv on pv.id = l.variant_id
+              left join public.products p on p.id = pv.product_id
+              where l.receipt_id = r.id))
+  from public.purchase_receipts r
+  join public.branches b on b.id = r.branch_id
+  left join public.suppliers s on s.id = r.supplier_id
+  left join public.staff_members cb on cb.firebase_uid = r.created_by
+  left join public.staff_members ab on ab.firebase_uid = r.approved_by
+  where r.id = p_id
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 3. Suppliers
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_list_suppliers(p_include_inactive boolean default false)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_staff();
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', s.id, 'name', s.name, 'contact_person', s.contact_person, 'phone', s.phone,
+             'email', s.email, 'address', s.address, 'tin', s.tin, 'is_active', s.is_active,
+             'receipts', (select count(*) from public.purchase_receipts r where r.supplier_id = s.id and r.status = 'approved'))
+           order by s.is_active desc, lower(s.name))
+    from public.suppliers s
+    where s.is_active or coalesce(p_include_inactive, false)), '[]'::jsonb);
+end;
+$$;
+
+create or replace function public.staff_save_supplier(
+  p_id uuid,
+  p_name text,
+  p_contact_person text default null,
+  p_phone text default null,
+  p_email text default null,
+  p_address text default null,
+  p_tin text default null,
+  p_is_active boolean default true
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_name text := regexp_replace(trim(coalesce(p_name, '')), '\s+', ' ', 'g');
+  v_id uuid;
+begin
+  v_staff := public._require_inventory_staff();
+  if char_length(v_name) < 2 or char_length(v_name) > 120 then
+    raise exception 'Enter the supplier name (2 to 120 characters).';
+  end if;
+  if p_email is not null and trim(p_email) <> '' and trim(p_email) !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception 'That e-mail address does not look right.';
+  end if;
+  begin
+    if p_id is null then
+      insert into public.suppliers (name, contact_person, phone, email, address, tin, is_active, created_by)
+      values (v_name, nullif(trim(p_contact_person), ''), nullif(trim(p_phone), ''), nullif(lower(trim(p_email)), ''),
+              nullif(trim(p_address), ''), nullif(trim(p_tin), ''), coalesce(p_is_active, true), v_staff.firebase_uid)
+      returning id into v_id;
+    else
+      update public.suppliers
+         set name = v_name, contact_person = nullif(trim(p_contact_person), ''), phone = nullif(trim(p_phone), ''),
+             email = nullif(lower(trim(p_email)), ''), address = nullif(trim(p_address), ''),
+             tin = nullif(trim(p_tin), ''), is_active = coalesce(p_is_active, true), updated_at = now()
+       where id = p_id
+      returning id into v_id;
+      if v_id is null then raise exception 'That supplier could not be found.'; end if;
+    end if;
+  exception when unique_violation then
+    raise exception 'A supplier named "%" already exists.', v_name;
+  end;
+  perform public._write_audit(v_staff.firebase_uid, v_staff.branch_id,
+    case when p_id is null then 'supplier.create' else 'supplier.update' end, 'supplier', v_id::text,
+    jsonb_build_object('name', v_name, 'is_active', coalesce(p_is_active, true)));
+  return v_id;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 4. Draft receipts (manual or pre-filled by OCR)
+--    p_lines: [{"raw_text": "...", "description": "...", "variant_id": "<uuid>|null",
+--               "quantity": 10, "unit_cost": 85.5, "batch_code": "...", "expiration_date": "2027-03-01"}]
+--    Every field except the line itself may be missing in a draft.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_save_purchase_receipt(
+  p_receipt_id uuid,
+  p_branch_id uuid,
+  p_supplier_id uuid,
+  p_supplier_invoice_no text,
+  p_invoice_date date,
+  p_lines jsonb,
+  p_source text default 'manual',
+  p_ocr_text text default null,
+  p_ocr_confidence numeric default null,
+  p_document_path text default null,
+  p_notes text default null,
+  p_invoice_total numeric default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  r public.purchase_receipts;
+  v_id uuid := p_receipt_id;
+  v_line jsonb;
+  v_no int := 0;
+  v_variant uuid;
+  v_qty int;
+  v_cost numeric;
+  v_exp date;
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+begin
+  v_staff := public._require_inventory_staff(p_branch_id);
+  if p_branch_id is null or not exists (select 1 from public.branches where id = p_branch_id) then
+    raise exception 'Choose the branch that received the goods.';
+  end if;
+  if p_supplier_id is not null and not exists (select 1 from public.suppliers where id = p_supplier_id) then
+    raise exception 'That supplier could not be found.';
+  end if;
+  if p_invoice_date is not null and (p_invoice_date > v_today or p_invoice_date < v_today - 730) then
+    raise exception 'The invoice date must be within the last two years and not in the future.';
+  end if;
+  if p_lines is null or jsonb_typeof(p_lines) <> 'array' then
+    raise exception 'The receipt lines are missing.';
+  end if;
+  if jsonb_array_length(p_lines) > 200 then raise exception 'A receipt can have at most 200 lines.'; end if;
+  if coalesce(p_source, 'manual') not in ('manual', 'ocr') then raise exception 'Unknown receipt source.'; end if;
+
+  if v_id is not null then
+    select * into r from public.purchase_receipts where id = v_id for update;
+    if r.id is null then raise exception 'That receipt could not be found.'; end if;
+    perform public._require_inventory_staff(r.branch_id);
+    if r.status <> 'draft' then raise exception 'This receipt is % and can no longer be changed.', r.status; end if;
+    update public.purchase_receipts
+       set branch_id = p_branch_id, supplier_id = p_supplier_id,
+           supplier_invoice_no = nullif(trim(p_supplier_invoice_no), ''), invoice_date = p_invoice_date,
+           notes = nullif(trim(p_notes), ''), invoice_total = p_invoice_total, updated_at = now(),
+           -- keep the OCR evidence of the first scan unless a new scan is sent
+           ocr_text = coalesce(p_ocr_text, ocr_text), ocr_confidence = coalesce(p_ocr_confidence, ocr_confidence),
+           document_path = coalesce(p_document_path, document_path),
+           source = case when p_ocr_text is not null then 'ocr' else source end
+     where id = v_id;
+    delete from public.purchase_receipt_lines where receipt_id = v_id;
+  else
+    insert into public.purchase_receipts (branch_id, supplier_id, supplier_invoice_no, invoice_date, status, source,
+                                          ocr_text, ocr_confidence, document_path, notes, invoice_total, created_by)
+    values (p_branch_id, p_supplier_id, nullif(trim(p_supplier_invoice_no), ''), p_invoice_date, 'draft',
+            coalesce(p_source, 'manual'), left(p_ocr_text, 20000), p_ocr_confidence, p_document_path,
+            nullif(trim(p_notes), ''), p_invoice_total, v_staff.firebase_uid)
+    returning id into v_id;
+  end if;
+
+  for v_line in select * from jsonb_array_elements(p_lines)
+  loop
+    -- Blank rows from the form are skipped.
+    continue when coalesce(nullif(trim(v_line ->> 'description'), ''), nullif(trim(v_line ->> 'raw_text'), ''),
+                           nullif(v_line ->> 'variant_id', '')) is null;
+    v_no := v_no + 1;
+    v_variant := nullif(v_line ->> 'variant_id', '')::uuid;
+    if v_variant is not null and not exists (select 1 from public.product_variants where id = v_variant) then
+      raise exception 'Line %: that product could not be found.', v_no;
+    end if;
+    begin
+      v_qty := nullif(v_line ->> 'quantity', '')::numeric::int;
+      v_cost := round(nullif(v_line ->> 'unit_cost', '')::numeric, 2);
+      v_exp := nullif(v_line ->> 'expiration_date', '')::date;
+    exception when others then
+      raise exception 'Line %: quantity, unit cost or expiry date is not a valid value.', v_no;
+    end;
+    if v_qty is not null and (v_qty < 1 or v_qty > 100000) then
+      raise exception 'Line %: quantity must be between 1 and 100000.', v_no;
+    end if;
+    if v_cost is not null and (v_cost < 0 or v_cost > 1000000) then
+      raise exception 'Line %: unit cost must be 0 or more.', v_no;
+    end if;
+    insert into public.purchase_receipt_lines
+      (receipt_id, line_no, raw_text, description, variant_id, quantity, unit_cost, batch_code, expiration_date)
+    values (v_id, v_no, left(v_line ->> 'raw_text', 500), left(nullif(trim(v_line ->> 'description'), ''), 200),
+            v_variant, v_qty, v_cost, left(nullif(trim(v_line ->> 'batch_code'), ''), 40), v_exp);
+  end loop;
+
+  perform public._write_audit(v_staff.firebase_uid, p_branch_id,
+    case when p_receipt_id is null then 'purchase_receipt.draft_create' else 'purchase_receipt.draft_update' end,
+    'purchase_receipt', v_id::text,
+    jsonb_build_object('source', coalesce(p_source, 'manual'), 'lines', v_no, 'invoice_no', p_supplier_invoice_no));
+  return public._receipt_json(v_id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5. Approve: every line must be complete; then stock is posted once.
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_approve_purchase_receipt(
+  p_receipt_id uuid,
+  p_idempotency_key text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  r public.purchase_receipts;
+  l public.purchase_receipt_lines;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_req jsonb := jsonb_build_object('r', p_receipt_id);
+  v_prev jsonb;
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+  v_batch uuid;
+  v_code text;
+  v_count int;
+  v_result jsonb;
+begin
+  select * into r from public.purchase_receipts where id = p_receipt_id for update;
+  if r.id is null then raise exception 'That receipt could not be found.'; end if;
+  v_staff := public._require_inventory_staff(r.branch_id);
+  v_prev := public._idem_begin(v_staff.firebase_uid, v_key, 'receipt_approve', v_req);
+  if v_prev is not null then return v_prev; end if;
+
+  if r.status = 'approved' then
+    raise exception 'This receipt was already approved (stock was posted once).';
+  elsif r.status = 'cancelled' then
+    raise exception 'This receipt was cancelled.';
+  end if;
+  if r.supplier_id is null then raise exception 'Choose the supplier before approving.'; end if;
+  if r.supplier_invoice_no is null then raise exception 'Enter the supplier''s invoice number before approving.'; end if;
+  if exists (select 1 from public.purchase_receipts x
+             where x.status = 'approved' and x.supplier_id = r.supplier_id
+               and lower(trim(x.supplier_invoice_no)) = lower(trim(r.supplier_invoice_no))) then
+    raise exception 'Invoice % from this supplier was already received. It cannot be posted twice.', r.supplier_invoice_no;
+  end if;
+
+  select count(*) into v_count from public.purchase_receipt_lines where receipt_id = r.id;
+  if v_count = 0 then raise exception 'Add at least one line before approving.'; end if;
+  for l in select * from public.purchase_receipt_lines where receipt_id = r.id order by line_no loop
+    if l.variant_id is null then raise exception 'Line %: choose the product.', l.line_no; end if;
+    if l.quantity is null then raise exception 'Line %: enter the quantity.', l.line_no; end if;
+    if l.unit_cost is null then raise exception 'Line %: enter the unit cost.', l.line_no; end if;
+    if l.expiration_date is null or l.expiration_date <= v_today then
+      raise exception 'Line %: enter an expiry date in the future.', l.line_no;
+    end if;
+  end loop;
+  if exists (select variant_id, coalesce(batch_code, '') from public.purchase_receipt_lines
+             where receipt_id = r.id group by 1, 2 having count(*) > 1) then
+    raise exception 'The same product appears twice with the same batch code. Merge the lines or give them different batch codes.';
+  end if;
+
+  for l in select * from public.purchase_receipt_lines where receipt_id = r.id order by line_no loop
+    v_code := coalesce(l.batch_code, r.receipt_code || '-' || l.line_no);
+    v_batch := public.staff_receive_batch(r.branch_id, l.variant_id, v_code, l.quantity, l.expiration_date,
+                                          coalesce(least(r.invoice_date, v_today), v_today));
+    update public.purchase_receipt_lines set batch_id = v_batch, batch_code = v_code where id = l.id;
+    update public.stock_movements
+       set reference = r.receipt_code, reason = 'Received on ' || r.receipt_code || ' (invoice ' || r.supplier_invoice_no || ')'
+     where batch_id = v_batch and movement_type = 'receive';
+    insert into public.product_variant_costs (variant_id, cost_price, updated_at)
+    values (l.variant_id, l.unit_cost, now())
+    on conflict (variant_id) do update set cost_price = excluded.cost_price, updated_at = now();
+  end loop;
+
+  -- Lines are filled in above while the receipt is still a draft; from here on
+  -- the lock trigger refuses any change to them.
+  update public.purchase_receipts
+     set status = 'approved', approved_by = v_staff.firebase_uid, approved_at = now(), updated_at = now()
+   where id = r.id;
+
+  perform public._write_audit(v_staff.firebase_uid, r.branch_id, 'purchase_receipt.approve', 'purchase_receipt', r.id::text,
+    jsonb_build_object('receipt_code', r.receipt_code, 'invoice_no', r.supplier_invoice_no, 'lines', v_count,
+                       'total', (select sum(quantity * unit_cost) from public.purchase_receipt_lines where receipt_id = r.id)));
+  v_result := public._receipt_json(r.id);
+  perform public._idem_finish(v_staff.firebase_uid, v_key, 'receipt_approve', v_req, v_result);
+  return v_result;
+end;
+$$;
+
+create or replace function public.staff_cancel_purchase_receipt(p_receipt_id uuid, p_reason text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  r public.purchase_receipts;
+  v_reason text := trim(coalesce(p_reason, ''));
+begin
+  select * into r from public.purchase_receipts where id = p_receipt_id for update;
+  if r.id is null then raise exception 'That receipt could not be found.'; end if;
+  v_staff := public._require_inventory_staff(r.branch_id);
+  if r.status = 'cancelled' then return public._receipt_json(r.id); end if;
+  if r.status = 'approved' then
+    raise exception 'An approved receipt cannot be cancelled. Correct the stock with an inventory adjustment.';
+  end if;
+  if char_length(v_reason) < 3 or char_length(v_reason) > 200 then
+    raise exception 'Give a reason for cancelling (3 to 200 characters).';
+  end if;
+  update public.purchase_receipts
+     set status = 'cancelled', cancelled_by = v_staff.firebase_uid, cancelled_at = now(),
+         cancel_reason = v_reason, updated_at = now()
+   where id = r.id;
+  perform public._write_audit(v_staff.firebase_uid, r.branch_id, 'purchase_receipt.cancel', 'purchase_receipt', r.id::text,
+    jsonb_build_object('receipt_code', r.receipt_code, 'reason', v_reason));
+  return public._receipt_json(r.id);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 6. Reads
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_get_purchase_receipt(p_receipt_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_branch uuid;
+begin
+  select branch_id into v_branch from public.purchase_receipts where id = p_receipt_id;
+  if v_branch is null then raise exception 'That receipt could not be found.'; end if;
+  perform public._require_inventory_staff(v_branch);
+  return public._receipt_json(p_receipt_id);
+end;
+$$;
+
+create or replace function public.staff_list_purchase_receipts(
+  p_branch_id uuid default null,
+  p_status text default null,
+  p_limit int default 100
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+begin
+  v_staff := public._require_inventory_staff(p_branch_id);
+  if p_branch_id is null and v_staff.role <> 'owner' then
+    raise exception 'Choose your branch.';
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', r.id, 'receipt_code', r.receipt_code, 'status', r.status, 'source', r.source,
+             'branch_name', b.name, 'supplier_name', s.name, 'supplier_invoice_no', r.supplier_invoice_no,
+             'invoice_date', r.invoice_date, 'created_at', r.created_at, 'approved_at', r.approved_at,
+             'lines', (select count(*) from public.purchase_receipt_lines l where l.receipt_id = r.id),
+             'total', (select coalesce(sum(l.quantity * l.unit_cost), 0) from public.purchase_receipt_lines l where l.receipt_id = r.id))
+           order by r.created_at desc)
+    from (select * from public.purchase_receipts r0
+          where (p_branch_id is null or r0.branch_id = p_branch_id)
+            and (p_status is null or p_status = '' or r0.status = p_status)
+          order by r0.created_at desc
+          limit greatest(1, least(coalesce(p_limit, 100), 500))) r
+    join public.branches b on b.id = r.branch_id
+    left join public.suppliers s on s.id = r.supplier_id), '[]'::jsonb);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7. Grants
+-- -----------------------------------------------------------------------------
+revoke all on function public._trg_purchase_lines_locked() from public, anon, authenticated;
+revoke all on function public._require_inventory_staff(uuid) from public, anon, authenticated;
+revoke all on function public._receipt_json(uuid) from public, anon, authenticated;
+
+revoke all on function public.staff_list_suppliers(boolean) from public, anon;
+revoke all on function public.staff_save_supplier(uuid, text, text, text, text, text, text, boolean) from public, anon;
+revoke all on function public.staff_save_purchase_receipt(uuid, uuid, uuid, text, date, jsonb, text, text, numeric, text, text, numeric) from public, anon;
+revoke all on function public.staff_approve_purchase_receipt(uuid, text) from public, anon;
+revoke all on function public.staff_cancel_purchase_receipt(uuid, text) from public, anon;
+revoke all on function public.staff_get_purchase_receipt(uuid) from public, anon;
+revoke all on function public.staff_list_purchase_receipts(uuid, text, int) from public, anon;
+
+grant execute on function public.staff_list_suppliers(boolean) to authenticated;
+grant execute on function public.staff_save_supplier(uuid, text, text, text, text, text, text, boolean) to authenticated;
+grant execute on function public.staff_save_purchase_receipt(uuid, uuid, uuid, text, date, jsonb, text, text, numeric, text, text, numeric) to authenticated;
+grant execute on function public.staff_approve_purchase_receipt(uuid, text) to authenticated;
+grant execute on function public.staff_cancel_purchase_receipt(uuid, text) to authenticated;
+grant execute on function public.staff_get_purchase_receipt(uuid) to authenticated;
+grant execute on function public.staff_list_purchase_receipts(uuid, text, int) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261011020000_hitpay_refunds.sql <<<<<<<<<<
+-- =============================================================================
+-- Online (GCash / Maya / card) refunds sent through the HitPay Refund API
+-- =============================================================================
+-- Run after 20261011010000_suppliers_purchase_receipts.sql. Idempotent, additive.
+--
+-- Before: an approved online refund was sent by hand in the HitPay dashboard and
+-- then marked completed with the reference. That still works. Now the admin
+-- website (Laravel) or the hitpay-refund Edge Function (staff app) can send it:
+--
+--   1. staff_begin_gateway_refund(refund)   -> an attempt row in 'sending'
+--      (refund must be approved, payment must be a successful HitPay payment,
+--       and no other attempt may be sending / pending / succeeded: the unique
+--       index makes a double refund impossible even with two clicks at once)
+--   2. the server calls HitPay  POST /v1/refund {payment_id, amount}
+--   3. staff_finish_gateway_refund(attempt, 'succeeded' | 'pending' | 'failed', ...)
+--        succeeded -> the refund is completed through staff_review_refund (stock,
+--                     points, payment 'refunded', customer notification: the
+--                     existing triggers)
+--        pending   -> HitPay accepted it but has not finished (e-wallets); check
+--                     again later with the refund id
+--        failed    -> attempt closed with the error; the refund stays approved so
+--                     it can be retried or done by hand
+--   If the server never hears back (timeout), the attempt stays 'sending' and
+--   blocks automatic retries. Check the HitPay dashboard, then either mark the
+--   refund completed by hand (existing flow) or mark the attempt failed.
+-- =============================================================================
+
+begin;
+
+create table if not exists public.refund_gateway_attempts (
+  id uuid primary key default gen_random_uuid(),
+  refund_id text not null references public.refund_requests(id) on delete cascade,
+  order_id text not null,
+  gateway text not null default 'hitpay',
+  gateway_payment_id text not null,
+  amount numeric(10, 2) not null check (amount > 0),
+  status text not null default 'sending' check (status in ('sending', 'pending', 'succeeded', 'failed')),
+  gateway_refund_id text,
+  error text,
+  started_by text not null,
+  started_at timestamptz not null default now(),
+  finished_by text,
+  finished_at timestamptz
+);
+-- At most one live attempt per refund: never two refunds for one request.
+create unique index if not exists refund_gateway_attempts_one_live
+  on public.refund_gateway_attempts (refund_id) where (status in ('sending', 'pending', 'succeeded'));
+create index if not exists refund_gateway_attempts_refund_idx on public.refund_gateway_attempts (refund_id, started_at desc);
+
+alter table public.refund_gateway_attempts enable row level security;
+revoke all on public.refund_gateway_attempts from anon, authenticated;
+
+create or replace function public._gateway_attempt_json(a public.refund_gateway_attempts)
+returns jsonb language sql stable as $$
+  select jsonb_build_object('attempt_id', a.id, 'refund_id', a.refund_id, 'order_id', a.order_id,
+    'gateway', a.gateway, 'gateway_payment_id', a.gateway_payment_id, 'amount', a.amount, 'currency', 'PHP',
+    'status', a.status, 'gateway_refund_id', a.gateway_refund_id, 'error', a.error,
+    'started_at', a.started_at, 'finished_at', a.finished_at)
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 1. Begin
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_begin_gateway_refund(p_refund_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r public.refund_requests;
+  v_staff public.staff_members;
+  v_branch uuid;
+  v_pay public.payments;
+  v_live public.refund_gateway_attempts;
+  a public.refund_gateway_attempts;
+begin
+  select * into r from public.refund_requests where id = p_refund_id for update;
+  if r.id is null then raise exception 'That refund request could not be found.'; end if;
+  select branch_id into v_branch from public.orders where id = r.order_id;
+  v_staff := public._require_staff(v_branch, 'refunds');
+
+  -- 'processing' = the app's "Start processing" step; still nothing has been paid back.
+  if r.status not in ('approved', 'processing') then
+    raise exception 'Only an approved refund can be sent to HitPay (this one is %).', r.status;
+  end if;
+  select * into v_pay from public.payments where order_id = r.order_id order by created_at desc limit 1 for update;
+  if v_pay.id is null or v_pay.method not in ('gcash', 'maya', 'card') then
+    raise exception 'This order was not paid online. Refund the cash and mark it completed instead.';
+  end if;
+  if v_pay.status <> 'success' then
+    raise exception 'The online payment for this order is %, so there is nothing to send back through HitPay.', v_pay.status;
+  end if;
+  if coalesce(v_pay.gateway, '') <> 'hitpay' or v_pay.gateway_payment_id is null then
+    raise exception 'This payment has no HitPay payment id. Send the refund from the HitPay dashboard and mark it completed by hand.';
+  end if;
+  if r.amount <= 0 or r.amount > v_pay.amount then
+    raise exception 'The refund amount does not fit the payment.';
+  end if;
+
+  select * into v_live from public.refund_gateway_attempts
+  where refund_id = r.id and status in ('sending', 'pending', 'succeeded') limit 1;
+  if v_live.id is not null then
+    if v_live.status = 'succeeded' then
+      raise exception 'This refund was already sent through HitPay.';
+    elsif v_live.status = 'pending' then
+      raise exception 'HitPay is still processing this refund. Check its status instead of sending it again.';
+    else
+      raise exception 'A HitPay refund for this request was started at % and has no answer yet. Check the HitPay dashboard before trying again.',
+        to_char(v_live.started_at at time zone 'Asia/Manila', 'Mon DD HH12:MI AM');
+    end if;
+  end if;
+
+  insert into public.refund_gateway_attempts (refund_id, order_id, gateway_payment_id, amount, started_by)
+  values (r.id, r.order_id, v_pay.gateway_payment_id, r.amount, v_staff.firebase_uid)
+  returning * into a;
+  perform public._write_audit(v_staff.firebase_uid, v_branch, 'refund.gateway_send', 'refund_request', r.id,
+    jsonb_build_object('attempt_id', a.id, 'amount', a.amount, 'order_id', r.order_id));
+  return public._gateway_attempt_json(a);
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 2. Finish (the server reports what HitPay answered)
+-- -----------------------------------------------------------------------------
+create or replace function public.staff_finish_gateway_refund(
+  p_attempt_id uuid,
+  p_status text,
+  p_gateway_refund_id text default null,
+  p_error text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  a public.refund_gateway_attempts;
+  r public.refund_requests;
+  v_staff public.staff_members;
+  v_branch uuid;
+  v_ref text := nullif(trim(coalesce(p_gateway_refund_id, '')), '');
+begin
+  select * into a from public.refund_gateway_attempts where id = p_attempt_id for update;
+  if a.id is null then raise exception 'That HitPay refund attempt could not be found.'; end if;
+  select * into r from public.refund_requests where id = a.refund_id for update;
+  select branch_id into v_branch from public.orders where id = r.order_id;
+  v_staff := public._require_staff(v_branch, 'refunds');
+
+  if p_status not in ('succeeded', 'pending', 'failed') then raise exception 'Unknown HitPay refund result.'; end if;
+  if a.status = p_status and (v_ref is null or v_ref = a.gateway_refund_id) then
+    return public._gateway_attempt_json(a);                       -- same answer twice: no-op
+  end if;
+  if a.status in ('succeeded', 'failed') then
+    raise exception 'This HitPay refund attempt is already %.', a.status;
+  end if;
+  if a.status = 'pending' and p_status = 'pending' then
+    return public._gateway_attempt_json(a);
+  end if;
+  if p_status in ('succeeded', 'pending') and v_ref is null then
+    raise exception 'The HitPay refund id is missing.';
+  end if;
+
+  update public.refund_gateway_attempts
+     set status = p_status,
+         gateway_refund_id = coalesce(v_ref, gateway_refund_id),
+         error = case when p_status = 'failed' then left(coalesce(nullif(trim(p_error), ''), 'HitPay refused the refund.'), 300) end,
+         finished_by = case when p_status = 'pending' then null else v_staff.firebase_uid end,
+         finished_at = case when p_status = 'pending' then null else now() end
+   where id = a.id
+  returning * into a;
+
+  if p_status = 'succeeded' then
+    if r.status in ('approved', 'processing') then
+      perform public.staff_review_refund(r.id, 'complete');
+    end if;
+  end if;
+
+  perform public._write_audit(v_staff.firebase_uid, v_branch, 'refund.gateway_' || p_status, 'refund_request', r.id,
+    jsonb_build_object('attempt_id', a.id, 'gateway_refund_id', a.gateway_refund_id, 'error', a.error, 'amount', a.amount));
+  return public._gateway_attempt_json(a)
+         || jsonb_build_object('refund_status', (select status from public.refund_requests where id = r.id));
+end;
+$$;
+
+-- A 'sending' attempt with no answer (timeout) after the staff checked the
+-- HitPay dashboard and found no refund there: close it so it can be retried.
+create or replace function public.staff_abandon_gateway_refund(p_attempt_id uuid, p_note text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  a public.refund_gateway_attempts;
+  v_branch uuid;
+  v_staff public.staff_members;
+  v_note text := trim(coalesce(p_note, ''));
+begin
+  select * into a from public.refund_gateway_attempts where id = p_attempt_id for update;
+  if a.id is null then raise exception 'That HitPay refund attempt could not be found.'; end if;
+  select o.branch_id into v_branch from public.orders o where o.id = a.order_id;
+  v_staff := public._require_staff(v_branch, 'refunds');
+  if a.status <> 'sending' then raise exception 'Only an unanswered attempt can be closed (this one is %).', a.status; end if;
+  if a.started_at > now() - interval '2 minutes' then
+    raise exception 'Wait a few minutes for HitPay to answer before closing this attempt.';
+  end if;
+  if char_length(v_note) < 5 then
+    raise exception 'Write what you checked in the HitPay dashboard (at least 5 characters).';
+  end if;
+  update public.refund_gateway_attempts
+     set status = 'failed', error = left('Closed by staff: ' || v_note, 300),
+         finished_by = v_staff.firebase_uid, finished_at = now()
+   where id = a.id
+  returning * into a;
+  perform public._write_audit(v_staff.firebase_uid, v_branch, 'refund.gateway_abandoned', 'refund_request', a.refund_id,
+    jsonb_build_object('attempt_id', a.id, 'note', v_note));
+  return public._gateway_attempt_json(a);
+end;
+$$;
+
+-- Attempts for one refund (newest first), for the admin refunds page and the app.
+create or replace function public.staff_refund_gateway_attempts(p_refund_id text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_branch uuid;
+begin
+  select o.branch_id into v_branch from public.refund_requests r join public.orders o on o.id = r.order_id where r.id = p_refund_id;
+  if v_branch is null then raise exception 'That refund request could not be found.'; end if;
+  perform public._require_staff(v_branch, 'refunds');
+  return coalesce((select jsonb_agg(public._gateway_attempt_json(a) order by a.started_at desc)
+                   from public.refund_gateway_attempts a where a.refund_id = p_refund_id), '[]'::jsonb);
+end;
+$$;
+
+revoke all on function public._gateway_attempt_json(public.refund_gateway_attempts) from public, anon, authenticated;
+revoke all on function public.staff_begin_gateway_refund(text) from public, anon;
+revoke all on function public.staff_finish_gateway_refund(uuid, text, text, text) from public, anon;
+revoke all on function public.staff_abandon_gateway_refund(uuid, text) from public, anon;
+revoke all on function public.staff_refund_gateway_attempts(text) from public, anon;
+grant execute on function public.staff_begin_gateway_refund(text) to authenticated;
+grant execute on function public.staff_finish_gateway_refund(uuid, text, text, text) to authenticated;
+grant execute on function public.staff_abandon_gateway_refund(uuid, text) to authenticated;
+grant execute on function public.staff_refund_gateway_attempts(text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261012000000_admin_portal_stock_carried.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261012000000
+-- admin_portal_stock(): say whether a branch actually carries each variant.
+-- =============================================================================
+-- RUN ORDER: after 20261009000000_admin_portal.sql. Safe to re-run.
+--
+-- WHY
+--   admin_portal_stock() lists every active variant for every branch and shows
+--   quantity 0 when the branch has no branch_inventory row. The app treats a
+--   missing row as "not sold at this branch" (place_order refuses it), so the
+--   admin dashboard counted products a branch never carries as "out of stock"
+--   and "running low". Each item now has 'carried' (true when the branch has an
+--   inventory row for it); the website ignores items that are not carried.
+--   Nothing else changes: same caller checks, same shape, one extra key.
+-- =============================================================================
+
+begin;
+
+create or replace function public.admin_portal_stock()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  perform public._require_staff();
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'branch_id', b.id, 'branch_name', b.name,
+             'items', (
+               select coalesce(jsonb_agg(jsonb_build_object(
+                        'product_id', p.id, 'product_name', p.name,
+                        'variant_id', pv.id, 'variant_label', pv.label, 'sku', pv.sku,
+                        'quantity', coalesce(bi.quantity, 0), 'carried', (bi.branch_id is not null),
+                        'restock_threshold', coalesce(th.restock_threshold, public._default_restock_threshold()))
+                      order by p.name, pv.sort_order, pv.label), '[]'::jsonb)
+               from public.products p
+               join public.product_variants pv on pv.product_id = p.id
+               left join public.branch_inventory bi on bi.branch_id = b.id and bi.variant_id = pv.id
+               left join public.stock_thresholds th on th.branch_id = b.id and th.variant_id = pv.id
+               where p.is_active)
+           ) order by b.name), '[]'::jsonb)
+    from public.branches b
+    where b.id = any (public.staff_authorized_branch_ids())
+  );
+end;
+$$;
+
+revoke all on function public.admin_portal_stock() from public, anon;
+grant execute on function public.admin_portal_stock() to authenticated;
+
+commit;
+

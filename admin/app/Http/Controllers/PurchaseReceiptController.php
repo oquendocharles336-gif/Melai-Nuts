@@ -1,0 +1,232 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\ActivityLogger;
+use App\Services\Platform;
+use App\Services\Supabase\StaffIdentity;
+use App\Services\Supabase\SupabaseRepository;
+use App\Support\ReceiptTextParser;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+
+/**
+ * Suppliers and purchase receipts with OCR.
+ *
+ * OCR runs in the browser (Tesseract.js) on the photo the user picks; the text comes here,
+ * ReceiptTextParser turns it into a draft, and a person checks every line. Stock is posted only
+ * by "Approve" (staff_approve_purchase_receipt). The photo is kept privately on this server
+ * (storage/app/private/receipts) as evidence; only users allowed to open the receipt can view it.
+ */
+class PurchaseReceiptController extends Controller
+{
+    // Per-request (scoped) services are resolved on each use instead of being held by the controller:
+    // Laravel can reuse a controller instance across requests (test client, Octane), and a held one
+    // would keep a previous request's account check and query results.
+    private function repo(): SupabaseRepository
+    {
+        return app(SupabaseRepository::class);
+    }
+
+    private function identity(): StaffIdentity
+    {
+        return app(StaffIdentity::class);
+    }
+
+    private function platform(): Platform
+    {
+        return app(Platform::class);
+    }
+
+    /** [['id' => variant uuid, 'label' => 'Product · Variant'], ...] */
+    private function variants(): array
+    {
+        return collect($this->repo()->products())->flatMap(fn ($p) => collect($p['variants'] ?? [])->map(fn ($v) => [
+            'id' => $v['id'], 'label' => $p['name'].(in_array($v['label'] ?? '', ['', 'Regular'], true) ? '' : ' · '.$v['label']),
+        ]))->sortBy('label')->values()->all();
+    }
+
+    private function branchIds(): \Illuminate\Support\Collection
+    {
+        return collect($this->platform()->branches())->pluck('id');
+    }
+
+    public function index(Request $request)
+    {
+        $isOwner = $this->identity()->isOwner();
+        $branch = $this->branchIds()->contains($request->query('branch')) ? $request->query('branch') : null;
+        if (! $isOwner) {
+            $branch = $this->branchIds()->first();
+        }
+        $status = in_array($request->query('status'), ['draft', 'approved', 'cancelled'], true) ? $request->query('status') : null;
+
+        return view('receipts.index', [
+            'receipts' => $this->repo()->purchaseReceipts($branch, $status),
+            'branches' => $this->platform()->branches(), 'branch' => $branch, 'status' => $status, 'isOwner' => $isOwner,
+        ]);
+    }
+
+    public function create()
+    {
+        return view('receipts.create', ['branches' => $this->platform()->branches(), 'suppliers' => $this->repo()->suppliers()]);
+    }
+
+    /** Photo + OCR text -> draft receipt (nothing touches stock here). */
+    public function store(Request $request, ReceiptTextParser $parser)
+    {
+        $data = $request->validate([
+            'branch_id' => ['required', 'uuid'],
+            'supplier_id' => ['nullable', 'uuid'],
+            'photo' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'ocr_text' => ['nullable', 'string', 'max:20000'],
+            'ocr_confidence' => ['nullable', 'numeric', 'min:0', 'max:100'],
+        ]);
+        abort_unless($this->branchIds()->contains($data['branch_id']), 403);
+
+        $text = trim((string) ($data['ocr_text'] ?? ''));
+        $parsed = $text !== '' ? $parser->parse($text, $this->variants(), $this->repo()->suppliers()) : ['lines' => []];
+
+        $path = null;
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('receipts/'.now()->format('Y/m'), 'local');
+        }
+
+        $lines = collect($parsed['lines'])->map(fn ($l) => [
+            'raw_text' => $l['raw_text'], 'description' => $l['description'], 'variant_id' => $l['variant_id'],
+            'quantity' => $l['quantity'], 'unit_cost' => $l['unit_cost'],
+        ])->all();
+
+        $receipt = $this->repo()->savePurchaseReceipt(null, $data['branch_id'],
+            $data['supplier_id'] ?? ($parsed['supplier_id'] ?? null),
+            $parsed['invoice_no'] ?? null, $this->sanePastDate($parsed['invoice_date'] ?? null), $lines,
+            $text !== '' ? 'ocr' : 'manual', $text !== '' ? $text : null,
+            isset($data['ocr_confidence']) ? (float) $data['ocr_confidence'] : null, $path, null, $parsed['total'] ?? null);
+
+        ActivityLogger::log('purchase_receipt.draft', "Created draft {$receipt['receipt_code']}".($text !== '' ? ' from OCR' : ''), null,
+            ['receipt_id' => $receipt['id'], 'lines' => count($lines)]);
+
+        $msg = $text !== ''
+            ? 'OCR read '.count($lines).' item line(s). Check every line against the paper invoice, fill in what is missing, then approve.'
+            : 'Draft created. Add the lines from the invoice, then approve.';
+
+        return redirect()->route('receipts.show', $receipt['id'])->with('status', $msg);
+    }
+
+    /** An OCR date outside the last two years is almost always a misread: leave it for the reviewer. */
+    private function sanePastDate(?string $d): ?string
+    {
+        if (! $d) {
+            return null;
+        }
+        $date = \Carbon\Carbon::parse($d, 'Asia/Manila');
+
+        return $date->isFuture() || $date->lt(now('Asia/Manila')->subYears(2)) ? null : $d;
+    }
+
+    public function show(string $id)
+    {
+        abort_unless(Str::isUuid($id), 404);
+        $receipt = $this->repo()->purchaseReceipt($id);
+
+        return view('receipts.show', [
+            'r' => $receipt,
+            'variants' => $receipt['status'] === 'draft' ? $this->variants() : [],
+            'suppliers' => $this->repo()->suppliers(true),
+            'branches' => $this->platform()->branches(),
+            'requestKey' => Str::random(32),
+        ]);
+    }
+
+    /** Save the reviewed draft; with action=approve, also post it to stock. */
+    public function update(Request $request, string $id)
+    {
+        abort_unless(Str::isUuid($id), 404);
+        $data = $request->validate([
+            'branch_id' => ['required', 'uuid'],
+            'supplier_id' => ['nullable', 'uuid'],
+            'supplier_invoice_no' => ['nullable', 'string', 'max:40'],
+            'invoice_date' => ['nullable', 'date_format:Y-m-d'],
+            'invoice_total' => ['nullable', 'numeric', 'min:0', 'max:100000000'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'lines' => ['array', 'max:200'],
+            'lines.*.raw_text' => ['nullable', 'string', 'max:500'],
+            'lines.*.description' => ['nullable', 'string', 'max:200'],
+            'lines.*.variant_id' => ['nullable', 'uuid'],
+            'lines.*.quantity' => ['nullable', 'integer', 'min:1', 'max:100000'],
+            'lines.*.unit_cost' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
+            'lines.*.batch_code' => ['nullable', 'string', 'max:40'],
+            'lines.*.expiration_date' => ['nullable', 'date_format:Y-m-d'],
+            'action' => ['nullable', 'in:save,approve'],
+            'request_key' => ['nullable', 'string', 'min:8', 'max:100'],
+        ]);
+        abort_unless($this->branchIds()->contains($data['branch_id']), 403);
+
+        $lines = collect($data['lines'] ?? [])->map(fn ($l) => [
+            'raw_text' => $l['raw_text'] ?? null, 'description' => $l['description'] ?? null,
+            'variant_id' => $l['variant_id'] ?? null, 'quantity' => $l['quantity'] ?? null,
+            'unit_cost' => $l['unit_cost'] ?? null, 'batch_code' => $l['batch_code'] ?? null,
+            'expiration_date' => $l['expiration_date'] ?? null,
+        ])->values()->all();
+
+        $receipt = $this->repo()->savePurchaseReceipt($id, $data['branch_id'], $data['supplier_id'] ?? null,
+            $data['supplier_invoice_no'] ?? null, $data['invoice_date'] ?? null, $lines,
+            notes: $data['notes'] ?? null, invoiceTotal: isset($data['invoice_total']) ? (float) $data['invoice_total'] : null);
+
+        if (($data['action'] ?? 'save') !== 'approve') {
+            return redirect()->route('receipts.show', $id)->with('status', 'Draft saved. Nothing has been added to stock yet.');
+        }
+
+        $receipt = $this->repo()->approvePurchaseReceipt($id, $data['request_key'] ?? Str::random(32));
+        ActivityLogger::log('purchase_receipt.approved', "Approved {$receipt['receipt_code']} — stock received", null,
+            ['receipt_id' => $id, 'lines' => count($receipt['lines'] ?? []), 'total' => $receipt['lines_total'] ?? null]);
+
+        return redirect()->route('receipts.show', $id)->with('status', 'Approved. '.count($receipt['lines'] ?? []).' batch(es) were added to stock at '.$receipt['branch_name'].'.');
+    }
+
+    public function cancel(Request $request, string $id)
+    {
+        abort_unless(Str::isUuid($id), 404);
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:200']]);
+        $receipt = $this->repo()->cancelPurchaseReceipt($id, $data['reason']);
+        ActivityLogger::log('purchase_receipt.cancelled', "Cancelled draft {$receipt['receipt_code']}", null, ['receipt_id' => $id, 'reason' => $data['reason']]);
+
+        return redirect()->route('receipts.show', $id)->with('status', 'Draft cancelled.');
+    }
+
+    /** The scanned photo, only for users the database lets open the receipt. */
+    public function image(string $id)
+    {
+        abort_unless(Str::isUuid($id), 404);
+        $path = $this->repo()->purchaseReceipt($id)['document_path'] ?? null;
+        abort_unless($path && str_starts_with($path, 'receipts/') && ! str_contains($path, '..') && Storage::disk('local')->exists($path), 404);
+
+        return Storage::disk('local')->response($path, null, ['Cache-Control' => 'private, max-age=600', 'X-Content-Type-Options' => 'nosniff']);
+    }
+
+    // ---- suppliers ------------------------------------------------------------------------
+
+    public function suppliers()
+    {
+        return view('receipts.suppliers', ['suppliers' => $this->repo()->suppliers(true)]);
+    }
+
+    public function saveSupplier(Request $request, ?string $id = null)
+    {
+        abort_if($id !== null && ! Str::isUuid($id), 404);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'min:2', 'max:120'],
+            'contact_person' => ['nullable', 'string', 'max:120'],
+            'phone' => ['nullable', 'string', 'max:40'],
+            'email' => ['nullable', 'email', 'max:120'],
+            'address' => ['nullable', 'string', 'max:250'],
+            'tin' => ['nullable', 'string', 'max:30'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+        $data['is_active'] = $request->has('is_active') ? $request->boolean('is_active') : true;
+        $sid = $this->repo()->saveSupplier($id, $data);
+        ActivityLogger::log($id ? 'supplier.updated' : 'supplier.created', ($id ? 'Updated' : 'Added')." supplier {$data['name']}", null, ['supplier_id' => $sid]);
+
+        return redirect()->route('suppliers.index')->with('status', "Supplier {$data['name']} saved.");
+    }
+}

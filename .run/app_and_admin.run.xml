@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+    <configuration default="false" name="App + Admin website" type="CompoundRunConfigurationType">
+        <toRun name="Admin website" type="ShConfigurationType" />
+        <toRun name="melai_nuts (with env)" type="FlutterRunConfigurationType" />
+        <method v="2" />
+    </configuration>
+</component>
