@@ -48,6 +48,9 @@ rerun_ok=1
 for f in "$ROOT"/supabase/migrations/*.sql; do
   "${PSQL[@]}" "$TARGET" -f "$f" >/dev/null 2>&1 || { rerun_ok=0; echo "  re-run failed: $(basename "$f")"; }
 done
+# ... and the generated "bring a live project up to date" file, exactly as the owner would run it.
+"${PSQL[@]}" "$TARGET" -f "$ROOT/supabase/repair/20261010_resync_live_database.sql" >/dev/null 2>&1 \
+  || { rerun_ok=0; echo "  resync file failed"; }
 check="$("${PSQL[@]}" -At "$TARGET" -c "select
   (select count(*) = 1 from public.branches where name = 'RERUN Branch' and address = 'RERUN street' and contact_phone = '0000'
      and operating_hours = 'RERUN hours' and delivery_fee = 77 and daily_sales_target = 1234)
@@ -59,7 +62,8 @@ else FAIL=$((FAIL+1)); FAILED+=("rerun-migrations"); echo "FAIL re-running migra
 fresh_db
 for t in "$ROOT"/supabase/tests/*_test.sql; do
   out="$("${PSQL[@]}" "$TARGET" -f "$t" 2>&1)"; rc=$?
-  summary="$(printf '%s\n' "$out" | grep -Ei 'passed|failed' | tail -1)"
+  # The suites end with a "failed | passed | total" (or "passed | failed | total") row.
+  summary="$(printf '%s\n' "$out" | awk '/(failed|passed) \| (failed|passed) \| total/{h=$0; getline; getline; v=$0} END{gsub(/ +/," ",h); gsub(/ +/," ",v); if (h!="") print "(" h ":" v ")"}')"
   if [ $rc -eq 0 ]; then PASS=$((PASS+1)); echo "PASS $(basename "$t")  $summary"
   else FAIL=$((FAIL+1)); FAILED+=("$(basename "$t")"); echo "FAIL $(basename "$t")"; printf '%s\n' "$out" | tail -15; fi
 done
