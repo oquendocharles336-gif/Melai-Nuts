@@ -7,11 +7,10 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * A login with two-step sign-in turned on must enter a code from its authenticator once per
+ * A STAFF login with two-step sign-in turned on must enter a code from its authenticator once per
  * session (after every password sign-in and every "remember me" return) before any page.
  *
- * Admin (owner) logins MUST have two-step sign-in (config melai.two_factor.required_for_admins):
- * until it is set up they can only open the setup page and sign out.
+ * Admin (owner) logins never use two-step sign-in: they go straight in after the password.
  */
 class EnsureTwoFactorPassed
 {
@@ -19,21 +18,16 @@ class EnsureTwoFactorPassed
 
     private const OPEN = ['two-factor.challenge', 'two-factor.verify', 'logout'];
 
-    /** Pages an admin without two-step sign-in may still open: the setup flow and sign-out. */
-    private const SETUP = ['two-factor.show', 'two-factor.start', 'two-factor.confirm', 'logout'];
-
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        if ($user && method_exists($user, 'isAdmin') && $user->isAdmin() && ! $user->hasTwoFactor()
-            && config('melai.two_factor.required_for_admins', true)
-            && ! in_array($request->route()?->getName(), self::SETUP, true)) {
-            $message = 'Owner accounts must turn on two-step sign-in before using the website.';
-            if ($request->expectsJson()) {
-                return response()->json(['message' => $message], 423);
+        if ($user && method_exists($user, 'isAdmin') && $user->isAdmin()) {
+            // No two-step sign-in for admins: no code after the password, and no setup pages.
+            if (str_starts_with((string) $request->route()?->getName(), 'two-factor.')) {
+                return redirect()->route('dashboard');
             }
 
-            return redirect()->route('two-factor.show')->with('error', $message);
+            return $next($request);
         }
         if ($user && $user->hasTwoFactor()
             && $request->session()->get(self::SESSION_KEY) !== $user->getAuthIdentifier()

@@ -21,12 +21,8 @@ return [
     // decay_seconds ("Too many attempts, try again in N seconds").
     'login' => ['max_attempts' => 5, 'decay_seconds' => 60],
 
-    // Two-step sign-in (TOTP) is REQUIRED for admin (owner) logins: until it is set up, an admin can
-    // only open the two-step setup page (and sign out). Turned off only by the automated tests, which
-    // sign admins in directly (phpunit.xml), and re-enabled by tests/Feature/AdminSecurityTest.php.
-    'two_factor' => [
-        'required_for_admins' => filter_var(env('MELAI_REQUIRE_ADMIN_2FA', true), FILTER_VALIDATE_BOOL),
-    ],
+    // Two-step sign-in (TOTP) is NOT used for admin (owner) logins: they sign in with the password
+    // only (App\Http\Middleware\EnsureTwoFactorPassed). Staff may still turn it on as an option.
 
     // Every POST / PUT / PATCH / DELETE is limited per signed-in login (or per IP for guests), on top
     // of the tighter limits on single routes in routes/web.php (App\Http\Middleware\ThrottleWrites).

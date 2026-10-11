@@ -64,15 +64,18 @@ class AdminSecurityTest extends TestCase
             ->assertSessionHasErrors('terms');
     }
 
-    public function test_an_admin_must_turn_on_two_step_sign_in_first(): void
+    public function test_an_admin_never_needs_two_step_sign_in(): void
     {
-        config(['melai.two_factor.required_for_admins' => true]);
         $this->useFakeSupabase();
         $owner = $this->linkedLogin('uid-owner');
+        // Even an admin row that still holds an old authenticator goes straight in.
+        $owner->forceFill(['two_factor_secret' => 'JBSWY3DPEHPK3PXP', 'two_factor_confirmed_at' => now()])->save();
 
-        $this->signedIn($owner)->get('/dashboard')->assertRedirect(route('two-factor.show'));
-        $this->signedIn($owner)->get('/two-factor')->assertOk();
-        $this->signedIn($owner)->getJson('/ui/counts.json')->assertStatus(423);
+        $this->signedIn($owner)->get('/dashboard')->assertOk();
+        $this->signedIn($owner)->getJson('/ui/counts.json')->assertOk();
+        $this->signedIn($owner)->get('/two-factor')->assertRedirect(route('dashboard'));
+        $this->signedIn($owner)->get('/two-factor/challenge')->assertRedirect(route('dashboard'));
+        $this->signedIn($owner)->get('/settings')->assertOk()->assertDontSee('two-step sign-in');
     }
 
     public function test_every_change_is_rate_limited_and_429_has_its_own_page(): void

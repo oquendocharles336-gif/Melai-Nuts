@@ -364,8 +364,8 @@ What changed for the security criterion (details in `docs/PANEL_COMPLIANCE_REPOR
   the column names). It is namespaced by Firebase UID and wiped on sign-out / account switch. The app
   stores no auth tokens itself (Firebase Auth keeps its own session in the platform keystore), so
   `flutter_secure_storage` is not needed.
-- **Admin website**: owner/admin accounts must use 2-step verification
-  (`MELAI_REQUIRE_ADMIN_2FA`, default on), every write is throttled (`MELAI_WRITE_LIMIT_PER_MINUTE`),
+- **Admin website**: owner/admin accounts sign in with the password only (no 2-step verification;
+  staff may turn it on as an option), every write is throttled (`MELAI_WRITE_LIMIT_PER_MINUTE`),
   sessions expire after 30 minutes idle and on browser close, cookies are `Secure`/`HttpOnly`/`SameSite`
   (`.env.example`), and an expired CSRF token sends the user back to log in with a message instead of
   a 419 page.
