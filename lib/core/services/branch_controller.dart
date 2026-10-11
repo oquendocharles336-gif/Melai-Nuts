@@ -5,6 +5,7 @@ import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/customer_profile_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import 'customer_data_store.dart';
+import '../utils/app_error.dart';
 
 /// The customer's currently selected branch, app-wide.
 ///
@@ -50,7 +51,8 @@ class BranchController extends ChangeNotifier {
     // place rather than showing an empty catalog.
     try {
       await ProductsRepository.instance.loadCatalog(branchId: branch.id);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'branch_controller:53');
       // Ignore — see above.
     } finally {
       notifyListeners();
@@ -74,7 +76,8 @@ class BranchController extends ChangeNotifier {
         );
       }
       await Future.wait(tasks);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'branch_controller:77');
       // Selection still applies locally for this session even if the
       // catalog reload or the persisted-preference save failed offline.
     } finally {

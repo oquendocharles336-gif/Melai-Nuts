@@ -66,11 +66,13 @@ class OrdersRepository {
     // do NOT report "order failed" — it wasn't. Retry once, then explain.
     try {
       return await refetch(orderId);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'orders_repository:69');
       await Future<void>.delayed(const Duration(seconds: 1));
       try {
         return await refetch(orderId);
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'orders_repository:73');
         throw AppError(
           AppErrorKind.orderFailed,
           idempotencyKey != null

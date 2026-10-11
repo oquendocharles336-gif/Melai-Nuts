@@ -8,6 +8,7 @@ import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/utils/app_error.dart';
 
 /// "Account Security Recovery" — request a password reset link.
 ///
@@ -44,7 +45,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       if (!mounted) return;
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'forgot_password_screen:47');
       if (!mounted) return;
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(

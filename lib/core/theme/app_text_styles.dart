@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
+import '../utils/app_error.dart';
 
 /// Typography scale matching the prototype's "Plus Jakarta Sans" system.
 class AppTextStyles {
@@ -21,7 +22,8 @@ class AppTextStyles {
         letterSpacing: letterSpacing,
         color: color,
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'app_text_styles:24');
       return TextStyle(
         fontSize: size,
         fontWeight: weight,

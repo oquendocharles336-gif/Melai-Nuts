@@ -19,6 +19,7 @@ import 'staff_store.dart';
 import 'sync_service.dart';
 import '../../data/repositories/driver_repository.dart';
 import '../../data/repositories/staff_repository.dart';
+import '../utils/app_error.dart';
 
 /// A user-facing authentication failure. The [message] is already written
 /// to be shown directly in a SnackBar/dialog — no FirebaseAuthException
@@ -221,7 +222,8 @@ class AuthService {
       _userInitiatedSignOut = false;
       try {
         await user.updateDisplayName(name.trim());
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'auth_service:224');
         // Not critical; the name is also kept in memory and written to the profile.
       }
     } on FirebaseAuthException catch (e) {
@@ -340,7 +342,8 @@ class AuthService {
             onError(AuthException(_messageFor(e)));
           } on AuthException catch (e) {
             onError(e);
-          } catch (_) {
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'auth_service:343');
             onError(const AuthException('Something went wrong. Please try again.'));
           }
         },
@@ -354,7 +357,8 @@ class AuthService {
       );
     } on FirebaseAuthException catch (e) {
       onError(AuthException(_messageFor(e)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'auth_service:357');
       onError(const AuthException('Something went wrong. Please try again.'));
     }
   }
@@ -407,7 +411,9 @@ class AuthService {
     _userInitiatedSignOut = true;
     try {
       await _auth.signOut();
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'auth_service:410');
+    }
   }
 
   Future<AppUser> _completePhoneSignIn(
@@ -476,7 +482,8 @@ class AuthService {
     }
     try {
       await fbUser.updateDisplayName(name);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'auth_service:479');
       // Not critical; the name lives in the profile.
     }
     _userInitiatedSignOut = false;
@@ -496,7 +503,8 @@ class AuthService {
       try {
         await user.delete();
         return;
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'auth_service:499');
         // Fall through to a plain sign-out.
       }
     }
@@ -584,7 +592,9 @@ class AuthService {
           } catch (e) {
             try {
               await newUser.delete();
-            } catch (_) {}
+            } catch (caughtError, caughtStack) {
+              AppErrors.report(caughtError, caughtStack, 'auth_service:587');
+            }
             throw AuthException(
               e is AuthException ? e.message : 'Could not register this account in the staff database. ${e.toString()}',
             );
@@ -604,7 +614,9 @@ class AuthService {
           } catch (e) {
             try {
               await newUser.delete();
-            } catch (_) {}
+            } catch (caughtError, caughtStack) {
+              AppErrors.report(caughtError, caughtStack, 'auth_service:607');
+            }
             throw AuthException(
               e is AuthException ? e.message : 'Could not register this account as a driver. ${e.toString()}',
             );
@@ -625,11 +637,15 @@ class AuthService {
         if (role == UserRole.staff || role == UserRole.owner) {
           try {
             await StaffRepository.instance.removeStaffMember(newUser.uid);
-          } catch (_) {}
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'auth_service:628');
+          }
         }
         try {
           await newUser.delete();
-        } catch (_) {}
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'auth_service:632');
+        }
         throw const AuthException(
           'Could not save the new account. Please try again.',
         );
@@ -750,7 +766,9 @@ class AuthService {
     if (signingOutUid != null) {
       try {
         await CustomerDataStore.instance.prepareForSignOut(signingOutUid);
-      } catch (_) {}
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'auth_service:753');
+      }
     }
     CartController.instance.endSession();
     CustomerDataStore.instance.clear();
@@ -859,7 +877,8 @@ class AuthService {
         // Needs CustomerDataStore.profile (just loaded above) to restore
         // the customer's saved default branch.
         unawaited(BranchController.instance.hydrate());
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'auth_service:862');
         // Non-fatal — never block sign-in. But make sure a load is still
         // attempted and its outcome recorded, so customer screens show an
         // error state with a Retry button instead of staying silently empty.

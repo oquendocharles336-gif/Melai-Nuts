@@ -13,6 +13,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/user_role.dart';
+import '../../../core/utils/app_error.dart';
 
 /// Final step of customer sign-up: proves the person owns the email address.
 ///
@@ -87,7 +88,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       _toast(_usesCode ? 'A 6-digit code was sent to $_email.' : 'A verification link was sent to $_email.');
     } on AuthException catch (e) {
       _toast(e.message);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'email_verification_screen:90');
       _toast('Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -110,7 +112,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       );
     } on AuthException catch (e) {
       _toast(e.message);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'email_verification_screen:113');
       _toast('Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _verifying = false);

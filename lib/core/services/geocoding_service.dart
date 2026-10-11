@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../utils/geo_utils.dart';
+import '../utils/app_error.dart';
 
 /// An address found by search, or the address under a pin.
 class AddressSuggestion {
@@ -72,7 +73,8 @@ class NominatimGeocoder implements Geocoder {
       final body = jsonDecode(r.body);
       if (body is! List) return const [];
       return body.whereType<Map>().map((m) => _parse(Map<String, dynamic>.from(m))).whereType<AddressSuggestion>().toList();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'geocoding_service:75');
       return const [];
     }
   }
@@ -93,7 +95,8 @@ class NominatimGeocoder implements Geocoder {
       final body = jsonDecode(r.body);
       if (body is! Map) return null;
       return _parse(Map<String, dynamic>.from(body));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'geocoding_service:96');
       return null;
     }
   }

@@ -445,7 +445,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _quietly(Future<dynamic> Function() action) async {
     try {
       await action();
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'checkout_screen:448');
+    }
   }
 
   @override

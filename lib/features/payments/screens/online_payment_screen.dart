@@ -101,7 +101,8 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
       if (fresh != null && (fresh.status == PaymentStatus.success || fresh.status == PaymentStatus.failed)) {
         _stopPolling();
       }
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'online_payment_screen:104');
       // A missed poll is harmless; the next tick (or pull-to-refresh) retries.
     } finally {
       _refreshing = false;

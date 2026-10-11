@@ -118,7 +118,9 @@ class _CreateDeliveryBodyState extends State<_CreateDeliveryBody> {
       final drivers = await DeliveryRepository.instance.listDrivers(branchId);
       if (!mounted) return;
       setState(() => _drivers = drivers.where((d) => d.isActive).toList());
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'create_delivery_screen:121');
+    }
   }
 
   BranchDriver? get _driver {

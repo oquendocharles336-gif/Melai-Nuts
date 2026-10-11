@@ -119,7 +119,8 @@ class StaffProfileRepository {
         scope: ErrorScope.profile,
         timeout: AppErrors.queryTimeout,
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_profile_repository:122');
       // Display-only; retried on the next successful validation.
     }
   }

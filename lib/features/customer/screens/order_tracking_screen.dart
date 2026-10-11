@@ -575,7 +575,8 @@ class _LiveDriverCardState extends State<_LiveDriverCard> {
           .timeout(const Duration(seconds: 15));
       if (!mounted) return;
       setState(() => _data = Map<String, dynamic>.from(r as Map));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'order_tracking_screen:578');
       // Older servers without the driver module, or offline: show nothing.
     }
   }

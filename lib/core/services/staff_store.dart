@@ -16,6 +16,7 @@ import '../../data/repositories/staff_repository.dart';
 import '../utils/app_error.dart';
 import 'staff_session_store.dart';
 import 'supabase_service.dart';
+import '../utils/app_error.dart';
 
 /// Loading status of one section of staff data.
 class LoadState {
@@ -318,7 +319,8 @@ class StaffStore extends ChangeNotifier {
       deliveryPins = pins;
       deliveryPinsLoaded = true;
       notifyListeners();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_store:321');
       // Older server without staff_order_delivery_pins, or offline: the order
       // screens simply show no pin information (never a guessed one).
     }
@@ -370,7 +372,8 @@ class StaffStore extends ChangeNotifier {
     notifyListeners();
     try {
       await _repo.markNotificationRead(id);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_store:373');
       unawaited(refreshNotifications()); // the server refused: show the truth
     }
   }
@@ -380,7 +383,8 @@ class StaffStore extends ChangeNotifier {
     notifyListeners();
     try {
       await _repo.markAllNotificationsRead();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_store:383');
       unawaited(refreshNotifications());
     }
   }
@@ -390,7 +394,8 @@ class StaffStore extends ChangeNotifier {
     notifyListeners();
     try {
       await _repo.deleteNotification(id);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_store:393');
       unawaited(refreshNotifications());
     }
   }
@@ -458,7 +463,9 @@ class StaffStore extends ChangeNotifier {
     if (ch != null) {
       try {
         unawaited(SupabaseService.instance.client.removeChannel(ch));
-      } catch (_) {}
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'staff_store:461');
+      }
     }
   }
 

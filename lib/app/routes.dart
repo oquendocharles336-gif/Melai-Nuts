@@ -111,6 +111,7 @@ import '../features/settings/screens/security_screen.dart';
 import '../features/settings/screens/branch_settings_screen.dart';
 import '../features/settings/screens/logout_confirmation_screen.dart';
 import '../features/settings/screens/logout_success_screen.dart';
+import '../core/utils/app_error.dart';
 
 /// Centralized route names. Keep every navigable screen registered here so
 /// navigation logic never has to hard-code route strings in feature code.
@@ -444,7 +445,8 @@ class AppRoutes {
     final Route<dynamic>? raw;
     try {
       raw = _rawOnGenerateRoute(settings);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'routes:447');
       return MaterialPageRoute<dynamic>(
         settings: settings,
         builder: (_) => const UnavailableRouteScreen(),

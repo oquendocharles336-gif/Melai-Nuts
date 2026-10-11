@@ -10,6 +10,7 @@ import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import 'email_verification_screen.dart';
+import '../../../core/utils/app_error.dart';
 
 /// High-fidelity Account Registration screen.
 /// Matches the "Warm Harvest Modern" design system.
@@ -70,7 +71,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'register_screen:73');
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(

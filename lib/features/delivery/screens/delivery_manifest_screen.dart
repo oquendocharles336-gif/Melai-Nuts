@@ -7,6 +7,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/delivery.dart';
 import '../widgets/run_map_card.dart';
+import '../../../core/utils/app_error.dart';
 
 /// Packing manifest for a dispatch — every stop's order items (from the
 /// database) grouped for the loading/packing crew. "Copy manifest" puts the
@@ -39,7 +40,8 @@ class DeliveryManifestScreen extends StatelessWidget {
       await Clipboard.setData(ClipboardData(text: _asText()));
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Manifest copied to the clipboard.')));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'delivery_manifest_screen:42');
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not copy the manifest on this device.')));
     }

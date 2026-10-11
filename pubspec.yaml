@@ -48,6 +48,8 @@ dependencies:
   cloud_firestore: ^6.10.0
   # App Check (Play Integrity / App Attest / reCAPTCHA v3) — docs/APP_CHECK.md.
   firebase_app_check: ^0.4.8
+  # Crash / error reporting (lib/core/services/crash_reporter.dart).
+  firebase_crashlytics: ^5.4.0
 
   # Calls the email-verification API (6-digit code mode).
   http: ^1.2.2

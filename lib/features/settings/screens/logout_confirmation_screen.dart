@@ -7,6 +7,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import 'logout_success_screen.dart';
+import '../../../core/utils/app_error.dart';
 
 class LogoutConfirmationScreen extends StatefulWidget {
   const LogoutConfirmationScreen({super.key});
@@ -25,7 +26,8 @@ class _LogoutConfirmationScreenState extends State<LogoutConfirmationScreen> {
     setState(() => _busy = true);
     try {
       await AuthService.instance.signOut();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'logout_confirmation_screen:28');
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(

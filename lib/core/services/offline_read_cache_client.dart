@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'connectivity_service.dart';
 import 'local_cache_service.dart';
+import '../utils/app_error.dart';
 
 /// Tracks which server resources (tables / read RPCs) the app is currently
 /// showing from the local cache instead of a live response.
@@ -105,7 +106,8 @@ class OfflineReadCacheClient extends http.BaseClient {
     try {
       response = await _inner.send(request).timeout(_readTimeout);
       bytes = await response.stream.toBytes().timeout(_readTimeout);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'offline_read_cache_client:108');
       final hit = await LocalCache.instance.get(scope, key);
       if (hit != null) return _serve(request, resource, hit);
       rethrow;

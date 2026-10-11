@@ -10,6 +10,7 @@ import '../../../data/catalog_store.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/user_role.dart';
 import '../../../data/repositories/branch_repository.dart';
+import '../../../core/utils/app_error.dart';
 
 Future<void> _openAddUserSheet(BuildContext context) {
   return showModalBottomSheet<void>(
@@ -72,7 +73,8 @@ class _UserManagementBodyState extends State<UserManagementBody> {
           ),
         ),
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'user_management_screen:75');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update this account. Please try again.')),
@@ -282,7 +284,8 @@ class _AddUserSheetState extends State<_AddUserSheet> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'user_management_screen:285');
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(

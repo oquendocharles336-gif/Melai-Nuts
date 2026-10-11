@@ -7,6 +7,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/utils/app_error.dart';
 
 /// Change the current user's password (used from Login & Security), with a
 /// live strength checklist. Requires the person to already be signed in and
@@ -53,7 +54,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'reset_password_screen:56');
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(

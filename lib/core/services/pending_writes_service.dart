@@ -9,6 +9,7 @@ import '../../data/repositories/customer_profile_repository.dart';
 import '../../data/repositories/notifications_repository.dart';
 import 'connectivity_service.dart';
 import 'network_errors.dart';
+import '../utils/app_error.dart';
 
 /// The ONLY customer writes that may wait offline. Each is idempotent and
 /// last-write-wins, so replaying it later — or twice — is harmless.
@@ -136,19 +137,24 @@ class PendingWritesService extends ChangeNotifier {
         for (final entry in jsonDecode(raw) as List) {
           try {
             _items.add(PendingWrite.fromJson(Map<String, dynamic>.from(entry as Map)));
-          } catch (_) {
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'pending_writes_service:139');
             // Skip one corrupt entry rather than losing the whole queue.
           }
         }
       }
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'pending_writes_service:144');
+    }
     notifyListeners();
   }
 
   Future<void> _persist() async {
     try {
       await _prefs.setString(_storageKey, jsonEncode([for (final w in _items) w.toJson()]));
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'pending_writes_service:151');
+    }
   }
 
   // ---- Counts / overlays (synchronous; used by the UI) -------------------

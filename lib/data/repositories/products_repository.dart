@@ -347,7 +347,8 @@ class ProductsRepository extends ChangeNotifier {
         for (final row in rows)
           row['product_id'] as String: (row['units_sold'] as num).toInt(),
       };
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:350');
       return const {};
     }
   }
@@ -374,7 +375,8 @@ class ProductsRepository extends ChangeNotifier {
       kPromotions
         ..clear()
         ..addAll(promotions);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:377');
       // Leave kPromotions as-is; Home hides the section when it's empty.
     }
   }
@@ -392,7 +394,8 @@ class ProductsRepository extends ChangeNotifier {
           .map((r) => byId[r['product_id'] as String])
           .whereType<Product>()
           .toList();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:395');
       // RPC unavailable/offline — keep the ranking empty instead of inventing it.
     }
 
@@ -406,7 +409,8 @@ class ProductsRepository extends ChangeNotifier {
     try {
       final raw = await _client.from('branches').select('name').eq('is_active', true).order('name');
       return List<Map<String, dynamic>>.from(raw).map((r) => r['name'] as String).toList();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:409');
       return const [];
     }
   }
@@ -439,7 +443,8 @@ class ProductsRepository extends ChangeNotifier {
       final low = lows.reduce((a, b) => a < b ? a : b);
       final high = highs.reduce((a, b) => a > b ? a : b);
       return (min: low, max: high);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:442');
       return null;
     }
   }
@@ -478,7 +483,8 @@ class ProductsRepository extends ChangeNotifier {
       final raw = await query;
       final rows = List<Map<String, dynamic>>.from(raw);
       return rows.fold<int>(0, (sum, r) => sum + (r['quantity'] as int));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:481');
       return null;
     }
   }
@@ -511,7 +517,8 @@ class ProductsRepository extends ChangeNotifier {
         if (endsAt != null && DateTime.parse(endsAt).isBefore(now)) return false;
         return true;
       }).map(Promotion.fromRow).toList();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:514');
       return const [];
     }
   }

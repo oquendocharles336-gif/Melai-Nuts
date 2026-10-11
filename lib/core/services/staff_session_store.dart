@@ -9,6 +9,7 @@ import '../../data/repositories/staff_profile_repository.dart';
 import '../utils/app_error.dart';
 import 'local_cache_service.dart';
 import 'pending_writes_service.dart';
+import '../utils/app_error.dart';
 
 /// Where the staff session stands. Only [ready] unlocks staff screens.
 enum StaffSessionStatus {
@@ -314,7 +315,8 @@ class StaffSessionStore extends ChangeNotifier {
         for (final purge in _identityPurgers) {
           try {
             unawaited(purge(uid).catchError((Object _) {}));
-          } catch (_) {
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'staff_session_store:317');
             // A purge failing must never break sign-in.
           }
         }

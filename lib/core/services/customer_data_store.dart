@@ -19,6 +19,7 @@ import 'connectivity_service.dart';
 import 'local_cache_service.dart';
 import 'offline_read_cache_client.dart';
 import 'pending_writes_service.dart';
+import '../utils/app_error.dart';
 
 /// Single source of truth for every customer-scoped record (orders,
 /// loyalty, notifications, refunds, payments, profile, addresses), loaded
@@ -247,10 +248,14 @@ class CustomerDataStore extends ChangeNotifier {
         // never seen before we show order history.
         try {
           await PendingWritesService.instance.flush(firebaseUid);
-        } catch (_) {}
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'customer_data_store:250');
+        }
         try {
           await CheckoutAttemptStore.instance.resolveUnconfirmed(firebaseUid);
-        } catch (_) {}
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'customer_data_store:253');
+        }
       }
 
       // The profile row is created on first sign-in. If that step failed
@@ -516,7 +521,8 @@ class CustomerDataStore extends ChangeNotifier {
         Future<T?> quiet<T>(Future<T> Function() action) async {
           try {
             return await AppErrors.guard(action, timeout: AppErrors.rpcTimeout);
-          } catch (_) {
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'customer_data_store:519');
             return null;
           }
         }
@@ -618,7 +624,9 @@ class CustomerDataStore extends ChangeNotifier {
     if (ConnectivityService.instance.isOnline) {
       try {
         await PendingWritesService.instance.flush(uid).timeout(const Duration(seconds: 4));
-      } catch (_) {}
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'customer_data_store:621');
+      }
     }
     await PendingWritesService.instance.clearForUser(uid);
     await CheckoutAttemptStore.instance.reset();

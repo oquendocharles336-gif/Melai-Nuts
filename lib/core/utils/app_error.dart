@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/crash_reporter.dart';
+
 /// What went wrong, in customer terms. Screens can branch on this (e.g. to
 /// refresh stock after [insufficientStock]) without ever looking at the raw
 /// backend error.
@@ -86,6 +88,42 @@ class AppErrors {
     } catch (e, st) {
       Error.throwWithStackTrace(from(e, scope: scope), st);
     }
+  }
+
+  /// Kinds that are normal in the field (no connection, signed out, a rule the
+  /// database enforces...). They are logged as breadcrumbs, not reported.
+  static const Set<AppErrorKind> expectedKinds = {
+    AppErrorKind.noInternet,
+    AppErrorKind.timeout,
+    AppErrorKind.authExpired,
+    AppErrorKind.permissionDenied,
+    AppErrorKind.notFound,
+    AppErrorKind.insufficientStock,
+    AppErrorKind.productUnavailable,
+    AppErrorKind.branchUnavailable,
+    AppErrorKind.invalidVoucher,
+    AppErrorKind.insufficientPoints,
+    AppErrorKind.staffNotProvisioned,
+    AppErrorKind.accountInactive,
+    AppErrorKind.accountSuspended,
+    AppErrorKind.invalidRole,
+    AppErrorKind.invalidBranch,
+    AppErrorKind.accessDenied,
+  };
+
+  /// Typed handling for an error the caller RECOVERS from (falls back, keeps
+  /// the last data, retries later). The error is classified with [from]:
+  /// expected kinds become a breadcrumb, anything else is sent to the crash
+  /// reporter as a non-fatal with [context] (a short code location). Returns
+  /// the customer-safe [AppError] so callers can show its message.
+  static AppError report(Object error, StackTrace stack, String context, {ErrorScope scope = ErrorScope.general}) {
+    final mapped = from(error, scope: scope);
+    if (expectedKinds.contains(mapped.kind)) {
+      CrashReporter.breadcrumb('$context: ${mapped.kind.name}');
+    } else {
+      CrashReporter.recordNonFatal(error, stack, context: context);
+    }
+    return mapped;
   }
 
   /// Shows a customer-friendly snackbar for [error]. Callers must check

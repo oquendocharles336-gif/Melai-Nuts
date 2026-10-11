@@ -8,6 +8,7 @@ import '../../../core/widgets/app_logo.dart';
 import '../../../data/catalog_store.dart';
 import '../../../data/models/user_role.dart';
 import 'email_verification_screen.dart';
+import '../../../core/utils/app_error.dart';
 
 /// First screen shown on launch. Runs a short "connecting to branch
 /// network" animation while, in parallel, checking whether someone is
@@ -47,7 +48,8 @@ class _SplashScreenState extends State<SplashScreen> {
     } on AuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'splash_screen:50');
       // Ignore — e.g. no network on first launch. Fall through to Login,
       // which will surface a clearer error on the actual sign-in attempt.
     }

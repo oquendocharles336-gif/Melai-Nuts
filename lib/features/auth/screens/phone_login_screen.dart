@@ -15,6 +15,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/user_role.dart';
+import '../../../core/utils/app_error.dart';
 
 enum _PhoneStep { number, code, name }
 
@@ -185,7 +186,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         _busy = false;
         _error = e.message;
       });
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'phone_login_screen:188');
       if (!mounted) return;
       setState(() {
         _busy = false;
@@ -212,7 +214,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         _busy = false;
         _error = e.message;
       });
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'phone_login_screen:215');
       if (!mounted) return;
       setState(() {
         _busy = false;

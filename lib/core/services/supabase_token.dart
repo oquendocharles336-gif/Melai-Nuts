@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/supabase_config.dart';
+import '../utils/app_error.dart';
 
 /// Supplies the Firebase ID token that Supabase uses to pick a Postgres role.
 ///
@@ -44,7 +45,8 @@ class SupabaseToken {
           )
           .timeout(const Duration(seconds: 20));
       return res.statusCode == 200;
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'supabase_token:47');
       return false;
     }
   }
@@ -60,7 +62,8 @@ class SupabaseToken {
           utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
       final claims = jsonDecode(payload);
       return claims is Map && claims['role'] == 'authenticated';
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'supabase_token:63');
       return false;
     }
   }
@@ -97,7 +100,8 @@ class SupabaseToken {
     // The claim only appears in a freshly minted token.
     try {
       token = await user.getIdToken(true);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'supabase_token:100');
       // Offline or throttled: fall through with the cached token.
     }
     if (!hasAuthenticatedRole(token) && !_warned) {

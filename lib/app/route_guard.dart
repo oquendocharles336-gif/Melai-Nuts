@@ -9,6 +9,7 @@ import '../core/theme/app_colors.dart';
 import '../data/models/user_role.dart';
 import '../features/staff/widgets/staff_session_blocked_view.dart';
 import 'routes.dart';
+import '../core/utils/app_error.dart';
 
 /// Client-side access gate for a screen.
 ///
@@ -142,7 +143,8 @@ class _RouteGuardState extends State<RouteGuard> {
       });
     } on AuthException catch (e) {
       _deny(message: e.message, route: AppRoutes.login, clearStack: true);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'route_guard:145');
       _deny(
         message: 'We could not verify your account. Please sign in again.',
         route: AppRoutes.login,

@@ -12,6 +12,7 @@ import '../cart_controller.dart';
 import '../widgets/product_card.dart';
 import 'cart_screen.dart';
 import 'product_details_screen.dart';
+import '../../../core/utils/app_error.dart';
 
 /// Customer product search backed by Supabase.
 ///
@@ -69,7 +70,8 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             : RangeValues(bounds.min.floorToDouble(), bounds.max.ceilToDouble());
       });
       await _runSearch();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'search_results_screen:72');
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -106,7 +108,8 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         _results = results;
         _loading = false;
       });
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'search_results_screen:109');
       if (!mounted || request != _requestVersion) return;
       setState(() {
         _loading = false;

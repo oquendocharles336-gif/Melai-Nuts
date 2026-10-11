@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import '../utils/app_error.dart';
 
 // Supabase configuration for Melai Nuts.
 //
@@ -41,7 +42,8 @@ class SupabaseConfig {
       final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
       final claims = jsonDecode(payload);
       return claims is Map && claims['role'] == 'service_role';
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'supabase_config:44');
       return false; // not a decodable JWT (e.g. an sb_publishable_ key)
     }
   }

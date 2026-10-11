@@ -11,6 +11,7 @@ import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/icon_registry.dart';
 import '../../data/repositories/products_repository.dart';
 import 'screens/cart_screen.dart';
+import '../../core/utils/app_error.dart';
 
 class CartLine {
   final String id;
@@ -215,7 +216,8 @@ class CartController extends ChangeNotifier {
         Product? product;
         try {
           product = findProductById(productId);
-        } catch (_) {
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'cart_controller:218');
           product = null;
         }
         product ??= _productFromSnapshot(item['product_snapshot']);
@@ -236,7 +238,8 @@ class CartController extends ChangeNotifier {
         _pricing = _localPricing();
       }
       notifyListeners();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'cart_controller:239');
       await prefs.remove(key);
       _clearMemoryOnly();
     }
@@ -269,7 +272,8 @@ class CartController extends ChangeNotifier {
       Product? product;
       try {
         product = findProductById(item.productId);
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'cart_controller:272');
         product = null;
       }
       if (product == null) {
@@ -743,7 +747,8 @@ class CartController extends ChangeNotifier {
         unitsSoldLast30Days: (map['units_sold_last_30_days'] as num?)?.toInt() ?? 0,
         isFeatured: map['is_featured'] as bool? ?? false,
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'cart_controller:746');
       return null;
     }
   }

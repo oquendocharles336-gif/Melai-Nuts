@@ -62,7 +62,8 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
         _pin = pins[widget.order.id];
         _pinLoaded = true;
       });
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_transactions_screen:65');
       // Older server or offline: the card falls back to the address text.
     }
   }

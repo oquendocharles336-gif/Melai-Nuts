@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/models/order.dart';
 import '../../data/repositories/orders_repository.dart';
+import '../utils/app_error.dart';
 
 /// One checkout attempt: the idempotency key that identifies it to the
 /// server, and whether its request has (possibly) left the device.
@@ -152,7 +153,8 @@ class CheckoutAttemptStore extends ChangeNotifier {
       final raw = await _storage.read();
       if (raw == null || raw.isEmpty) return null;
       return CheckoutAttempt.fromJson(Map<String, dynamic>.from(jsonDecode(raw) as Map));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'checkout_attempt_store:155');
       return null;
     }
   }
@@ -160,7 +162,8 @@ class CheckoutAttemptStore extends ChangeNotifier {
   Future<void> _write(CheckoutAttempt attempt) async {
     try {
       await _storage.write(jsonEncode(attempt.toJson()));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'checkout_attempt_store:163');
       // If the disk write fails the attempt still works for this session.
     }
   }
@@ -211,7 +214,9 @@ class CheckoutAttemptStore extends ChangeNotifier {
   Future<void> clear() async {
     try {
       await _storage.remove();
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'checkout_attempt_store:214');
+    }
   }
 
   /// Settles a checkout whose outcome was never seen. Only call while

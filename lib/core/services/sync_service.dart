@@ -7,6 +7,7 @@ import '../../data/repositories/sync_queue_repository.dart';
 import '../utils/app_error.dart';
 import 'connectivity_service.dart';
 import 'staff_session_store.dart';
+import '../utils/app_error.dart';
 
 /// Sends one queued operation to Supabase. Return normally when the server
 /// ACCEPTED it. Use [SyncOperation.localOperationId] as the idempotency key so
@@ -222,7 +223,8 @@ class SyncService extends ChangeNotifier {
         (counts[SyncStatus.pending] ?? 0) + (counts[SyncStatus.syncing] ?? 0),
         counts[SyncStatus.failed] ?? 0,
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'sync_service:225');
       // Counters are informational.
     }
   }
@@ -239,7 +241,8 @@ class SyncService extends ChangeNotifier {
   Future<void> flushBeforeSignOut({Duration timeout = const Duration(seconds: 5)}) async {
     try {
       await processPending().timeout(timeout);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'sync_service:242');
       // Whatever could not be sent stays queued (it is never deleted here).
     }
   }
@@ -249,7 +252,8 @@ class SyncService extends ChangeNotifier {
   Future<void> tidyForSignOut(String uid) async {
     try {
       await _queue.tidyForSignOut(uid);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'sync_service:252');
       // Housekeeping only.
     }
   }

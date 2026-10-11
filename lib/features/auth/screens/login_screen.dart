@@ -14,6 +14,7 @@ import '../../../core/utils/validation_utils.dart';
 import 'email_verification_screen.dart';
 import 'phone_login_screen.dart';
 import '../../../data/models/user_role.dart';
+import '../../../core/utils/app_error.dart';
 /// Single sign-in / create-account screen shared by every account type
 /// (customer, staff, owner, and delivery). One set of credentials, one
 /// form — after signing in, the person is routed to whichever home screen
@@ -82,7 +83,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'login_screen:85');
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -115,7 +117,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'login_screen:118');
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(

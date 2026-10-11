@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../data/repositories/driver_repository.dart';
+import '../utils/app_error.dart';
 
 /// Shares the driver's position for ONE delivery run while the app is open.
 ///
@@ -103,7 +104,8 @@ class DriverLocationTracker extends ChangeNotifier {
         // The run is over (or not picked up): the server no longer wants points.
         await stop();
       }
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'driver_location_tracker:106');
       // A dropped point is fine; the next one will be sent. Keep sharing.
     }
   }

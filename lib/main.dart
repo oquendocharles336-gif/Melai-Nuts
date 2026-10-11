@@ -8,6 +8,7 @@ import 'core/services/app_check_service.dart';
 import 'core/services/audit_service.dart';
 import 'core/services/branch_controller.dart';
 import 'core/services/connectivity_service.dart';
+import 'core/services/crash_reporter.dart';
 import 'core/services/customer_data_store.dart';
 import 'core/services/data_sync_service.dart';
 import 'core/services/staff_session_store.dart';
@@ -26,6 +27,7 @@ Future<void> main() async {
     } on FirebaseException catch (e) {
       if (e.code != 'duplicate-app') rethrow;
     }
+    await CrashReporter.init();
     // Before any Firebase Auth / Firestore request (see docs/APP_CHECK.md).
     await AppCheckService.activate();
     await DataSyncService.instance.initializeLocalDatabase();
@@ -41,6 +43,8 @@ Future<void> main() async {
   // on disk, owned by (and only ever sent for) its own Firebase UID.
   StaffSessionStore.instance.registerResetHook(SyncService.instance.resetState);
   StaffSessionStore.instance.bindToAuth();
+  // Crash reports carry the Firebase UID only (no name, e-mail or phone).
+  FirebaseAuth.instance.authStateChanges().listen((user) => CrashReporter.setUser(user?.uid));
   AuditService.instance.registerWithSync();
   SyncService.instance.attach(
     session: StaffSessionStore.instance,

@@ -56,7 +56,8 @@ class RefundsRepository {
     }
     try {
       return await refetch(refundId);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'refunds_repository:59');
       // The request was recorded; only reloading it failed.
       throw const AppError(
         AppErrorKind.refundFailed,
@@ -100,7 +101,8 @@ class RefundsRepository {
     }
     try {
       return (await _myRefunds!)[orderId];
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'refunds_repository:103');
       _myRefunds = null; // try again next time
       rethrow;
     }

@@ -503,7 +503,8 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         return null;
       }
       return bytes;
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'driver_portal_screen:506');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The camera could not be opened.')));
       }

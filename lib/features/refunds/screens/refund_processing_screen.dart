@@ -9,6 +9,7 @@ import '../../../data/models/refund.dart';
 import '../../../data/repositories/refunds_repository.dart';
 import 'refund_success_screen.dart';
 import 'refund_failed_screen.dart';
+import '../../../core/utils/app_error.dart';
 
 /// Real-time, read-only refund status. There is no "advance my own refund"
 /// button here — only staff/owner tooling (out of scope for this app) can
@@ -39,7 +40,8 @@ class _RefundProcessingScreenState extends State<RefundProcessingScreen> {
     try {
       final updated = await RefundsRepository.instance.refetch(_request.id);
       if (mounted) setState(() => _request = updated);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'refund_processing_screen:42');
       // Keep showing the last known state; the stream will retry.
     }
   }

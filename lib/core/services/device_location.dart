@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import '../utils/app_error.dart';
 
 /// Result of asking the device for its position once.
 class DeviceLocationResult {
@@ -80,7 +81,8 @@ class DeviceLocation {
     } on TimeoutException {
       return const DeviceLocationResult.failed(
           'Your location took too long to read. Try again near a window, or place the pin by hand.');
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'device_location:83');
       return const DeviceLocationResult.failed(
           'Your location could not be read. Move the map to place the pin by hand.');
     }
@@ -96,6 +98,8 @@ class DeviceLocation {
       } else {
         await Geolocator.openAppSettings();
       }
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'device_location:99');
+    }
   }
 }

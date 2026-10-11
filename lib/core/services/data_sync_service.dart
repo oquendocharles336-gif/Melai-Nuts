@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/app_error.dart';
 
 /// DataSyncService handles local database caching and cloud database synchronization.
 ///
@@ -54,7 +55,8 @@ class DataSyncService {
         if (user == null) {
           try {
             await _firestore.clearPersistence();
-          } catch (_) {
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'data_sync_service:57');
             // Fails harmlessly if Firestore was already started; nothing to do.
           }
         }

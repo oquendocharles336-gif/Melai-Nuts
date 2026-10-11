@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../utils/app_error.dart';
 
 /// A user-facing verification failure (message is safe to show as-is).
 class EmailVerificationException implements Exception {
@@ -129,7 +130,8 @@ class EmailVerificationService {
       );
     } on EmailVerificationException {
       rethrow;
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'email_verification_service:132');
       // Timeouts, no network, bad URL, etc. Details intentionally not shown.
       throw const EmailVerificationException(
         'Could not reach the verification service. Check your connection and try again.',

@@ -45,7 +45,8 @@ class _StaffSessionBlockedViewState extends State<StaffSessionBlockedView> {
     setState(() => _busy = true);
     try {
       await AuthService.instance.signOut();
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_session_blocked_view:48');
       if (!mounted) return;
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(

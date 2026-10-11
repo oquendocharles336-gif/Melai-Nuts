@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/app_error.dart';
 
 /// One cached server response and when it was saved from a *live* fetch.
 class CachedEntry {
@@ -76,7 +77,8 @@ class LocalCache {
         }
         await _prefs.setStringList(_indexKey(scope), index);
         if (isNewScope) await _rememberScope(scope);
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'local_cache_service:79');
         // A full disk / unavailable storage must never break a live read.
       }
     });
@@ -91,7 +93,8 @@ class LocalCache {
         map['v'] as String,
         DateTime.fromMillisecondsSinceEpoch(map['t'] as int),
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'local_cache_service:94');
       return null;
     }
   }
@@ -110,7 +113,9 @@ class LocalCache {
           _scopesKey,
           scopes.where((s) => s != scope).toList(),
         );
-      } catch (_) {}
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'local_cache_service:113');
+      }
     });
   }
 
@@ -123,7 +128,9 @@ class LocalCache {
       for (final scope in known) {
         if (!scopes.contains(scope)) await clearScope(scope);
       }
-    } catch (_) {}
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'local_cache_service:126');
+    }
   }
 
   Future<void> _rememberScope(String scope) async {

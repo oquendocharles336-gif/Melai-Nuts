@@ -11,6 +11,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/models/user_role.dart';
 import 'email_verification_screen.dart';
+import '../../../core/utils/app_error.dart';
 
 /// Customer sign-in / create-account screen (RFID loyalty ordering portal).
 class CustomerAccessScreen extends StatefulWidget {
@@ -95,7 +96,8 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'customer_access_screen:98');
       if (!mounted) return;
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(

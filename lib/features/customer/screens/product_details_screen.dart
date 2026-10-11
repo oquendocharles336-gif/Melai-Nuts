@@ -54,7 +54,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         ),
         scope: ErrorScope.catalog,
       );
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'product_details_screen:57');
       // Promotions are a nice-to-have. If they can't load, the section stays
       // hidden and ordering is unaffected — no error popup for this.
     }

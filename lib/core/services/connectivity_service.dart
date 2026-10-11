@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/app_error.dart';
 
 /// The app's connection state. Later batches extend this with `syncing`,
 /// `synced` and `syncError`; today the device is either reachable or not.
@@ -65,7 +66,8 @@ class ConnectivityService extends ChangeNotifier {
     try {
       final initial = await _check();
       _isOnline = _hasConnection(initial);
-    } catch (_) {
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'connectivity_service:68');
       // Plugin unavailable (unsupported platform, etc.) — assume online
       // rather than permanently hiding customer data behind an offline banner.
       _isOnline = true;
@@ -103,7 +105,8 @@ class ConnectivityService extends ChangeNotifier {
     for (final cb in _reconnectCallbacks) {
       try {
         await cb();
-      } catch (_) {
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'connectivity_service:106');
         // Best-effort; individual screens still refresh themselves on open.
       }
     }
