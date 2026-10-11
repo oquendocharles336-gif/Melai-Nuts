@@ -5,7 +5,7 @@
 @else
     <header class="page-head">
         <div>
-            <h1 class="page-title">@yield('page-title') @if (! $live)<span class="test-pill" title="Automated tests only: fake data">Test data</span>@endif</h1>
+            <h1 class="page-title">@yield('page-title') @if (! $live)<span class="test-pill" title="Automated tests only: fixture data">Test data</span>@endif</h1>
             @hasSection('page-sub')<p class="page-sub">@yield('page-sub')</p>@endif
         </div>
         @hasSection('page-actions')<div class="page-actions">@yield('page-actions')</div>@endif

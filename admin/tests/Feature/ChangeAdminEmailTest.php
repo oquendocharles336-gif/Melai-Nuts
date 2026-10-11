@@ -16,14 +16,14 @@ use Tests\TestCase;
 /**
  * php artisan melai:change-admin-email: the existing "Melai Admin" login gets the new email in
  * place (same id, password, role, access, history) and is re-linked to the app owner with that
- * email. Supabase is faked: uid-old = owner row under the old email, uid-new = owner kanzeki69@gmail.com.
+ * email. Supabase is faked: uid-old = owner row under the old email, uid-new = owner owner@example.com.
  */
 class ChangeAdminEmailTest extends TestCase
 {
     use RefreshDatabase;
 
     private const OLD = 'old.admin@example.com';
-    private const NEW = 'kanzeki69@gmail.com';
+    private const NEW = 'owner@example.com';
     private const PASSWORD = 'Adm1n!Pass#2026';
 
     protected function setUp(): void
@@ -74,8 +74,8 @@ class ChangeAdminEmailTest extends TestCase
         $this->supabase();
         $admin = $this->admin(['staff_uid' => 'uid-old', 'staff_linked_at' => now(), 'remember_token' => 'old-token']);
 
-        $this->artisan('melai:change-admin-email', ['old' => self::OLD, 'new' => '  KANZEKI69@Gmail.com '])
-            ->expectsOutputToContain('old.admin@example.com -> kanzeki69@gmail.com')
+        $this->artisan('melai:change-admin-email', ['old' => self::OLD, 'new' => '  OWNER@Example.com '])
+            ->expectsOutputToContain('old.admin@example.com -> owner@example.com')
             ->expectsOutputToContain('get_my_staff_context() status: active')
             ->assertSuccessful();
 
@@ -126,8 +126,8 @@ class ChangeAdminEmailTest extends TestCase
         $admin = $this->admin();
         User::factory()->create(['email' => self::NEW, 'role' => 'staff']);
 
-        $this->artisan('melai:change-admin-email', ['old' => self::OLD, 'new' => 'Kanzeki69@gmail.com'])
-            ->expectsOutputToContain('Another login already uses kanzeki69@gmail.com')
+        $this->artisan('melai:change-admin-email', ['old' => self::OLD, 'new' => 'Owner@example.com'])
+            ->expectsOutputToContain('Another login already uses owner@example.com')
             ->assertFailed();
         $this->assertSame(self::OLD, $admin->fresh()->email);
     }
@@ -166,7 +166,7 @@ class ChangeAdminEmailTest extends TestCase
         $admin = $this->admin(['staff_uid' => 'uid-old']);
 
         $this->artisan('melai:change-admin-email', ['old' => self::OLD, 'new' => self::NEW])
-            ->expectsOutputToContain('No active owner account with the email kanzeki69@gmail.com')
+            ->expectsOutputToContain('No active owner account with the email owner@example.com')
             ->assertSuccessful();
         $this->assertSame(self::NEW, $admin->fresh()->email);
         $this->assertNull($admin->fresh()->staff_uid);
@@ -206,5 +206,39 @@ class ChangeAdminEmailTest extends TestCase
         }
         $this->assertSame(1, User::where('role', 'admin')->count());
         $this->assertSame(self::OLD, User::where('role', 'admin')->value('email'));
+    }
+
+    public function test_seeder_refuses_to_run_without_admin_credentials(): void
+    {
+        config(['melai.admin.email' => null, 'melai.admin.password' => null]);
+        try {
+            $this->seed(AdminSeeder::class);
+            $this->fail('Seeder should refuse without ADMIN_EMAIL / ADMIN_PASSWORD.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Set ADMIN_EMAIL and ADMIN_PASSWORD', $e->getMessage());
+        }
+        config(['melai.admin.email' => 'someone@melai.test', 'melai.admin.password' => '']);
+        try {
+            $this->seed(AdminSeeder::class);
+            $this->fail('Seeder should refuse without ADMIN_PASSWORD.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('no default credentials', $e->getMessage());
+        }
+        $this->assertSame(0, User::count());
+    }
+
+    public function test_seeder_refuses_the_placeholder_email_outside_tests(): void
+    {
+        config(['melai.admin.email' => 'owner@example.com', 'melai.admin.password' => 'Real#Pass123']);
+        $this->app['env'] = 'production';
+        try {
+            $this->app->make(AdminSeeder::class)->run();
+            $this->fail('Seeder should refuse the placeholder email.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('placeholder', $e->getMessage());
+        } finally {
+            $this->app['env'] = 'testing';
+        }
+        $this->assertSame(0, User::count());
     }
 }

@@ -84,7 +84,11 @@ class DashboardService
         $loyalty = $this->data->loyalty();
         $staff = $isOwner && $live ? app(SupabaseRepository::class)->staffOverview($from, $now, $branchId) : null;
 
-        $sales = collect($branches)->map(function ($b) use ($orders, $from, $days, $salesPeriod) {
+        $settings = $this->platform->settings();
+        $num = fn ($k) => isset($settings[$k]) && $settings[$k] !== null ? (float) $settings[$k] : null;
+        [$salesLow, $salesHigh] = [$num('sales_low_ratio'), $num('sales_high_ratio')];
+
+        $sales = collect($branches)->map(function ($b) use ($orders, $from, $days, $salesPeriod, $salesLow, $salesHigh) {
             // The branch's row of sales_overview (null when the figures are unavailable: shown as "—").
             $row = $salesPeriod === null ? null : (DashboardKpis::row($salesPeriod['by_branch'] ?? [], 'branch_id', $b['id'])
                 ?? ['net_sales' => 0, 'gross_sales' => 0, 'refunds' => 0, 'refund_count' => 0, 'orders' => 0, 'pending_refund_amount' => 0]);
@@ -95,7 +99,7 @@ class DashboardService
 
             return ['id' => $b['id'], 'name' => $b['name'], 'net' => $net, 'target' => $target,
                 'pct' => $target && $net !== null ? round($net / $target * 100) : null,
-                'status' => $target && $net !== null ? SalesCalculator::status($net, $target) : 'none',
+                'status' => $target && $net !== null ? SalesCalculator::status($net, $target, $salesLow, $salesHigh) : 'none',
                 'gross' => $row === null ? null : (float) $row['gross_sales'],
                 'refunds' => $row === null ? null : (float) $row['refunds'],
                 'refund_count' => $row === null ? null : (int) $row['refund_count'],
@@ -111,7 +115,7 @@ class DashboardService
             'kpis' => $kpis,
             'today' => $period === 'today' ? $kpis : DashboardKpis::compute($orders, $stockByBranch, $now->copy()->startOfDay(), $now, $salesToday),
             'maxPct' => max(100, collect($sales)->whereNotNull('pct')->max('pct') ?? 0),
-            'stock' => $this->stock($branches, $stockByBranch),
+            'stock' => $this->stock($branches, $stockByBranch, $num('stock_low_ratio'), $num('stock_plenty_ratio')),
             'branches' => $branches, 'allBranches' => $allBranches, 'branchId' => $branchId,
             'pendingRefunds' => $kpis['pending_refund_count'], 'pendingRefundAmount' => $kpis['pending_refund_amount'], 'loyalty' => $loyalty,
             'isOwner' => $isOwner,
@@ -156,10 +160,10 @@ class DashboardService
         ];
     }
 
-    private function stock(array $branches, array $all): array
+    /** $lowBelow / $plentyFrom: the owner's stock-health ratios; either one not set = 'unrated'. */
+    private function stock(array $branches, array $all, ?float $lowBelow, ?float $plentyFrom): array
     {
-        $cfg = config('melai.stock');
-        $out = collect($branches)->map(function ($b) use ($cfg, $all) {
+        $out = collect($branches)->map(function ($b) use ($all, $lowBelow, $plentyFrom) {
             $items = collect($all[$b['id']] ?? []);
             // Test fixtures have a par level per product. The app has none, only a restock threshold,
             // so there the ratio is the share of products above their threshold.
@@ -168,7 +172,8 @@ class DashboardService
                 ? $items->filter(fn ($i) => $i['qty'] > $i['reorder'])->count() / $items->count()
                 : ($items->sum('par') ? $items->sum('qty') / $items->sum('par') : 0));
             return ['name' => $b['name'], 'pct' => $ratio === null ? null : round($ratio * 100), 'ratio' => $ratio,
-                'status' => $ratio === null ? 'none' : ($ratio < $cfg['low_below'] ? 'low' : ($ratio >= $cfg['plenty_from'] ? 'plenty' : 'normal')),
+                'status' => $ratio === null ? 'none' : ($lowBelow === null || $plentyFrom === null ? 'unrated'
+                    : ($ratio < $lowBelow ? 'low' : ($ratio >= $plentyFrom ? 'plenty' : 'normal'))),
                 'lowItems' => $items->filter(fn ($i) => $i['qty'] <= $i['reorder'])->values()->all(), 'lowest' => false];
         })->all();
 

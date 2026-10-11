@@ -44,21 +44,10 @@ return [
     // TEMPORARY: Server-Timing header + storage/logs/timing.log per request (supabase calls / ms).
     'timing' => filter_var(env('MELAI_TIMING', false), FILTER_VALIDATE_BOOL),
 
-    // CHANGE: sales thresholds. net / target below low_below = Low, above high_above = High, else Average.
-    'sales' => ['low_below' => 0.7, 'high_above' => 1.0],
-
-    // CHANGE: stock thresholds (total stock / par level). Below low_below = Low, from plenty_from = Plenty.
-    // With Supabase there is no par level, so the ratio is "share of items above their restock threshold".
-    'stock' => ['low_below' => 0.4, 'plenty_from' => 0.8],
-
-    // Optional daily SALES TARGETS per branch, matched to the app's branches by NAME
-    // (case-insensitive). The owner sets these; none are invented. A branch without a target
-    // shows its real sales with "No target set" instead of a Low/Average/High rating.
-    //   'targets' => ['Calamba Branch' => 6000, ...]
-    'targets' => [],
-    // Target for any branch not listed above; leave DEFAULT_DAILY_TARGET empty for none.
-    'default_daily_target' => env('DEFAULT_DAILY_TARGET') !== null && env('DEFAULT_DAILY_TARGET') !== ''
-        ? (float) env('DEFAULT_DAILY_TARGET') : null,
+    // Sales targets, sales-rating ratios, stock-health ratios, the restock threshold fallback and the
+    // healthy-margin line are OWNER SETTINGS in the database (Settings > Business settings,
+    // public.get_business_settings / owner_update_business_settings). Nothing here: a value the owner
+    // has not set is shown as "Not set", never replaced by a number from this file.
 
     // Sidebar pages (slug => title). All of them show live data from the app's database.
     'sections' => [

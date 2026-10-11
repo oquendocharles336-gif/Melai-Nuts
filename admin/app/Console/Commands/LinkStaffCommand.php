@@ -13,8 +13,8 @@ use Illuminate\Validation\ValidationException;
  * Bootstrap / repair tool: link an admin-portal login to its Melai Nuts app account.
  * Usually needed once, for the first admin (after that, admins link users on the Users page).
  *
- *   php artisan melai:link-staff kanzeki69@gmail.com <owner firebase uid>
- *   php artisan melai:link-staff kanzeki69@gmail.com --unlink
+ *   php artisan melai:link-staff owner@example.com <owner firebase uid>
+ *   php artisan melai:link-staff owner@example.com --unlink
  */
 class LinkStaffCommand extends Command
 {

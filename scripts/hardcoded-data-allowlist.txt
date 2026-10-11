@@ -1,0 +1,4 @@
+# <path glob>|<python regex matched against the line>|<reason>
+# Every entry must say why the value is a true technical constant or not fixture data.
+admin/database/factories/*|fake\(\)|Laravel model factories are used only by the automated tests (Faker); nothing in the app calls them.
+supabase/migrations/20261010020000_analytics_forecasting.sql|weekday dummy variables|Statistics term (dummy-coded weekday regressors), not data.

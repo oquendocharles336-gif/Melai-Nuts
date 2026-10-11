@@ -30,11 +30,9 @@
             </div>
             <p class="note">Saved in this browser for {{ $user->name }}.</p>
         </x-card>
-        <x-card title="Preview" subtitle="How numbers and status look with your choice">
-            <div class="kpi-top"><span class="icon-chip accent"><x-icon name="coins" :size="16" /></span>Revenue</div>
-            <div class="kpi-value">₱24,180.00</div>
-            <span class="delta up">↑ 12.4%</span> <span class="delta-note">vs before</span>
-            <div style="margin:16px 0 10px"><x-progress-bar :value="64" :max="100" label="Example progress" /></div>
+        <x-card title="Preview" subtitle="How highlights and status look with your choice (no real figures)">
+            <div class="kpi-top"><span class="icon-chip accent"><x-icon name="coins" :size="16" /></span>Accent colour</div>
+            <div style="margin:16px 0 10px"><x-progress-bar :value="50" :max="100" label="Accent colour preview" /></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap"><x-badge tone="ok">In stock</x-badge><x-badge tone="warn">Below par</x-badge><x-badge tone="bad">Out of stock</x-badge><x-badge tone="accent">Highlight</x-badge></div>
         </x-card>
     </div>

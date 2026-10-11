@@ -90,7 +90,7 @@ class SupabaseDataSource implements DataSource
             $items = array_filter($branch['items'] ?? [], fn ($i) => ($i['carried'] ?? true) === true);
             $out[$branch['branch_id']] = array_values(array_map(fn ($i) => [
                 'product' => $i['product_name'].(in_array($i['variant_label'] ?? '', ['', 'Regular'], true) ? '' : ' · '.$i['variant_label']),
-                'qty' => (int) $i['quantity'], 'par' => null, 'reorder' => (int) $i['restock_threshold'],
+                'qty' => (int) $i['quantity'], 'par' => null, 'reorder' => (int) $i['restock_threshold'], // NULL (threshold not set) = 0: only out-of-stock is flagged
             ], $items));
         }
 

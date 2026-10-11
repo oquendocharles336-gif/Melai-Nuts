@@ -29,10 +29,11 @@
             $isAdmin ? ['team', 'All users', route('admin.users.index'), 'admin/users*', 'shield', null] : null,
             $isAdmin ? ['logs', 'Activity logs', route('admin.logs'), 'admin/activity-logs*', 'scroll', null] : null,
         ])),
-        'Account' => [
+        'Account' => array_values(array_filter([
             ['settings', 'Settings', route('settings'), 'settings', 'settings', null],
+            $isAdmin ? ['business', 'Business settings', route('admin.business.index'), 'admin/business-settings*', 'store', null] : null,
             ['help', 'Help', route('help'), 'help', 'help', null],
-        ],
+        ])),
     ];
     $navJs = collect($groups)->flatMap(fn ($items, $g) => collect($items)->map(fn ($i) => ['key' => $i[0], 'label' => $i[1], 'url' => $i[2], 'group' => $g, 'icon' => $i[4]]))->values();
     // Branches for the New order form. The shell must never break a page (e.g. "database unreachable").

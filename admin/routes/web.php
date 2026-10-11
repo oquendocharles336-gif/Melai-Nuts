@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\Admin\BusinessSettingsController;
 use App\Http\Controllers\Admin\LoyaltyController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RefundController;
@@ -59,6 +60,12 @@ Route::middleware(['auth', 'active', 'bumps.cache'])->group(function () {
         Route::post('/refunds/{orderId}/hitpay/abandon', [RefundController::class, 'abandonHitpay'])->name('refunds.hitpay.abandon');
 
         Route::put('/loyalty/settings', [LoyaltyController::class, 'updateSettings'])->name('loyalty.settings.update');
+
+        // Owner business settings and branch details (stored in the app's database; owner only there too).
+        Route::get('/business-settings', [BusinessSettingsController::class, 'index'])->name('business.index');
+        Route::put('/business-settings', [BusinessSettingsController::class, 'update'])->name('business.update')->middleware('throttle:20,1');
+        Route::post('/branches', [BusinessSettingsController::class, 'saveBranch'])->name('branches.store')->middleware('throttle:20,1');
+        Route::put('/branches/{branch}', [BusinessSettingsController::class, 'saveBranch'])->name('branches.update')->middleware('throttle:20,1');
         Route::post('/loyalty/{member}/adjust', [LoyaltyController::class, 'adjust'])->name('loyalty.adjust');
     });
 

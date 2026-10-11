@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Http;
  */
 class FakeFirebase
 {
-    public const PROJECT = 'melai-nuts-app-2026'; // same id as ../.firebaserc; never contacted
+    public const PROJECT = 'test-firebase-project'; // test-only id; never contacted
     public const API_KEY = 'test-web-api-key';
     public const KID = 'test-kid';
 
@@ -55,6 +55,7 @@ class FakeFirebase
         config([
             'services.firebase.web_api_key' => self::API_KEY,
             'services.firebase.project_id' => self::PROJECT,
+            'services.firebase.firebaserc_path' => '', // the repository's real .firebaserc is not a test fixture
         ]);
         Cache::put(FirebaseTokenVerifier::CERTS_CACHE_KEY, [self::KID => self::keys()['cert']], 3600);
 

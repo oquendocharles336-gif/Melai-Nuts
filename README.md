@@ -32,8 +32,8 @@ Open `admin/.env` and set:
 | Setting | What to put |
 |---|---|
 | `FIREBASE_WEB_API_KEY` | **required.** The app's Firebase Web API key (Firebase console > Project settings > General; same as `FIREBASE_API_KEY_WEB` in `env/firebase.json`). Website logins are app accounts: sign-in, Create Account and linking all go through Firebase |
-| `FIREBASE_PROJECT_ID` | **required.** `melai-nuts-app-2026` (see `.firebaserc`). Check both with `php artisan melai:firebase-check` |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | a fallback website login for the first set-up (use the owner's email in the app, currently `kanzeki69@gmail.com`; once the owner signs in with the app password it becomes that app account). To change it later, see "Changing the admin email" below |
+| `FIREBASE_PROJECT_ID` | **required.** Your Firebase project ID (the same as `.firebaserc`). Check both with `php artisan melai:firebase-check` |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | a fallback website login for the first set-up (use the owner's email in the app, e.g. `owner@example.com`; once the owner signs in with the app password it becomes that app account). To change it later, see "Changing the admin email" below |
 | `ADMIN_STAFF_UID` | optional: the owner's Firebase UID, to link the first admin from the command line instead |
 | `SUPABASE_DB_*` | the `melai_admin_portal` connection (see [INTEGRATION.md](INTEGRATION.md), step 2A) |
 | `HITPAY_API_KEY`, `HITPAY_ENV` | optional, for "Send via HitPay" refunds |
@@ -89,7 +89,7 @@ history) instead of creating a new admin:
 
 ```bash
 cd admin
-php artisan melai:change-admin-email <old email> kanzeki69@gmail.com --uid=<owner Firebase UID>
+php artisan melai:change-admin-email <old email> <new owner email> --uid=<owner Firebase UID>
 ```
 
 Then set `ADMIN_EMAIL` to the new email in `admin/.env` and run `php artisan config:clear`.

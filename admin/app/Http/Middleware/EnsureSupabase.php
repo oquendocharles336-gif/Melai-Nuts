@@ -6,7 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-/** Pages that only exist with the shared database; 404 only for the automated tests' fixtures (MockPlatform). */
+/** Pages that only exist with the shared database; 404 only for the automated tests' fixtures (tests/Support). */
 class EnsureSupabase
 {
     public function handle(Request $request, Closure $next): Response

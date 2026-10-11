@@ -6,7 +6,7 @@ namespace App\Services\Firebase;
  * Firebase Authentication settings of the Melai Nuts app (project in ../.firebaserc), read from .env.
  *
  *   FIREBASE_WEB_API_KEY   required  public Web API key of the app's Firebase project
- *   FIREBASE_PROJECT_ID    required  e.g. melai-nuts-app-2026; ID tokens must be issued for it
+ *   FIREBASE_PROJECT_ID    required  the Firebase project ID (same as ../.firebaserc); ID tokens must be issued for it
  *   FIREBASE_REQUIRE_VERIFIED_EMAIL  optional (default false)
  *
  * The API key only identifies the project for Identity Toolkit requests. It does not create,
@@ -59,6 +59,6 @@ class FirebaseConfig
         return 'Signing in with the Melai Nuts app account is not configured on this website: '
             .implode(' and ', $missing).(count($missing) > 1 ? ' are' : ' is').' empty in admin/.env. '
             .'Firebase console > Project settings > General: "Web API key" goes in FIREBASE_WEB_API_KEY and "Project ID" '
-            .'(melai-nuts-app-2026) in FIREBASE_PROJECT_ID. Then run: php artisan config:clear && php artisan melai:firebase-check';
+            .'in FIREBASE_PROJECT_ID (the same project as ../.firebaserc). Then run: php artisan config:clear && php artisan melai:firebase-check';
     }
 }

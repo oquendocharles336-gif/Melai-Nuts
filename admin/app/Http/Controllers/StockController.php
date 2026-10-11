@@ -37,7 +37,7 @@ class StockController extends Controller
         return response()->json([
             'message' => 'Received '.$v['quantity'].' × '.($item['product_name'] ?? 'item').'.',
             'item' => $item ? ['variant_id' => $item['variant_id'], 'quantity' => (int) $item['quantity'],
-                'restock_threshold' => (int) $item['restock_threshold'], 'batched_quantity' => (int) $item['batched_quantity']] : null,
+                'restock_threshold' => $item['restock_threshold'] === null ? null : (int) $item['restock_threshold'], 'batched_quantity' => (int) $item['batched_quantity']] : null,
         ]);
     }
 }

@@ -149,7 +149,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     const Divider(),
                     const SizedBox(height: 8),
                     Text(
-                      'Having trouble? Contact Melai Nuts HQ Admin at support@melainuts.ph.',
+                      'Having trouble? Ask the store owner or your branch staff for help.',
                       textAlign: TextAlign.center,
                       style: AppTextStyles.bodySm,
                     ),

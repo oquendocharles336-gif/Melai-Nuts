@@ -7,14 +7,14 @@
     <x-button variant="primary" icon="plus" x-on:click="$dispatch('open-modal', 'new-order')">New order</x-button>
 @endsection
 @section('panel')
-@php $label = ['low' => 'Low', 'average' => 'Average', 'high' => 'High', 'normal' => 'Normal', 'plenty' => 'Plenty', 'none' => 'No data'];
+@php $label = ['low' => 'Low', 'average' => 'Average', 'high' => 'High', 'normal' => 'Normal', 'plenty' => 'Plenty', 'none' => 'No data', 'unrated' => 'Not rated'];
      $peso = fn ($n) => '₱'.number_format($n); $peso2 = fn ($n) => $n === null ? '—' : '₱'.number_format($n, 2);
      $int = fn ($n) => $n === null ? '—' : number_format($n); $rate = fn ($n) => $n === null ? '—' : number_format($n * 100, 1).'%';
      $periodLabel = ['today' => 'today', 'week' => 'this week', 'month' => 'this month'][$period];
      $methodLabel = ['gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card', 'cash' => 'Cash', 'cod' => 'Cash on delivery'];
      $scopeLabel = $branchId ? (collect($branches)->first()['name'] ?? '') : (count($allBranches) > 1 ? 'all branches' : (collect($allBranches)->first()['name'] ?? ''));
      $q = fn (array $o) => '?'.http_build_query(array_filter(array_merge(['period' => $period, 'branch' => $branchId], $o), fn ($v) => $v !== null));
-     $tone = ['low' => 'bad', 'average' => 'warn', 'normal' => 'warn', 'high' => 'ok', 'plenty' => 'ok', 'none' => 'info', 'info' => 'info']; @endphp
+     $tone = ['low' => 'bad', 'average' => 'warn', 'normal' => 'warn', 'high' => 'ok', 'plenty' => 'ok', 'none' => 'info', 'info' => 'info', 'unrated' => 'info']; @endphp
 
 @include('partials.flash')
 
@@ -292,12 +292,12 @@
             </div>
         @endforeach
     </div>
-    <p class="note">Net sales: paid orders minus discounts and completed refunds{{ $liveData ? ' (live from the Melai Nuts app)' : ' (test data)' }}. Optional sales targets: config/melai.php (targets) or DEFAULT_DAILY_TARGET.</p>
+    <p class="note">Net sales: paid orders minus discounts and completed refunds{{ $liveData ? ' (live from the Melai Nuts app)' : ' (test data)' }}. Sales targets and the Low/Average/High rating are owner settings in Business settings; "Not rated" = rating ratios not set.@if (auth()->user()?->isAdmin()) <a href="{{ route('admin.business.index') }}">Open Business settings</a>@endif</p>
 </section>
 
 <section class="block">
     <h2>Stock levels per branch</h2>
-    @if ($liveData) <p class="note" style="margin:0">Share of products above their restock threshold in each branch.</p> @endif
+    @if ($liveData) <p class="note" style="margin:0">Share of products above their restock threshold in each branch. "Not rated" = stock-health ratios not set in Business settings.</p> @endif
     <div class="grid-4">
         @foreach ($stock as $s)
             <div class="card-b {{ $s['lowest'] ? 'lowest' : '' }}">

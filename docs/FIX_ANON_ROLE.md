@@ -6,7 +6,7 @@ runs the request as `anon`. Do NOT `GRANT ... TO anon`.
 Run these once (nothing here goes in the Flutter app):
 
 1. Supabase Dashboard > Authentication > Sign In / Providers > Third-Party Auth
-   > Firebase > enter project ID `melai-nuts-app-2026`.
+   > Firebase > enter your Firebase project ID (the one in `.firebaserc`).
 2. Fix existing users (works on the free Spark plan, no Identity Platform):
    ```
    cd functions && npm install

@@ -10,8 +10,8 @@ use Illuminate\Validation\ValidationException;
  * Change the email of the existing "Melai Admin" login IN PLACE (same user id; password, role,
  * access and activity history kept), then link it to the app's active owner with the new email.
  *
- *   php artisan melai:change-admin-email old@example.com kanzeki69@gmail.com
- *   php artisan melai:change-admin-email old@example.com kanzeki69@gmail.com --uid=<owner firebase uid>
+ *   php artisan melai:change-admin-email old@example.com owner@example.com
+ *   php artisan melai:change-admin-email old@example.com owner@example.com --uid=<owner firebase uid>
  *
  * If no login has the old email, the single admin named ADMIN_NAME ("Melai Admin") is used.
  * Afterwards set ADMIN_EMAIL to the new email in .env.

@@ -119,9 +119,9 @@ touch database/database.sqlite
 # edit .env:
 #   FIREBASE_WEB_API_KEY  (recommended) Firebase console > Project settings > General > Web API key
 #                          (= FIREBASE_API_KEY_WEB in ../env/firebase.json)
-#   FIREBASE_PROJECT_ID   (recommended) melai-nuts-app-2026 (Project settings > General > Project ID)
+#   FIREBASE_PROJECT_ID   (required) your Firebase project ID (Project settings > General > Project ID; same as .firebaserc)
 #   SUPABASE_DB_*         from step A3
-#   ADMIN_EMAIL / ADMIN_PASSWORD  the "Melai Admin" login (owner's email: kanzeki69@gmail.com)
+#   ADMIN_EMAIL / ADMIN_PASSWORD  the "Melai Admin" login (use the owner's app email, e.g. owner@example.com)
 #   ADMIN_STAFF_UID        the owner's Firebase UID in staff_members (standard). The admin login acts as
 #                          that owner automatically; Supabase must confirm an ACTIVE OWNER with ADMIN_EMAIL.
 #                          Empty: the active owner row whose email equals ADMIN_EMAIL is used.
@@ -143,7 +143,7 @@ branch and every staff account. If something is missing, the login page says exa
 | Variable | Required | Where to get it |
 |---|---|---|
 | `FIREBASE_WEB_API_KEY` | yes | Firebase console → Project settings → General → *Web API key*. Not a secret, but keep `.env` out of Git |
-| `FIREBASE_PROJECT_ID` | yes | Same page → *Project ID* (`melai-nuts-app-2026`, also in `.firebaserc`). ID tokens of any other project are refused |
+| `FIREBASE_PROJECT_ID` | yes | Same page → *Project ID* (the same ID as `.firebaserc`). ID tokens of any other project are refused |
 | `FIREBASE_REQUIRE_VERIFIED_EMAIL` | no (`false`) | `true` = only accounts whose email Firebase reports verified may sign in. App-created staff never get a verification email, so leave `false` unless they all verified |
 | `SUPABASE_DB_*` | yes | step A3 |
 

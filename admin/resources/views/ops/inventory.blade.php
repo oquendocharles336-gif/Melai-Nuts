@@ -7,7 +7,7 @@
         'variant_id' => $i['variant_id'], 'product_id' => $i['product_id'] ?? null,
         'product' => $i['product_name'], 'variant' => $i['variant_label'] ?: 'Regular', 'sku' => $i['sku'] ?? null,
         'category' => $categories[$i['product_id'] ?? ''] ?? null,
-        'qty' => (int) $i['quantity'], 'threshold' => (int) $i['restock_threshold'], 'batched' => (int) $i['batched_quantity'],
+        'qty' => (int) $i['quantity'], 'threshold' => $i['restock_threshold'] === null ? null : (int) $i['restock_threshold'], 'batched' => (int) $i['batched_quantity'],
         'price' => isset($i['price']) ? (float) $i['price'] : null,
     ])->values();
 @endphp
@@ -60,7 +60,7 @@
                     <td data-label="Category" x-text="i.category || '—'"></td>
                     <td><div style="display:flex;align-items:center;gap:10px">
                         <x-progress-bar x-width="width(i)" x-tick="tick(i)" style="flex:1" ::class="i.qty <= 0 ? 'bad' : ''" label="Stock level" />
-                        <span class="num" style="white-space:nowrap;font-size:12.5px;min-width:78px;text-align:right"><b x-text="i.qty"></b><span class="muted" x-text="' / ' + i.threshold"></span></span></div></td>
+                        <span class="num" style="white-space:nowrap;font-size:12.5px;min-width:78px;text-align:right"><b x-text="i.qty"></b><span class="muted" x-text="' / ' + (i.threshold ?? 'not set')"></span></span></div></td>
                     <td><span class="badge" :class="state(i)[0]" x-text="state(i)[1]"></span></td>
                     <td class="r"><button type="button" class="btn sm" x-on:click="openReceive(i.variant_id)" :aria-label="'Receive ' + i.product">Receive</button></td>
                 </tr>
@@ -69,7 +69,7 @@
         </x-table>
         <noscript>
             <table class="table"><thead><tr><th>Product</th><th>Variant</th><th>In stock</th><th>Restock at</th></tr></thead><tbody>
-            @foreach ($inventory['items'] ?? [] as $i)<tr><td>{{ $i['product_name'] }}</td><td>{{ $i['variant_label'] ?: 'Regular' }}</td><td><strong>{{ $i['quantity'] }}</strong></td><td>{{ $i['restock_threshold'] }}</td></tr>@endforeach
+            @foreach ($inventory['items'] ?? [] as $i)<tr><td>{{ $i['product_name'] }}</td><td>{{ $i['variant_label'] ?: 'Regular' }}</td><td><strong>{{ $i['quantity'] }}</strong></td><td>{{ $i['restock_threshold'] ?? 'Not set' }}</td></tr>@endforeach
             </tbody></table>
         </noscript>
     </x-card>

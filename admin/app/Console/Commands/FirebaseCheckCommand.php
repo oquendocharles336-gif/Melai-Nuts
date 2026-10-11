@@ -32,7 +32,7 @@ class FirebaseCheckCommand extends Command
         $this->line('FIREBASE_PROJECT_ID  = '.$config->projectId());
         $this->line('FIREBASE_WEB_API_KEY = '.substr((string) $config->apiKey(), 0, 6).'… (set)');
 
-        $rc = base_path('../.firebaserc');
+        $rc = (string) config('services.firebase.firebaserc_path', base_path('../.firebaserc')); // tests point this elsewhere
         if (is_file($rc)) {
             $appProject = json_decode((string) file_get_contents($rc), true)['projects']['default'] ?? null;
             if ($appProject && $appProject !== $config->projectId()) {
@@ -49,7 +49,7 @@ class FirebaseCheckCommand extends Command
 
             return self::FAILURE;
         }
-        // Google may answer with the project NUMBER (e.g. 865090291609) instead of the project ID.
+        // Google may answer with the project NUMBER (a 12-digit number) instead of the project ID.
         // A number can't be compared with the ID here; the real check is the "aud" of every ID token.
         if (ctype_digit($keyProject)) {
             $this->info("OK: Firebase accepts the Web API key (project number {$keyProject}).");

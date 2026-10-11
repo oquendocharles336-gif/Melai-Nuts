@@ -106,6 +106,7 @@ class SupabaseRepository
             'loyaltySummary' => ['loyalty-summary', 'public.admin_portal_loyalty_summary()', [], true],
             'staffOverview' => ['staff-overview:'.$ts($a[0]).':'.$ts($a[1]).':'.($a[2] ?? null), 'public.owner_staff_overview(?::timestamptz, ?::timestamptz, ?::uuid)', [$ts($a[0]), $ts($a[1]), $a[2] ?? null], true],
             'analyticsReport' => ["report:{$a[0]}:{$a[1]}:".($a[2] ?? null), 'public.analytics_report(?::date, ?::date, ?::uuid)', [$a[0], $a[1], $a[2] ?? null], true],
+            'businessSettings' => ['business-settings', 'public.get_business_settings()', [], true],
             'salesOverview' => ["sales:{$a[0]}:{$a[1]}:".($a[2] ?? null), 'public.sales_overview(?::date, ?::date, ?::uuid)', [$a[0], $a[1], $a[2] ?? null], true],
             'products' => ['products', 'public.admin_portal_products()', [], false],
             'inventory' => ['inventory:'.$a[0], 'public.staff_get_inventory(?::uuid)', [$a[0]], false],
@@ -168,6 +169,37 @@ class SupabaseRepository
     public function loyaltyMember(string $firebaseUid): ?array
     {
         return $this->call('select public.admin_portal_loyalty_member(?::text)::text as r', [$firebaseUid]);
+    }
+
+    /**
+     * Owner-editable business settings + branch details (migration 20261018000000). Every value
+     * may be null = "Not set"; nothing is filled in here.
+     */
+    public function businessSettings(): array
+    {
+        return $this->memo('business-settings', fn () => $this->call('select public.get_business_settings()::text as r') ?? []);
+    }
+
+    /** $values: only the keys to change; null clears a value. Owner only (checked by the database). */
+    public function updateBusinessSettings(array $values): array
+    {
+        $this->forget();
+
+        return $this->call('select public.owner_update_business_settings(?::jsonb)::text as r', [json_encode((object) $values)]) ?? [];
+    }
+
+    /** Create ($id null) or update a branch's details. Returns the branch id. Owner only. */
+    public function saveBranch(?string $id, array $d): string
+    {
+        $this->forget();
+        $bool = fn ($v) => $v === null ? null : ($v ? 'true' : 'false');
+        $r = $this->call('select public.owner_save_branch(?::uuid, ?::text, ?::text, ?::text, ?::text, ?::numeric, ?::numeric, ?::boolean, ?::boolean, ?::boolean)::text as r', [
+            $id, $d['name'], $d['address'] ?? null, $d['contact_phone'] ?? null, $d['operating_hours'] ?? null,
+            $d['delivery_fee'], $d['daily_sales_target'] ?? null,
+            $bool($d['supports_delivery'] ?? null), $bool($d['supports_pickup'] ?? null), $bool($d['is_active'] ?? null),
+        ]) ?? [];
+
+        return (string) ($r['id'] ?? $id);
     }
 
     public function loyaltySettings(): array

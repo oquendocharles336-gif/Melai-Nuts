@@ -32,6 +32,14 @@ class FakeSupabase extends SupabaseGateway
     public array $customers = [];
     /** uid => overview metrics merged into owner_staff_overview rows */
     public array $activity = [];
+    /** business_settings row (get_business_settings shape, without branches); null values = Not set */
+    public array $settings = [
+        'restock_threshold_default' => null, 'stock_low_ratio' => null, 'stock_plenty_ratio' => null,
+        'sales_low_ratio' => null, 'sales_high_ratio' => null, 'default_daily_sales_target' => null,
+        'healthy_margin_percent' => null, 'carried_over' => false,
+        'loyalty' => ['earn_pesos_per_point' => null, 'points_per_peso' => null, 'max_discount_percent' => null],
+        'online_payment_enabled' => false, 'online_payment_disabled_message' => 'Online payment is temporarily unavailable.',
+    ];
     /** [['uid', 'fn', 'bindings', 'claims']] */
     public array $calls = [];
     public bool $offline = false;
@@ -198,11 +206,53 @@ class FakeSupabase extends SupabaseGateway
                 : throw new BackendActionException('Only an active owner can do this.'),
             'admin_portal_loyalty_members' => array_values(array_map(fn ($c) => ['id' => $c['firebase_uid'], 'name' => $c['full_name'], 'email' => $c['email'],
                 'card_number' => $c['card_number'], 'balance' => $c['points_balance']], $this->matchingCustomers($bindings[0] ?? null))),
+            'get_business_settings' => $this->settings + ['branches' => array_values(array_map(fn ($b) => $b + [
+                'address' => null, 'contact_phone' => null, 'operating_hours' => null, 'is_active' => true, 'supports_delivery' => false,
+                'supports_pickup' => true, 'delivery_fee' => 0, 'daily_sales_target' => null], array_filter($this->branches, fn ($b) => in_array($b['id'], $allowed, true))))],
+            'owner_update_business_settings' => $me['role'] === 'owner' ? $this->updateSettings(json_decode((string) $bindings[0], true) ?: [], $allowed)
+                : throw new BackendActionException('Only an active owner can do this.'),
+            'owner_save_branch' => $me['role'] === 'owner' ? $this->saveBranch($bindings) : throw new BackendActionException('Only an active owner can do this.'),
             'admin_portal_staff_directory' => $me['role'] === 'owner'
                 ? array_values(array_map(fn ($s) => $s + ['branch_name' => $this->branchName($s['branch_id']), 'is_active' => $s['account_status'] === 'active'], $this->staff))
                 : throw new BackendActionException('Only an active owner can do this.'),
             default => throw new BackendUnavailableException("FakeSupabase has no answer for {$fn}()."),
         };
+    }
+
+    private function updateSettings(array $values, array $allowed): array
+    {
+        foreach ($values as $k => $v) {
+            if (! array_key_exists($k, $this->settings) || $k === 'loyalty') {
+                throw new BackendActionException("Unknown setting: $k");
+            }
+            $this->settings[$k] = $v;
+        }
+        $this->settings['carried_over'] = false;
+
+        return $this->call('uid-owner', 'select public.get_business_settings()::text as r');
+    }
+
+    private function saveBranch(array $b): array
+    {
+        [$id, $name, $address, $phone, $hours, $fee, $target, $delivery, $pickup, $active] = $b;
+        if ($fee === null) {
+            throw new BackendActionException('Enter the delivery fee (0 if delivery is free).');
+        }
+        $row = ['name' => $name, 'address' => $address, 'contact_phone' => $phone, 'operating_hours' => $hours,
+            'delivery_fee' => (float) $fee, 'daily_sales_target' => $target === null ? null : (float) $target,
+            'supports_delivery' => $delivery === 'true', 'supports_pickup' => $pickup === 'true', 'is_active' => $active === 'true'];
+        if ($id === null) {
+            $id = 'b-new-'.count($this->branches);
+            $this->branches[] = ['id' => $id] + $row;
+        } else {
+            foreach ($this->branches as $i => $existing) {
+                if ($existing['id'] === $id) {
+                    $this->branches[$i] = ['id' => $id] + $row;
+                }
+            }
+        }
+
+        return ['id' => $id];
     }
 
     /** sales_overview() shape from the fixture orders, for the caller's branches (see SalesFixture). */

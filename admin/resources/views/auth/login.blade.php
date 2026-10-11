@@ -24,7 +24,7 @@
         <div class="alert" role="alert" style="color:#C0392B;background:#fdecea;border-color:#f5b7b1">{{ $message }}</div>
     @enderror
 
-    <x-field name="email" label="Email" type="email" autocomplete="email" placeholder="admin@melainuts.com" />
+    <x-field name="email" label="Email" type="email" autocomplete="email" placeholder="you@example.com" />
     <x-field name="password" label="Password" password autocomplete="current-password" />
 
     <div class="row">

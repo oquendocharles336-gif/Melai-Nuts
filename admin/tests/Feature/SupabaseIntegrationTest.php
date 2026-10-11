@@ -121,7 +121,9 @@ class SupabaseIntegrationTest extends TestCase
             [$this->fx['owner'], "owner-$s@test.local", $this->fx['staff_a'], "staff-a-$s@test.local", $this->fx['branch_a']]);
         $db->insert("insert into public.customer_profiles (firebase_uid, full_name, email, phone, rfid_card_number) values (?, ?, ?, '0917', ?)",
             [$this->fx['customer'], "IT Customer $s", "cust-$s@test.local", "CARD-$s"]);
-        $db->statement("insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent) values ('default', 1, 50) on conflict (id) do nothing");
+        // Test fixture: loyalty rules (a new database has none; the owner sets them).
+        $db->statement("insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
+                        on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50");
     }
 
     /** Customer checkout through the app's own functions. Returns the order id. */
@@ -348,7 +350,10 @@ class SupabaseIntegrationTest extends TestCase
     public function test_targets_are_only_shown_when_set_and_the_website_reads_no_map_positions(): void
     {
         $admin = $this->portalAdmin();
-        config(['melai.targets' => [], 'melai.default_daily_target' => null]);
+        $this->db()->statement("insert into public.business_settings (id) values ('default') on conflict (id) do nothing");
+        $this->db()->update("update public.business_settings set default_daily_sales_target = null where id = 'default'");
+        $this->db()->update('update public.branches set daily_sales_target = null where id in (?, ?)', [$this->fx['branch_a'], $this->fx['branch_b']]);
+        \App\Services\AdminActions::bump();
 
         // No targets configured: no ratings, nothing invented. Branch coordinates are app-only data.
         $this->db()->update('update public.branches set latitude = 14.2117, longitude = 121.1653 where id = ?', [$this->fx['branch_a']]);
@@ -357,8 +362,9 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertArrayNotHasKey('lat', $branches[$this->fx['branch_a']]);
         $this->assertNull($branches[$this->fx['branch_a']]['daily_target']);
 
-        // A target set by the owner is used as it is.
-        config(['melai.targets' => [$this->fx['branch_a_name'] => 7000]]);
+        // A target set by the owner (in the database) is used as it is.
+        $this->db()->update('update public.branches set daily_sales_target = 7000 where id = ?', [$this->fx['branch_a']]);
+        \App\Services\AdminActions::bump();
         app()->forgetScopedInstances();
         $page = $this->actingAs($admin)->get('/dashboard')->assertOk()->assertSee('of ₱7,000 target', false);
         $branches = collect($page->viewData('branches'))->keyBy('id');
@@ -496,6 +502,44 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame(10, (int) $this->db()->selectOne('select points_earned from public.orders where id = ?', [$order])->points_earned);
 
         $this->db()->update("update public.loyalty_cart_settings set earn_pesos_per_point = 50 where id = 'default'"); // leave the shared test DB as found
+    }
+
+    public function test_business_settings_and_branch_details_are_saved_in_the_app_database_by_the_owner_only(): void
+    {
+        $db = $this->db();
+        $before = $db->selectOne("select to_jsonb(s) as j from public.business_settings s where id = 'default'")?->j;
+        $admin = $this->portalAdmin();
+
+        $this->actingAs($admin)->get('/admin/business-settings')->assertOk()->assertSee($this->fx['branch_a_name']);
+        $this->actingAs($admin)->put('/admin/business-settings', ['restock_threshold_default' => '9', 'healthy_margin_percent' => '30',
+            'sales_low_percent' => '60', 'sales_high_percent' => '120'])->assertRedirect(route('admin.business.index'))->assertSessionHas('status');
+        $row = $db->selectOne("select restock_threshold_default, healthy_margin_percent, sales_low_ratio, sales_high_ratio, stock_low_ratio, carried_over
+                               from public.business_settings where id = 'default'");
+        $this->assertSame([9, 30.0, 0.6, 1.2, null, false], [(int) $row->restock_threshold_default, (float) $row->healthy_margin_percent,
+            (float) $row->sales_low_ratio, (float) $row->sales_high_ratio, $row->stock_low_ratio, (bool) $row->carried_over]);
+        $this->assertSame(9, (int) $db->selectOne('select public._default_restock_threshold() as t')->t, 'the database uses it right away');
+
+        $this->actingAs($admin)->put('/admin/branches/'.$this->fx['branch_a'], ['name' => $this->fx['branch_a_name'], 'address' => 'Real street 1',
+            'contact_phone' => '09170000000', 'operating_hours' => '8 AM - 6 PM', 'delivery_fee' => '25', 'daily_sales_target' => '3000',
+            'supports_delivery' => '1', 'supports_pickup' => '1', 'is_active' => '1'])->assertRedirect()->assertSessionHas('status');
+        $b = $db->selectOne('select address, contact_phone, operating_hours, delivery_fee, daily_sales_target from public.branches where id = ?', [$this->fx['branch_a']]);
+        $this->assertSame(['Real street 1', '09170000000', '8 AM - 6 PM', 25.0, 3000.0],
+            [$b->address, $b->contact_phone, $b->operating_hours, (float) $b->delivery_fee, (float) $b->daily_sales_target]);
+
+        // Staff are refused by the website AND by the database.
+        $this->actingAs($this->portalStaff())->put('/admin/business-settings', ['restock_threshold_default' => '1'])->assertForbidden();
+        $this->expectException(\Illuminate\Database\QueryException::class);
+        try {
+            $this->asAppUser($this->fx['staff_a'], "select public.owner_update_business_settings('{\"restock_threshold_default\": 1}'::jsonb)");
+        } finally {
+            $this->assertSame(9, (int) $db->selectOne("select restock_threshold_default from public.business_settings where id = 'default'")->restock_threshold_default);
+            // leave the shared test database as found
+            $db->update('update public.branches set daily_sales_target = null where id = ?', [$this->fx['branch_a']]);
+            $db->delete("delete from public.business_settings where id = 'default'");
+            if ($before) {
+                $db->insert('insert into public.business_settings select * from jsonb_populate_record(null::public.business_settings, ?::jsonb)', [$before]);
+            }
+        }
     }
 
     // ---- branch scoping, catalog, inventory ------------------------------------------------

@@ -16,6 +16,9 @@
 <div class="block-head"><h2>Settings</h2></div>
 <div class="card" style="max-width:none">
     <p class="muted" style="margin-top:0">These are the rules the Melai Nuts app uses at checkout. Changes apply to new orders right away.</p>
+    @if (($settings['earn_pesos_per_point'] ?? null) === null)
+        <div class="flash warn" role="status" data-loyalty-not-set><x-icon name="alert" :size="16" />Not set: no loyalty rules have been saved yet, so customers earn no points and cannot redeem any. Enter all three values and save.</div>
+    @endif
     <form method="POST" action="{{ route('admin.loyalty.settings.update') }}" class="filter-row">
         @csrf @method('PUT')
         <div class="field" style="margin:0">

@@ -1,14 +1,14 @@
 // Firebase configuration for Melai Nuts.
 //
-// API keys are NOT stored in source control. They are injected at build time:
+// NOTHING project-specific is stored in source control: the API keys AND the
+// identifiers (project ID, app IDs, sender ID, bucket, bundle ID) are injected
+// at build time from env/firebase.json (git-ignored):
 //
-//   flutter run --dart-define-from-file=env/firebase.json
-//   flutter build apk --dart-define-from-file=env/firebase.json
+//   flutter run --dart-define-from-file=env/firebase.json --dart-define-from-file=env/supabase.json
+//   flutter build apk --dart-define-from-file=env/firebase.json --dart-define-from-file=env/supabase.json
 //
-// Copy env/firebase.example.json to env/firebase.json (git-ignored) and fill in
-// the values from Firebase Console / Google Cloud Console. See SECURITY.md.
-//
-// Non-secret identifiers (appId, projectId, senderId, bucket) stay in code.
+// Copy env/firebase.example.json to env/firebase.json and fill in the values from
+// Firebase console > Project settings > General > Your apps. See SECURITY.md.
 // Never put service-account JSON, Admin SDK keys or other private keys here.
 // ignore_for_file: type=lint
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
@@ -19,9 +19,9 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     final options = _select();
-    if (options.apiKey.isEmpty) {
+    if (options.apiKey.isEmpty || options.projectId.isEmpty || options.appId.isEmpty) {
       throw StateError(
-        'Firebase API key is missing. Run with '
+        'Firebase configuration is missing (API key, project ID or app ID). Run with '
         '--dart-define-from-file=env/firebase.json '
         '(copy env/firebase.example.json first). See SECURITY.md.',
       );
@@ -54,13 +54,19 @@ class DefaultFirebaseOptions {
     }
   }
 
+  static const String _projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
+  static const String _senderId = String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
+  static const String _bucket = String.fromEnvironment('FIREBASE_STORAGE_BUCKET');
+  static const String _authDomain = String.fromEnvironment('FIREBASE_AUTH_DOMAIN');
+  static const String _iosBundleId = String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID');
+
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: String.fromEnvironment('FIREBASE_API_KEY_WEB'),
-    appId: '1:865090291609:web:1ab56a62928f50fb1db508',
-    messagingSenderId: '865090291609',
-    projectId: 'melai-nuts-app-2026',
-    authDomain: 'melai-nuts-app-2026.firebaseapp.com',
-    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+    appId: String.fromEnvironment('FIREBASE_APP_ID_WEB'),
+    messagingSenderId: _senderId,
+    projectId: _projectId,
+    authDomain: _authDomain,
+    storageBucket: _bucket,
   );
 
   // MUST match the key in android/app/google-services.json (the native SDK
@@ -68,36 +74,36 @@ class DefaultFirebaseOptions {
   // core/duplicate-app).
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: String.fromEnvironment('FIREBASE_API_KEY_ANDROID'),
-    appId: '1:865090291609:android:231a67991e6cea8e1db508',
-    messagingSenderId: '865090291609',
-    projectId: 'melai-nuts-app-2026',
-    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+    appId: String.fromEnvironment('FIREBASE_APP_ID_ANDROID'),
+    messagingSenderId: _senderId,
+    projectId: _projectId,
+    storageBucket: _bucket,
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
     apiKey: String.fromEnvironment('FIREBASE_API_KEY_WINDOWS'),
-    appId: '1:865090291609:web:bdab53b6c10393f01db508',
-    messagingSenderId: '865090291609',
-    projectId: 'melai-nuts-app-2026',
-    authDomain: 'melai-nuts-app-2026.firebaseapp.com',
-    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+    appId: String.fromEnvironment('FIREBASE_APP_ID_WINDOWS'),
+    messagingSenderId: _senderId,
+    projectId: _projectId,
+    authDomain: _authDomain,
+    storageBucket: _bucket,
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: String.fromEnvironment('FIREBASE_API_KEY_MACOS'),
-    appId: '1:865090291609:ios:860e86831b6af8691db508',
-    messagingSenderId: '865090291609',
-    projectId: 'melai-nuts-app-2026',
-    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
-    iosBundleId: 'com.example.melaiNuts',
+    appId: String.fromEnvironment('FIREBASE_APP_ID_IOS'),
+    messagingSenderId: _senderId,
+    projectId: _projectId,
+    storageBucket: _bucket,
+    iosBundleId: _iosBundleId,
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: String.fromEnvironment('FIREBASE_API_KEY_IOS'),
-    appId: '1:865090291609:ios:860e86831b6af8691db508',
-    messagingSenderId: '865090291609',
-    projectId: 'melai-nuts-app-2026',
-    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
-    iosBundleId: 'com.example.melaiNuts',
+    appId: String.fromEnvironment('FIREBASE_APP_ID_IOS'),
+    messagingSenderId: _senderId,
+    projectId: _projectId,
+    storageBucket: _bucket,
+    iosBundleId: _iosBundleId,
   );
 }

@@ -17,6 +17,18 @@ class MockPlatform extends Platform
         ['id' => 'branch-santa-cruz', 'name' => 'Santa Cruz Branch', 'daily_target' => 4500],
     ];
 
+    /** Test fixture settings (the real ones come from public.get_business_settings()). */
+    public const SETTINGS = [
+        'restock_threshold_default' => 20, 'stock_low_ratio' => 0.4, 'stock_plenty_ratio' => 0.8,
+        'sales_low_ratio' => 0.7, 'sales_high_ratio' => 1.0, 'default_daily_sales_target' => null,
+        'healthy_margin_percent' => 50, 'carried_over' => false, 'branches' => [],
+    ];
+
+    public function settings(): array
+    {
+        return self::SETTINGS;
+    }
+
     public function isSupabase(): bool
     {
         return false;

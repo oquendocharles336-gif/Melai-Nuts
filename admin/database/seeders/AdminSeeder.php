@@ -20,6 +20,10 @@ class AdminSeeder extends Seeder
         }
 
         $email = mb_strtolower(trim($cfg['email']));
+        // The .env.example placeholder (owner@example.com) is never a real login outside the test suite.
+        if (! app()->environment('testing') && preg_match('/@example\.(com|org|net)$/', $email)) {
+            throw new \RuntimeException("ADMIN_EMAIL is still the placeholder {$email}. Put the owner's real app email in .env before seeding.");
+        }
 
         // ADMIN_EMAIL changed? Then the existing "Melai Admin" login is renamed in place (same user,
         // password, role, access, history) instead of a second admin being created.

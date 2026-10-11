@@ -416,9 +416,9 @@ function stockComponent(items, { receiveUrl, branch, branchName, live }) {
                 && (!this.category || i.category === this.category)
                 && (!q || (i.product + ' ' + i.variant + ' ' + (i.sku || '')).toLowerCase().includes(q)));
         },
-        state(i) { return i.qty <= 0 ? ['bad', 'Out of stock'] : i.qty <= i.threshold ? ['warn', 'Below par'] : ['ok', 'In stock']; },
+        state(i) { return i.qty <= 0 ? ['bad', 'Out of stock'] : (i.threshold != null && i.qty <= i.threshold) ? ['warn', 'Below par'] : ['ok', 'In stock']; },
         width(i) { return Math.min(100, Math.max(0, i.qty) / this.maxLevel * 100); },
-        tick(i) { return Math.min(100, i.threshold / this.maxLevel * 100); },
+        tick(i) { return i.threshold == null ? null : Math.min(100, i.threshold / this.maxLevel * 100); },
         openReceive(variantId = '') {
             this.form = { variant_id: variantId, quantity: '', batch_code: 'WEB-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''), expiration_date: '' };
             this.formError = null;

@@ -3,5 +3,5 @@
 <div {{ $attributes->class(['progress', 'thin' => $thin, $tone => (bool) $tone]) }} role="progressbar" @if ($label) aria-label="{{ $label }}" @endif
      @if (! $xWidth) aria-valuenow="{{ $value }}" aria-valuemin="0" aria-valuemax="{{ $max }}" @endif>
     <span @if ($xWidth) :style="'width:' + ({{ $xWidth }}) + '%'" @else style="width: {{ $max > 0 ? min(100, max(0, $value / $max * 100)) : 0 }}%" @endif></span>
-    @if ($xTick)<i class="tick" :style="'left:' + ({{ $xTick }}) + '%'" title="Restock level"></i>@endif
+    @if ($xTick)<i class="tick" x-show="({{ $xTick }}) !== null" :style="'left:' + ({{ $xTick }}) + '%'" title="Restock level"></i>@endif
 </div>
