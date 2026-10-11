@@ -35,6 +35,7 @@ class TransactionDetailsScreen extends StatefulWidget {
 class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
   bool _busy = false;
   final _voidKey = RequestKeyHolder();
+  final _returnKey = RequestKeyHolder();
 
   /// Where the customer pinned this delivery order (own branch only; the
   /// database decides). Null until loaded, or when it cannot be loaded.
@@ -181,6 +182,29 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
         'Sale voided.');
   }
 
+  /// Counter return of part of a completed in-store sale (staff_pos_return):
+  /// pick the quantities, give a reason; the database computes the refund,
+  /// pays cash out of the open drawer and restocks sellable items.
+  Future<void> _return(StaffOrder o) async {
+    final lines = o.items.where((i) => i.variantId != null && i.quantity > 0).toList();
+    if (lines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This sale cannot be returned from the app (update the server first).')),
+      );
+      return;
+    }
+    final picked = await showDialog<_ReturnRequest>(
+      context: context,
+      builder: (_) => _ReturnDialog(orderId: o.id, lines: lines),
+    );
+    if (picked == null) return;
+    final fingerprint = '${o.id}|${picked.reason}|${picked.quantities.entries.map((e) => '${e.key}:${e.value}').join(',')}';
+    await _run(
+      () => StaffRepository.instance.posReturn(o.id, picked.quantities, picked.reason, requestKey: _returnKey.keyFor(fingerprint)),
+      'Return recorded. Sellable items are back in stock.',
+    );
+  }
+
   List<Widget> _actions(StaffOrder o) {
     final paid = o.isPaid;
     final widgets = <Widget>[];
@@ -223,6 +247,11 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       ));
     }
     if (o.isPos && o.status == OrderStatus.completed) {
+      add(OutlinedButton.icon(
+        onPressed: _busy ? null : () => _return(o),
+        icon: const Icon(Icons.assignment_return_outlined),
+        label: const Text('Return Items'),
+      ));
       add(TextButton.icon(
         onPressed: _busy ? null : () => _void(o),
         icon: const Icon(Icons.undo_rounded, color: AppColors.error),
@@ -501,6 +530,90 @@ class DeliveryPinCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ReturnRequest {
+  final Map<String, int> quantities; // variantId -> quantity returned
+  final String reason;
+  const _ReturnRequest(this.quantities, this.reason);
+}
+
+class _ReturnDialog extends StatefulWidget {
+  final String orderId;
+  final List<StaffOrderItem> lines;
+
+  const _ReturnDialog({required this.orderId, required this.lines});
+
+  @override
+  State<_ReturnDialog> createState() => _ReturnDialogState();
+}
+
+class _ReturnDialogState extends State<_ReturnDialog> {
+  final _reason = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  late final Map<String, int> _qty = {for (final l in widget.lines) l.variantId!: 0};
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  int get _count => _qty.values.fold(0, (a, b) => a + b);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Return items from ${widget.orderId}'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final l in widget.lines)
+                Row(
+                  children: [
+                    Expanded(child: Text('${l.productName}${l.variantLabel.isEmpty ? '' : ' • ${l.variantLabel}'} (sold ${l.quantity})')),
+                    IconButton(
+                      tooltip: 'One less',
+                      onPressed: (_qty[l.variantId!] ?? 0) > 0 ? () => setState(() => _qty[l.variantId!] = _qty[l.variantId!]! - 1) : null,
+                      icon: const Icon(Icons.remove_circle_outline),
+                    ),
+                    Text('${_qty[l.variantId!]}', style: AppTextStyles.labelLg),
+                    IconButton(
+                      tooltip: 'One more',
+                      onPressed: (_qty[l.variantId!] ?? 0) < l.quantity ? () => setState(() => _qty[l.variantId!] = _qty[l.variantId!]! + 1) : null,
+                      icon: const Icon(Icons.add_circle_outline),
+                    ),
+                  ],
+                ),
+              TextFormField(
+                controller: _reason,
+                maxLength: 200,
+                decoration: const InputDecoration(labelText: 'Reason'),
+                validator: (v) => (v ?? '').trim().length < 3 ? 'Please give a reason' : null,
+              ),
+              Text('The refund amount is computed by the system from the returned items.', style: AppTextStyles.bodySm),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _count == 0
+              ? null
+              : () {
+                  if (!(_formKey.currentState?.validate() ?? false)) return;
+                  Navigator.pop(context, _ReturnRequest(Map.of(_qty)..removeWhere((_, q) => q == 0), _reason.text.trim()));
+                },
+          child: Text(_count == 0 ? 'Return' : 'Return $_count item(s)'),
+        ),
+      ],
     );
   }
 }

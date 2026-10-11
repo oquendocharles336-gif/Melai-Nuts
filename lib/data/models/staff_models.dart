@@ -224,12 +224,16 @@ class StaffDashboard {
 }
 
 class StaffOrderItem {
+  /// `order_items.variant_id` (migration 20261020000000); null from an older
+  /// server — such a line cannot be returned at the counter from the app.
+  final String? variantId;
   final String productName;
   final String variantLabel;
   final int quantity;
   final double unitPrice;
 
   const StaffOrderItem({
+    this.variantId,
     required this.productName,
     required this.variantLabel,
     required this.quantity,
@@ -239,6 +243,7 @@ class StaffOrderItem {
   double get total => unitPrice * quantity;
 
   factory StaffOrderItem.fromJson(Map<String, dynamic> j) => StaffOrderItem(
+        variantId: j['variant_id'] as String?,
         productName: (j['product_name'] as String?) ?? '',
         variantLabel: (j['variant_label'] as String?) ?? '',
         quantity: _int(j['quantity']),

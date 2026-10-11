@@ -417,6 +417,22 @@ class StaffRepository {
         'p_idempotency_key': requestKey,
       }));
 
+  /// Counter return of part of a completed in-store sale: refunds the returned
+  /// lines (cash from the open drawer) and puts sellable items back in stock.
+  /// [quantitiesByVariant] uses `StaffOrderItem.variantId`. Needs the refunds
+  /// permission; the database computes the amount. [requestKey] makes a retry safe.
+  Future<Map<String, dynamic>> posReturn(String orderId, Map<String, int> quantitiesByVariant, String reason,
+          {String? requestKey}) async =>
+      _map(await _rpc('staff_pos_return', {
+        'p_order_id': orderId,
+        'p_items': [
+          for (final e in quantitiesByVariant.entries)
+            if (e.value > 0) {'variant_id': e.key, 'quantity': e.value},
+        ],
+        'p_reason': reason,
+        'p_idempotency_key': requestKey,
+      }));
+
   Future<List<StaffRefund>> listRefunds(String? branchId) async =>
       _list(await _rpc('staff_list_refunds', {'p_branch_id': branchId}))
           .map(StaffRefund.fromJson)
