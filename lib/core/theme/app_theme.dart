@@ -9,6 +9,8 @@ class AppTheme {
   static ThemeData light() {
     final base = ThemeData(
       useMaterial3: true,
+      // Accessibility: every control gets at least a 48 x 48 tap target.
+      materialTapTargetSize: MaterialTapTargetSize.padded,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         primary: AppColors.primary,
@@ -102,6 +104,8 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
+          // 48 x 48 minimum tap target (Material / WCAG 2.5.8).
+          minimumSize: const Size(48, 48),
           foregroundColor: AppColors.primary,
           textStyle: GoogleFonts.plusJakartaSans(
             fontSize: 14,

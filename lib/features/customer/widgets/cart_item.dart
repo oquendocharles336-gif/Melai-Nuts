@@ -107,7 +107,7 @@ class _QtyStepper extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
+          IconButton(tooltip: 'Remove one', 
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.remove_rounded, size: 16),
@@ -121,7 +121,7 @@ class _QtyStepper extends StatelessWidget {
               style: AppTextStyles.labelLg,
             ),
           ),
-          IconButton(
+          IconButton(tooltip: 'Add one more', 
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.add_rounded, size: 16),

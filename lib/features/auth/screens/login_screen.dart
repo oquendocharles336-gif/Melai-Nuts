@@ -287,7 +287,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             size: 20,
                             color: AppColors.textSecondary,
                           ),
-                          suffixIcon: IconButton(
+                          suffixIcon: IconButton(tooltip: 'Show or hide password', 
                             icon: Icon(
                               _passwordVisible
                                   ? Icons.visibility_outlined

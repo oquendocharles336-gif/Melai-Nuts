@@ -55,7 +55,7 @@ class _SalesOverviewScreenState extends State<SalesOverviewScreen> {
         title: 'Sales Overview',
         showBack: true,
         actions: [
-          IconButton(icon: const Icon(Icons.query_stats_rounded), onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerSalesAnalytics)),
+          IconButton(tooltip: 'Sales analytics', icon: const Icon(Icons.query_stats_rounded), onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerSalesAnalytics)),
         ],
       ),
       body: SafeArea(

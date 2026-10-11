@@ -164,7 +164,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
         title: 'Product Catalog',
         showBack: true,
         actions: [
-          IconButton(
+          IconButton(tooltip: 'Add product', 
             icon: const Icon(Icons.add_rounded),
             onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productAdd),
           ),

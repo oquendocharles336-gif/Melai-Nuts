@@ -140,11 +140,19 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   Widget _headerIconButton({
+    required String tooltip,
     required IconData icon,
     required VoidCallback onPressed,
     required int badgeCount,
   }) {
-    return Badge(
+    final label = badgeCount > 0 ? '$tooltip, $badgeCount new' : tooltip;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: label,
+        excludeSemantics: true,
+        child: Badge(
       label: Text(badgeCount.toString()),
       isLabelVisible: badgeCount > 0,
       backgroundColor: AppColors.warning,
@@ -156,9 +164,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           customBorder: const CircleBorder(),
           onTap: onPressed,
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(13), // 48 x 48 tap target
             child: Icon(icon, color: Colors.white, size: 22),
           ),
+        ),
+      ),
         ),
       ),
     );
@@ -234,7 +244,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                       ),
                       ListenableBuilder(
                         listenable: CartController.instance,
-                        builder: (context, _) => _headerIconButton(
+                        builder: (context, _) => _headerIconButton(tooltip: 'Cart', 
                           icon: Icons.shopping_bag_outlined,
                           badgeCount: CartController.instance.itemCount,
                           onPressed: () => Navigator.of(context).push(
@@ -243,7 +253,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      _headerIconButton(
+                      _headerIconButton(tooltip: 'Notifications', 
                         icon: Icons.notifications_none_rounded,
                         badgeCount: unreadCount,
                         onPressed: () => Navigator.of(context).pushNamed(AppRoutes.notificationCenter),

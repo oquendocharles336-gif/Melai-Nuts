@@ -27,21 +27,21 @@ class AppColors {
   static const Color secondaryBrown = Color(0xFF7B563F);
 
   // ---- Status / accents --------------------------------------------------
-  static const Color success = Color(0xFF387B44); // fresh leaf green
+  static const Color success = Color(0xFF33713E); // fresh leaf green, 4.5:1+ on every light surface
   static const Color successBg = Color(0xFFEAF3EC);
-  static const Color warning = Color(0xFFD9822B); // golden honey
+  static const Color warning = Color(0xFF91571C); // honey brown (was D9822B: 2.9:1 on white, failed WCAG AA; now 4.5:1+)
   static const Color warningBg = Color(0xFFFDF1E3);
-  static const Color error = Color(0xFFC23E3E);
+  static const Color error = Color(0xFFB43939); // 4.5:1+ also on errorBg
   static const Color errorBg = Color(0xFFFFDAD6);
 
   // ---- Neutrals / text -----------------------------------------------
   static const Color textPrimary = Color(0xFF201B15); // on-surface
-  static const Color textSecondary = Color(0xFF7D756D); // metadata / labels
+  static const Color textSecondary = Color(0xFF6B645D); // metadata / labels (WCAG AA 4.5:1 on every light surface)
   static const Color textMuted = Color(0xFF52443B); // on-surface-variant
 
   // ---- Role accent colors (used for badges/portals) --------------------
   static const Color roleOwner = Color(0xFFA06235);
   static const Color roleStaff = Color(0xFF7B563F);
   static const Color roleDelivery = Color(0xFF387B44);
-  static const Color roleCustomer = Color(0xFFD9822B);
+  static const Color roleCustomer = Color(0xFF91571C);
 }

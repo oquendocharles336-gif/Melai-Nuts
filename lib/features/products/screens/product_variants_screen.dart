@@ -447,7 +447,7 @@ class _VariantCard extends StatelessWidget {
                   label: const Text('Duplicate'),
                 ),
               ),
-              IconButton(
+              IconButton(tooltip: 'Delete', 
                 onPressed: busy ? null : onRemove,
                 icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
               ),

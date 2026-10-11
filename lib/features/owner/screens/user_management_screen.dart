@@ -35,7 +35,7 @@ class UserManagementScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Manage User Accounts'),
         actions: [
-          IconButton(
+          IconButton(tooltip: 'Add user', 
             icon: const Icon(Icons.person_add_rounded),
             onPressed: () => _openAddUserSheet(context),
           ),

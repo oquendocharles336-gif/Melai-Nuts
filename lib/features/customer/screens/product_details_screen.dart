@@ -408,14 +408,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   ),
                   child: Row(
                     children: [
-                      IconButton(
+                      IconButton(tooltip: 'Remove one', 
                         icon: const Icon(Icons.remove_rounded),
                         onPressed: () => setState(() {
                           if (_quantity > 1) _quantity--;
                         }),
                       ),
                       Text('$_quantity', style: AppTextStyles.titleMd),
-                      IconButton(
+                      IconButton(tooltip: 'Add one more', 
                         icon: const Icon(Icons.add_rounded),
                         onPressed: () => setState(() {
                           final stock = _selectedVariant.stockOnHand;

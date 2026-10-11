@@ -129,7 +129,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
       appBar: AppBar(
         title: const Text('Product Catalog'),
         actions: [
-          IconButton(
+          IconButton(tooltip: 'Search', 
             icon: const Icon(Icons.search_rounded),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const SearchResultsScreen(query: '')),
@@ -140,7 +140,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
             builder: (context, _) => Stack(
               clipBehavior: Clip.none,
               children: [
-                IconButton(
+                IconButton(tooltip: 'Cart', 
                   icon: const Icon(Icons.shopping_bag_outlined),
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const CartScreen()),

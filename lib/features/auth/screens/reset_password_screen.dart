@@ -158,7 +158,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     size: 20,
                     color: AppColors.textSecondary,
                   ),
-                  suffixIcon: IconButton(
+                  suffixIcon: IconButton(tooltip: 'Show or hide password', 
                     icon: Icon(
                       _passwordVisible
                           ? Icons.visibility_outlined
@@ -186,7 +186,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (_match) const Icon(Icons.check_circle, color: AppColors.success),
-                      IconButton(
+                      IconButton(tooltip: 'Show or hide password', 
                         icon: Icon(
                           _confirmVisible
                               ? Icons.visibility_outlined

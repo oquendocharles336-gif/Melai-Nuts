@@ -288,9 +288,9 @@ class _PosCartScreenState extends State<PosCartScreen> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(icon: const Icon(Icons.remove_circle_outline_rounded), onPressed: () => _change(variantId, -1)),
+          IconButton(tooltip: 'One less', icon: const Icon(Icons.remove_circle_outline_rounded), onPressed: () => _change(variantId, -1)),
           Text('$qty', style: AppTextStyles.labelLg),
-          IconButton(icon: const Icon(Icons.add_circle_outline_rounded), onPressed: () => _change(variantId, 1)),
+          IconButton(tooltip: 'One more', icon: const Icon(Icons.add_circle_outline_rounded), onPressed: () => _change(variantId, 1)),
           SizedBox(width: 72, child: Text(peso(item.price * qty), textAlign: TextAlign.right, style: AppTextStyles.labelLg)),
         ],
       ),
@@ -365,7 +365,7 @@ class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
             onSubmitted: (_) => _search(),
             decoration: InputDecoration(
               labelText: 'Tap card, or type phone / email / GK- label',
-              suffixIcon: IconButton(icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
+              suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
             ),
           ),
           if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator()),

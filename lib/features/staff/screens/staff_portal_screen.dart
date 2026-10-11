@@ -308,7 +308,7 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                     onPressed: () => _scan(store),
                   ),
                   suffixIcon: query.isNotEmpty
-                      ? IconButton(
+                      ? IconButton(tooltip: 'Clear', 
                           icon: const Icon(Icons.clear_rounded),
                           onPressed: () => setState(() => _searchController.clear()),
                         )

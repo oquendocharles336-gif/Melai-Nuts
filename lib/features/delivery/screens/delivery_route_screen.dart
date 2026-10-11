@@ -64,7 +64,7 @@ class _DeliveryRouteScreenState extends State<DeliveryRouteScreen> {
         title: 'Stop Order',
         showBack: true,
         actions: [
-          IconButton(
+          IconButton(tooltip: 'Map', 
             icon: const Icon(Icons.map_outlined),
             onPressed: () => Navigator.of(context).pushNamed(AppRoutes.routeMap, arguments: delivery),
           ),
