@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 
@@ -16,9 +14,9 @@ class CrashReporter {
 
   static bool get _supported =>
       !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.macOS);
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.macOS);
 
   /// Call once after `Firebase.initializeApp`. Uncaught Flutter and async
   /// errors become fatal reports. Collection is off in debug builds.

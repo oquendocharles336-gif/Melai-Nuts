@@ -187,6 +187,8 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
   /// pick the quantities, give a reason; the database computes the refund,
   /// pays cash out of the open drawer and restocks sellable items.
   Future<void> _return(StaffOrder o) async {
+    // Read before any await: the context may be gone afterwards.
+    final recorded = AppLocalizations.of(context).returnRecorded;
     final lines = o.items.where((i) => i.variantId != null && i.quantity > 0).toList();
     if (lines.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -201,8 +203,8 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
     if (picked == null) return;
     final fingerprint = '${o.id}|${picked.reason}|${picked.quantities.entries.map((e) => '${e.key}:${e.value}').join(',')}';
     await _run(
-      () => StaffRepository.instance.posReturn(o.id, picked.quantities, picked.reason, requestKey: _returnKey.keyFor(fingerprint)),
-      AppLocalizations.of(context).returnRecorded,
+          () => StaffRepository.instance.posReturn(o.id, picked.quantities, picked.reason, requestKey: _returnKey.keyFor(fingerprint)),
+      recorded,
     );
   }
 
@@ -378,34 +380,34 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
   }
 
   Widget _card(List<Widget> children) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          border: Border.all(color: AppColors.border),
-          boxShadow: AppShadows.sm,
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
-      );
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+      border: Border.all(color: AppColors.border),
+      boxShadow: AppShadows.sm,
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+  );
 
   Widget _row(String label, String value, {bool bold = false}) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: AppTextStyles.bodyMd),
-            const SizedBox(width: 16),
-            Flexible(
-              child: Text(
-                value,
-                textAlign: TextAlign.right,
-                style: bold ? AppTextStyles.labelLg : AppTextStyles.bodyMd,
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: AppTextStyles.bodyMd),
+        const SizedBox(width: 16),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: bold ? AppTextStyles.labelLg : AppTextStyles.bodyMd,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 }
 
 
@@ -609,9 +611,9 @@ class _ReturnDialogState extends State<_ReturnDialog> {
           onPressed: _count == 0
               ? null
               : () {
-                  if (!(_formKey.currentState?.validate() ?? false)) return;
-                  Navigator.pop(context, _ReturnRequest(Map.of(_qty)..removeWhere((_, q) => q == 0), _reason.text.trim()));
-                },
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            Navigator.pop(context, _ReturnRequest(Map.of(_qty)..removeWhere((_, q) => q == 0), _reason.text.trim()));
+          },
           child: Text(_count == 0 ? 'Return' : 'Return $_count item(s)'),
         ),
       ],

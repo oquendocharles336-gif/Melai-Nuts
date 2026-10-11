@@ -30,17 +30,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => SimpleDialog(
         title: Text(t.language),
         children: [
-          for (final entry in <String, String>{
-            '': t.languageSystem,
-            'en': t.languageEnglish,
-            'fil': t.languageFilipino,
-          }.entries)
-            RadioListTile<String>(
-              value: entry.key,
-              groupValue: current ?? '',
-              title: Text(entry.value),
-              onChanged: (v) => Navigator.of(ctx).pop(v),
+          RadioGroup<String>(
+            groupValue: current ?? '',
+            onChanged: (v) => Navigator.of(ctx).pop(v),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final entry in <String, String>{
+                  '': t.languageSystem,
+                  'en': t.languageEnglish,
+                  'fil': t.languageFilipino,
+                }.entries)
+                  RadioListTile<String>(value: entry.key, title: Text(entry.value)),
+              ],
             ),
+          ),
         ],
       ),
     );
@@ -62,7 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             if (!isStaff) ...[
-            Text('PREFERENCES', style: AppTextStyles.labelSm),
+              Text('PREFERENCES', style: AppTextStyles.labelSm),
               const SizedBox(height: AppSpacing.xs),
               _Section(
                 children: [
