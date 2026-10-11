@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\CancelPurchaseReceiptRequest;
+use App\Http\Requests\SaveSupplierRequest;
+use App\Http\Requests\StorePurchaseReceiptRequest;
+use App\Http\Requests\UpdatePurchaseReceiptRequest;
 use App\Services\ActivityLogger;
 use App\Services\Platform;
 use App\Services\Supabase\StaffIdentity;
@@ -73,15 +77,9 @@ class PurchaseReceiptController extends Controller
     }
 
     /** Photo + OCR text -> draft receipt (nothing touches stock here). */
-    public function store(Request $request, ReceiptTextParser $parser)
+    public function store(StorePurchaseReceiptRequest $request, ReceiptTextParser $parser)
     {
-        $data = $request->validate([
-            'branch_id' => ['required', 'uuid'],
-            'supplier_id' => ['nullable', 'uuid'],
-            'photo' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
-            'ocr_text' => ['nullable', 'string', 'max:20000'],
-            'ocr_confidence' => ['nullable', 'numeric', 'min:0', 'max:100'],
-        ]);
+        $data = $request->validated();
         abort_unless($this->branchIds()->contains($data['branch_id']), 403);
 
         $text = trim((string) ($data['ocr_text'] ?? ''));
@@ -139,27 +137,10 @@ class PurchaseReceiptController extends Controller
     }
 
     /** Save the reviewed draft; with action=approve, also post it to stock. */
-    public function update(Request $request, string $id)
+    public function update(UpdatePurchaseReceiptRequest $request, string $id)
     {
         abort_unless(Str::isUuid($id), 404);
-        $data = $request->validate([
-            'branch_id' => ['required', 'uuid'],
-            'supplier_id' => ['nullable', 'uuid'],
-            'supplier_invoice_no' => ['nullable', 'string', 'max:40'],
-            'invoice_date' => ['nullable', 'date_format:Y-m-d'],
-            'invoice_total' => ['nullable', 'numeric', 'min:0', 'max:100000000'],
-            'notes' => ['nullable', 'string', 'max:500'],
-            'lines' => ['array', 'max:200'],
-            'lines.*.raw_text' => ['nullable', 'string', 'max:500'],
-            'lines.*.description' => ['nullable', 'string', 'max:200'],
-            'lines.*.variant_id' => ['nullable', 'uuid'],
-            'lines.*.quantity' => ['nullable', 'integer', 'min:1', 'max:100000'],
-            'lines.*.unit_cost' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
-            'lines.*.batch_code' => ['nullable', 'string', 'max:40'],
-            'lines.*.expiration_date' => ['nullable', 'date_format:Y-m-d'],
-            'action' => ['nullable', 'in:save,approve'],
-            'request_key' => ['nullable', 'string', 'min:8', 'max:100'],
-        ]);
+        $data = $request->validated();
         abort_unless($this->branchIds()->contains($data['branch_id']), 403);
 
         $lines = collect($data['lines'] ?? [])->map(fn ($l) => [
@@ -184,10 +165,10 @@ class PurchaseReceiptController extends Controller
         return redirect()->route('receipts.show', $id)->with('status', 'Approved. '.count($receipt['lines'] ?? []).' batch(es) were added to stock at '.$receipt['branch_name'].'.');
     }
 
-    public function cancel(Request $request, string $id)
+    public function cancel(CancelPurchaseReceiptRequest $request, string $id)
     {
         abort_unless(Str::isUuid($id), 404);
-        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:200']]);
+        $data = $request->validated();
         $receipt = $this->repo()->cancelPurchaseReceipt($id, $data['reason']);
         ActivityLogger::log('purchase_receipt.cancelled', "Cancelled draft {$receipt['receipt_code']}", null, ['receipt_id' => $id, 'reason' => $data['reason']]);
 
@@ -211,18 +192,10 @@ class PurchaseReceiptController extends Controller
         return view('receipts.suppliers', ['suppliers' => $this->repo()->suppliers(true)]);
     }
 
-    public function saveSupplier(Request $request, ?string $id = null)
+    public function saveSupplier(SaveSupplierRequest $request, ?string $id = null)
     {
         abort_if($id !== null && ! Str::isUuid($id), 404);
-        $data = $request->validate([
-            'name' => ['required', 'string', 'min:2', 'max:120'],
-            'contact_person' => ['nullable', 'string', 'max:120'],
-            'phone' => ['nullable', 'string', 'max:40'],
-            'email' => ['nullable', 'email', 'max:120'],
-            'address' => ['nullable', 'string', 'max:250'],
-            'tin' => ['nullable', 'string', 'max:30'],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
+        $data = $request->validated(); // phone stored as E.164 when it is a mobile
         $data['is_active'] = $request->has('is_active') ? $request->boolean('is_active') : true;
         $sid = $this->repo()->saveSupplier($id, $data);
         ActivityLogger::log($id ? 'supplier.updated' : 'supplier.created', ($id ? 'Updated' : 'Added')." supplier {$data['name']}", null, ['supplier_id' => $sid]);

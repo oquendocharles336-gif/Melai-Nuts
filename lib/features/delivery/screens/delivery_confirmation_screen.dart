@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
@@ -26,6 +30,7 @@ class DeliveryConfirmationScreen extends StatefulWidget {
 }
 
 class _DeliveryConfirmationScreenState extends State<DeliveryConfirmationScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _noteController = TextEditingController();
   bool _submitting = false;
 
@@ -36,6 +41,16 @@ class _DeliveryConfirmationScreenState extends State<DeliveryConfirmationScreen>
   }
 
   Future<void> _confirm() async {
+    if (_submitting || !FormUtils.validateAndFocus(_formKey)) return;
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Confirm delivery?',
+      message: 'Order ${widget.stop.orderId} for ${widget.stop.customerName} will be marked as delivered.',
+      confirmLabel: 'Confirm',
+      destructive: false,
+      icon: Icons.check_circle_outline_rounded,
+    );
+    if (!ok || !mounted) return;
     setState(() => _submitting = true);
     final note = _noteController.text.trim().isEmpty ? null : _noteController.text.trim();
 
@@ -59,7 +74,8 @@ class _DeliveryConfirmationScreenState extends State<DeliveryConfirmationScreen>
       } else {
         Navigator.of(context).pushReplacementNamed(AppRoutes.deliveryCompleted, arguments: widget.delivery);
       }
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'delivery_confirmation_screen:confirm');
       if (!mounted) return;
       setState(() => _submitting = false);
       AppErrors.showSnack(context, e);
@@ -72,7 +88,9 @@ class _DeliveryConfirmationScreenState extends State<DeliveryConfirmationScreen>
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Confirm Delivery', showBack: true),
       body: SafeArea(
-        child: ListView(
+        child: Form(
+          key: _formKey,
+          child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -102,10 +120,15 @@ class _DeliveryConfirmationScreenState extends State<DeliveryConfirmationScreen>
             const SizedBox(height: AppSpacing.lg),
             Text('Delivery Note (optional)', style: AppTextStyles.labelLg),
             const SizedBox(height: 6),
-            TextField(
+            TextFormField(
               controller: _noteController,
-              maxLines: 3,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: InputLimits.note,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
+              textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(hintText: 'e.g. Left with guard, gate code confirmed...'),
+              validator: (v) => ValidationUtils.validateText(v, fieldName: 'Delivery note'),
             ),
             const SizedBox(height: AppSpacing.lg),
             Container(
@@ -132,6 +155,7 @@ class _DeliveryConfirmationScreenState extends State<DeliveryConfirmationScreen>
               onPressed: _confirm,
             ),
           ],
+        ),
         ),
       ),
     );

@@ -30,13 +30,22 @@ class PushService {
         _ => 'android',
       };
 
-  /// After sign-in: ask permission once (Android 13+ / iOS), then register.
-  Future<void> onSignedIn() async {
+  /// After sign-in: registers this device for pushes ONLY if notification
+  /// permission was already granted. It never shows the permission prompt:
+  /// that is asked at the moment of use, with an explanation first
+  /// (PermissionService.requestNotifications — after the first order, or from
+  /// Settings > Permissions), never on first launch.
+  Future<void> onSignedIn() => registerIfAllowed();
+
+  /// Registers the device token when notifications are allowed (no prompt).
+  Future<void> registerIfAllowed() async {
     if (!_supported) return;
     try {
       final messaging = FirebaseMessaging.instance;
-      final settings = await messaging.requestPermission();
-      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+      final settings = await messaging.getNotificationSettings();
+      final allowed = settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+      if (!allowed) return;
       // Shown by the system while the app is open, too (iOS / macOS).
       await messaging.setForegroundNotificationPresentationOptions(alert: true, badge: true, sound: true);
       final token = await messaging.getToken();
@@ -44,7 +53,7 @@ class PushService {
       await _refresh?.cancel();
       _refresh = messaging.onTokenRefresh.listen((t) => unawaited(_register(t)));
     } catch (e, st) {
-      AppErrors.report(e, st, 'push_service:onSignedIn');
+      AppErrors.report(e, st, 'push_service:registerIfAllowed');
     }
   }
 

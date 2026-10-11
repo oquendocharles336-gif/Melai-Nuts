@@ -13,6 +13,7 @@ import '../widgets/product_card.dart';
 import 'cart_screen.dart';
 import 'product_details_screen.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Customer product search backed by Supabase.
 ///
@@ -43,6 +44,22 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   bool _loading = true;
   String? _error;
   List<Product> _results = const [];
+
+  /// 'relevance' keeps the server's order; the others sort on the device.
+  String _sort = 'relevance';
+
+  List<Product> get _sorted {
+    final list = [..._results];
+    switch (_sort) {
+      case 'priceLow':
+        list.sort((a, b) => a.price.compareTo(b.price));
+      case 'priceHigh':
+        list.sort((a, b) => b.price.compareTo(a.price));
+      case 'name':
+        list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+    return list;
+  }
   List<ProductCategory> _categories = const [];
 
   @override
@@ -235,6 +252,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final cart = CartController.instance;
+    final t = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -274,6 +292,19 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                       Text(
                         _loading ? 'Searching…' : '${_results.length} results found',
                         style: AppTextStyles.bodyMd,
+                      ),
+                      const Spacer(),
+                      PopupMenuButton<String>(
+                        tooltip: t.sortBy,
+                        initialValue: _sort,
+                        onSelected: (v) => setState(() => _sort = v),
+                        icon: const Icon(Icons.sort_rounded),
+                        itemBuilder: (_) => [
+                          PopupMenuItem(value: 'relevance', child: Text(t.sortRelevance)),
+                          PopupMenuItem(value: 'name', child: Text(t.sortAZ)),
+                          PopupMenuItem(value: 'priceLow', child: Text(t.sortPriceLow)),
+                          PopupMenuItem(value: 'priceHigh', child: Text(t.sortPriceHigh)),
+                        ],
                       ),
                       OutlinedButton.icon(
                         onPressed: _loading && _categories.isEmpty
@@ -396,18 +427,20 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     }
 
     final cart = CartController.instance;
+    final results = _sorted;
 
     return GridView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
-      itemCount: _results.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      itemCount: results.length,
+      // 2 columns on phones, more on tablets / web (cards stay ~220 px wide).
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 240,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
         childAspectRatio: 0.68,
       ),
       itemBuilder: (context, i) {
-        final product = _results[i];
+        final product = results[i];
         if (product.variants.isEmpty) {
           return ProductCard(
             product: product,

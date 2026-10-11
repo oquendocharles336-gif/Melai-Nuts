@@ -8,6 +8,8 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
 
 /// Change the current user's password (used from Login & Security), with a
 /// live strength checklist. Requires the person to already be signed in and
@@ -42,7 +44,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool get _canSubmit => _score == 4 && _match;
 
   Future<void> _resetPassword() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_submitting || !FormUtils.validateAndFocus(_formKey)) return;
     if (!_canSubmit) return;
     setState(() => _submitting = true);
     try {
@@ -152,7 +154,15 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               TextFormField(
                 controller: _passwordController,
                 obscureText: !_passwordVisible,
+                autofillHints: const [AutofillHints.newPassword],
+                maxLength: InputLimits.passwordMax,
+                validator: (v) => ValidationUtils.validatePassword(
+                  v,
+                  email: AuthService.instance.currentFirebaseUser?.email,
+                  name: AuthService.instance.currentProfile?.name,
+                ),
                 decoration: InputDecoration(
+                  counterText: '',
                   prefixIcon: const Icon(
                     Icons.key_rounded,
                     size: 20,
@@ -176,7 +186,15 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               TextFormField(
                 controller: _confirmController,
                 obscureText: !_confirmVisible,
+                autofillHints: const [AutofillHints.newPassword],
+                maxLength: InputLimits.passwordMax,
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Please confirm your new password.';
+                  if (v != _passwordController.text) return 'Passwords do not match.';
+                  return null;
+                },
                 decoration: InputDecoration(
+                  counterText: '',
                   prefixIcon: const Icon(
                     Icons.lock_outline_rounded,
                     size: 20,

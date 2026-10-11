@@ -4,6 +4,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/services/legal_service.dart';
+import '../../../l10n/generated/app_localizations.dart';
+import '../../legal/widgets/terms_consent_field.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
@@ -28,7 +33,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  // Consent starts unticked: agreeing is an active choice.
   bool _agreed = false;
+  bool _orderUpdates = false;
   bool _submitting = false;
 
   @override
@@ -42,23 +49,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    if (!_agreed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please agree to the Terms & Conditions')),
-      );
-      return;
-    }
+    if (_submitting) return; // no double submit
+    // Shows each message under its field (consent included) and focuses the
+    // first invalid one.
+    if (!FormUtils.validateAndFocus(_formKey) || !_agreed) return;
 
     setState(() => _submitting = true);
+    // Recorded for this account on its first signed-in screen (LegalService).
+    LegalService.instance.markConsentGiven(orderUpdates: _orderUpdates);
     try {
       // Step 1: create the account. Step 2 (email verification, then profile
       // creation) happens on the verification screen.
       await AuthService.instance.startCustomerRegistration(
         name: _nameController.text,
         email: _emailController.text,
-        phone: _phoneController.text,
+        phone: ValidationUtils.normalizePhone(_phoneController.text),
         password: _passwordController.text,
       );
       if (!mounted) return;
@@ -125,6 +130,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       controller: _nameController,
                       prefixIcon: Icons.person_outline_rounded,
                       hint: 'Your full name',
+                      keyboardType: TextInputType.name,
+                      textCapitalization: TextCapitalization.words,
+                      autofillHints: const [AutofillHints.name],
+                      textInputAction: TextInputAction.next,
+                      maxLength: InputLimits.name,
                       validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
                     ),
                     const SizedBox(height: 16),
@@ -133,6 +143,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       controller: _emailController,
                       prefixIcon: Icons.email_outlined,
                       keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
+                      textInputAction: TextInputAction.next,
+                      maxLength: InputLimits.email,
                       hint: 'you@example.com',
                       validator: ValidationUtils.validateEmail,
                     ),
@@ -142,7 +155,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       controller: _phoneController,
                       prefixIcon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
-                      hint: '09XXXXXXXXX',
+                      autofillHints: const [AutofillHints.telephoneNumber],
+                      textInputAction: TextInputAction.next,
+                      inputFormatters: InputRules.phone(),
+                      hint: '0917 123 4567',
+                      helperText: 'Used for delivery and order updates.',
                       validator: ValidationUtils.validatePhone,
                     ),
                     const SizedBox(height: 16),
@@ -152,7 +169,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       prefixIcon: Icons.lock_outline_rounded,
                       obscure: true,
                       hint: '••••••••',
-                      validator: ValidationUtils.validatePassword,
+                      autofillHints: const [AutofillHints.newPassword],
+                      textInputAction: TextInputAction.next,
+                      maxLength: InputLimits.passwordMax,
+                      helperText: '8–64 characters with an uppercase letter, a number and a symbol.',
+                      validator: (v) => ValidationUtils.validatePassword(
+                        v,
+                        email: _emailController.text,
+                        name: _nameController.text,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     AppTextField(
@@ -161,6 +186,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       prefixIcon: Icons.lock_outline_rounded,
                       obscure: true,
                       hint: '••••••••',
+                      autofillHints: const [AutofillHints.newPassword],
+                      textInputAction: TextInputAction.done,
+                      maxLength: InputLimits.passwordMax,
                       validator: (v) {
                         if (v == null || v.isEmpty) return 'Please confirm your password.';
                         if (v != _passwordController.text) return 'Passwords do not match.';
@@ -168,21 +196,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       },
                     ),
                     const SizedBox(height: 20),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Checkbox(
-                          value: _agreed,
-                          activeColor: AppColors.primary,
-                          onChanged: (v) => setState(() => _agreed = v ?? false),
-                        ),
-                        Expanded(
-                          child: Text(
-                            'I agree to the Melai Nuts Terms of Service and Privacy Policy.',
-                            style: AppTextStyles.bodySm,
-                          ),
-                        ),
-                      ],
+                    TermsConsentField(initialValue: _agreed, onChanged: (v) => _agreed = v),
+                    OptionalConsentTile(
+                      value: _orderUpdates,
+                      label: AppLocalizations.of(context).consentOrderUpdates,
+                      onChanged: (v) => setState(() => _orderUpdates = v),
                     ),
                     const SizedBox(height: 16),
                     PrimaryButton(

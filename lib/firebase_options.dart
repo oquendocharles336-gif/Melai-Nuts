@@ -19,7 +19,9 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     final options = _select();
-    if (options.apiKey.isEmpty || options.projectId.isEmpty || options.appId.isEmpty) {
+    if (_isPlaceholder(options.apiKey) ||
+        _isPlaceholder(options.projectId) ||
+        _isPlaceholder(options.appId)) {
       throw StateError(
         'Firebase configuration is missing (API key, project ID or app ID). Run with '
         '--dart-define-from-file=env/firebase.json '
@@ -27,6 +29,14 @@ class DefaultFirebaseOptions {
       );
     }
     return options;
+  }
+
+  /// True for an empty value or one still holding the env/firebase.example.json
+  /// placeholder ("YOUR_…" / "your-…"), so a copied-but-unfilled file fails
+  /// with the clear message above instead of an opaque Firebase error.
+  static bool _isPlaceholder(String value) {
+    final v = value.trim();
+    return v.isEmpty || v.startsWith('YOUR_') || v.startsWith('your-');
   }
 
   static FirebaseOptions _select() {

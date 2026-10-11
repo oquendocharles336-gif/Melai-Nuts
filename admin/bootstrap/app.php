@@ -39,6 +39,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'two.factor' => \App\Http\Middleware\EnsureTwoFactorPassed::class, // optional TOTP, once per session
             'password.recent' => \App\Http\Middleware\ConfirmRecentPassword::class, // password again for money / points actions
         ]);
+        // Every POST / PUT / PATCH / DELETE on the website is rate limited (config melai.write_limit_per_minute).
+        $middleware->appendToGroup('web', \App\Http\Middleware\ThrottleWrites::class);
         $middleware->redirectGuestsTo(fn () => route('login'));    // guests -> login
         $middleware->redirectUsersTo(fn () => route('dashboard')); // logged-in -> dashboard
     })
@@ -77,6 +79,16 @@ return Application::configure(basePath: dirname(__DIR__))
         };
         $exceptions->render(fn (StaffNotLinkedException $e, Request $r) => $signInAgain($e, $r));
         $exceptions->render(fn (AccountLinkException $e, Request $r) => $signInAgain($e, $r)); // incl. FirebaseSessionRequiredException
+        // 419 (expired session / CSRF token): back to the sign-in page with a clear message instead
+        // of a bare error page. Nothing was changed.
+        $exceptions->render(function (\Illuminate\Session\TokenMismatchException $e, Request $r) {
+            $message = 'Your session expired. Please sign in again; nothing was changed.';
+            if ($r->expectsJson()) {
+                return response()->json(['message' => $message], 419);
+            }
+
+            return redirect()->route('login')->with('error', $message);
+        });
         $exceptions->render(fn (BackendActionException $e, Request $r) => $show('Not allowed', $e->getMessage(), 403, $r));
         $exceptions->render(fn (BackendUnavailableException $e, Request $r) => $show('Database unavailable', $e->getMessage(), 503, $r));
     })

@@ -23,7 +23,7 @@ class AuthTest extends TestCase
     private function reg(array $o = []): array
     {
         return array_merge(['name' => 'Juan Dela Cruz', 'email' => 'juan@example.com',
-            'password' => 'Str0ng!Pass', 'password_confirmation' => 'Str0ng!Pass'], $o);
+            'password' => 'Str0ng!Pass', 'password_confirmation' => 'Str0ng!Pass', 'terms' => '1'], $o);
     }
 
     private function admin(): User { return User::factory()->create(['role' => 'admin', 'has_access' => true]); }

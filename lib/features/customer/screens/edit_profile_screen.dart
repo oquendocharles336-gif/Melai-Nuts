@@ -6,6 +6,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -36,6 +39,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       CustomerDataStore.instance.profile?.email ??
       '';
   bool _saving = false;
+  late final String _initialName;
+  late final String _initialPhone;
+
+  bool get _dirty =>
+      _nameController.text.trim() != _initialName.trim() ||
+      _phoneController.text.trim() != _initialPhone.trim();
+
+  @override
+  void initState() {
+    super.initState();
+    _initialName = _nameController.text;
+    _initialPhone = _phoneController.text;
+    _nameController.addListener(_onEdited);
+    _phoneController.addListener(_onEdited);
+  }
+
+  void _onEdited() => setState(() {});
 
   @override
   void dispose() {
@@ -45,14 +65,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
     final firebaseUid = AuthService.instance.currentFirebaseUser?.uid;
     if (firebaseUid == null) return;
+    if (!_dirty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    if (!await ConfirmDialog.save(context, 'your profile')) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
     try {
       final name = _nameController.text.trim();
-      final phone = _phoneController.text.trim();
+      // Stored as E.164 (+639171234567), the one phone format in the database.
+      final phone = ValidationUtils.normalizePhone(_phoneController.text);
       final outcome = await PendingWritesService.instance.run(
         firebaseUid,
         PendingWriteKind.profileUpdate,
@@ -67,6 +94,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Profile updated.')),
           );
+          _nameController.removeListener(_onEdited);
+          _phoneController.removeListener(_onEdited);
           Navigator.of(context).pop();
         case WriteOutcomeKind.queued:
           final current = store.profile;
@@ -79,13 +108,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               duration: Duration(seconds: 5),
             ),
           );
+          _nameController.removeListener(_onEdited);
+          _phoneController.removeListener(_onEdited);
           Navigator.of(context).pop();
         case WriteOutcomeKind.rejected:
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not save profile: ${outcome.message ?? 'the server refused it'}')),
           );
       }
-    } catch (e) {
+    } catch (e, st) {
+      // The form keeps what was typed so the person can retry.
+      AppErrors.report(e, st, 'edit_profile_screen:save', scope: ErrorScope.profile);
       if (!mounted) return;
       AppErrors.showSnack(context, e, scope: ErrorScope.profile);
     } finally {
@@ -95,12 +128,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return UnsavedChangesGuard(
+      hasUnsavedChanges: _dirty && !_saving,
+      child: Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
-        leading: IconButton(tooltip: 'Close', 
+        leading: IconButton(tooltip: 'Close',
           icon: const Icon(Icons.close_rounded),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
         title: const Text('Edit Profile'),
         actions: [
@@ -137,6 +172,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 label: 'Full Name',
                 controller: _nameController,
                 prefixIcon: Icons.person_outline_rounded,
+                keyboardType: TextInputType.name,
+                textCapitalization: TextCapitalization.words,
+                autofillHints: const [AutofillHints.name],
+                textInputAction: TextInputAction.next,
+                maxLength: InputLimits.name,
                 validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
               ),
               const SizedBox(height: 14),
@@ -168,7 +208,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 controller: _phoneController,
                 prefixIcon: Icons.phone_outlined,
                 keyboardType: TextInputType.phone,
-                helperText: 'Used for SMS alerts and delivery updates.',
+                autofillHints: const [AutofillHints.telephoneNumber],
+                inputFormatters: InputRules.phone(),
+                hint: '0917 123 4567',
+                helperText: 'Used by the rider to reach you about a delivery.',
                 validator: ValidationUtils.validatePhone,
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -181,11 +224,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: 10),
               SecondaryButton(
                 label: 'Cancel',
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () => Navigator.of(context).maybePop(),
               ),
             ],
           ),
         ),
+      ),
       ),
     );
   }

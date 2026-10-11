@@ -9,7 +9,10 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/customer_profile.dart';
@@ -86,21 +89,9 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
   }
 
   Future<void> _delete(CustomerAddress address) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete address?'),
-        content: Text('Remove "${address.label}" from your saved addresses?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    // Standard Cancel | Delete dialog naming the address.
+    final confirmed = await ConfirmDialog.delete(context, 'the "${address.label}" address');
+    if (!confirmed) return;
     try {
       await AppErrors.guard(
         () => CustomerProfileRepository.instance.deleteAddress(address.id),
@@ -415,7 +406,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
     if (!_pinned) {
       // Clearly warned: an address without a pin cannot be used for delivery.
       final choice = await showDialog<String>(
@@ -444,7 +435,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
             firebaseUid: widget.firebaseUid,
             label: _labelController.text.trim(),
             recipientName: _recipientController.text.trim(),
-            phone: _phoneController.text.trim(),
+            phone: ValidationUtils.normalizePhone(_phoneController.text),
             line1: _line1Controller.text.trim(),
             city: _cityController.text.trim(),
             province: _provinceController.text.trim(),
@@ -459,7 +450,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
             firebaseUid: widget.firebaseUid,
             label: _labelController.text.trim(),
             recipientName: _recipientController.text.trim(),
-            phone: _phoneController.text.trim(),
+            phone: ValidationUtils.normalizePhone(_phoneController.text),
             line1: _line1Controller.text.trim(),
             city: _cityController.text.trim(),
             province: _provinceController.text.trim(),
@@ -472,7 +463,9 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
       }, scope: ErrorScope.address);
       if (!mounted) return;
       Navigator.of(context).pop(true);
-    } catch (e) {
+    } catch (e, st) {
+      // The sheet stays open with everything typed, so the person can retry.
+      AppErrors.report(e, st, 'saved_addresses_screen:save', scope: ErrorScope.address);
       if (!mounted) return;
       setState(() => _saving = false);
       AppErrors.showSnack(context, e, scope: ErrorScope.address);
@@ -507,12 +500,21 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                     label: 'Label',
                     controller: _labelController,
                     hint: 'Home, Work, etc.',
-                    validator: (v) => ValidationUtils.validateRequired(v, 'Label'),
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    maxLength: InputLimits.addressLabel,
+                    validator: (v) => ValidationUtils.validateText(v,
+                        fieldName: 'Label', required: true, maxLength: InputLimits.addressLabel),
                   ),
                   const SizedBox(height: 12),
                   AppTextField(
                     label: 'Recipient Name',
                     controller: _recipientController,
+                    keyboardType: TextInputType.name,
+                    textCapitalization: TextCapitalization.words,
+                    autofillHints: const [AutofillHints.name],
+                    textInputAction: TextInputAction.next,
+                    maxLength: InputLimits.name,
                     validator: (v) => ValidationUtils.validateName(v, 'Recipient name'),
                   ),
                   const SizedBox(height: 12),
@@ -520,7 +522,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                     label: 'Phone Number',
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    hint: '09XXXXXXXXX',
+                    autofillHints: const [AutofillHints.telephoneNumber],
+                    inputFormatters: InputRules.phone(),
+                    textInputAction: TextInputAction.next,
+                    hint: '0917 123 4567',
                     validator: ValidationUtils.validatePhone,
                   ),
                   const SizedBox(height: 12),
@@ -528,6 +533,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                     label: 'Address Line',
                     controller: _line1Controller,
                     hint: 'House/unit no., street, barangay',
+                    keyboardType: TextInputType.streetAddress,
+                    autofillHints: const [AutofillHints.streetAddressLine1],
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    maxLength: InputLimits.address,
                     validator: (v) => ValidationUtils.validateAddress(v, 'Address line'),
                   ),
                   const SizedBox(height: 12),
@@ -537,7 +547,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                         child: AppTextField(
                           label: 'City',
                           controller: _cityController,
-                          validator: (v) => ValidationUtils.validateRequired(v, 'City'),
+                          autofillHints: const [AutofillHints.addressCity],
+                          textCapitalization: TextCapitalization.words,
+                          textInputAction: TextInputAction.next,
+                          maxLength: 60,
+                          validator: (v) => ValidationUtils.validateTitle(v, fieldName: 'City', maxLength: 60),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -545,7 +559,11 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                         child: AppTextField(
                           label: 'Province',
                           controller: _provinceController,
-                          validator: (v) => ValidationUtils.validateRequired(v, 'Province'),
+                          autofillHints: const [AutofillHints.addressState],
+                          textCapitalization: TextCapitalization.words,
+                          textInputAction: TextInputAction.next,
+                          maxLength: 60,
+                          validator: (v) => ValidationUtils.validateTitle(v, fieldName: 'Province', maxLength: 60),
                         ),
                       ),
                     ],
@@ -555,7 +573,10 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                     label: 'Postal Code',
                     controller: _postalController,
                     keyboardType: TextInputType.number,
-                    validator: (v) => ValidationUtils.validateRequired(v, 'Postal code'),
+                    autofillHints: const [AutofillHints.postalCode],
+                    inputFormatters: InputRules.integer(maxDigits: 4),
+                    hint: '4 digits, e.g. 4027',
+                    validator: ValidationUtils.validatePostalCode,
                   ),
                   const SizedBox(height: 12),
                   Text('Map pin (the rider goes exactly here)', style: AppTextStyles.labelLg),

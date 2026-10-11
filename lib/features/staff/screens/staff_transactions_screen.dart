@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/request_key.dart';
 import '../../../core/utils/geo_utils.dart';
@@ -103,39 +106,29 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       );
       if (ref == null) return;
     } else {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Confirm cash received'),
-          content: Text('Confirm that ${peso(o.total)} in cash was received for ${o.id}?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes, received')),
-          ],
-        ),
+      final ok = await ConfirmDialog.show(
+        context,
+        title: 'Confirm cash received',
+        message: 'Confirm that ${peso(o.total)} in cash was received for ${o.id}?',
+        confirmLabel: 'Yes, received',
+        destructive: false,
+        icon: Icons.payments_outlined,
       );
-      if (ok != true) return;
+      if (!ok) return;
     }
     await _run(() => StaffRepository.instance.confirmPayment(o.id, reference: ref), 'Payment confirmed.');
   }
 
   Future<void> _cancel(StaffOrder o) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cancel this order?'),
-        content: const Text('Stock will be returned to the branch. This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep order')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Cancel order'),
-          ),
-        ],
-      ),
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Cancel order ${o.id}?',
+      message: 'Order ${o.id} (${peso(o.total)}) will be cancelled and its stock returned to the branch. This cannot be undone.',
+      confirmLabel: 'Cancel Order',
+      cancelLabel: 'Keep Order',
+      icon: Icons.cancel_outlined,
     );
-    if (ok == true) await _setStatus(o, 'cancelled', 'Order cancelled.');
+    if (ok) await _setStatus(o, 'cancelled', 'Order cancelled.');
   }
 
   /// Void a completed in-store sale (same day, shift still open). The
@@ -160,13 +153,13 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
                 autofocus: true,
                 maxLength: 200,
                 decoration: const InputDecoration(labelText: 'Reason'),
-                validator: (v) => (v ?? '').trim().length < 3 ? 'Please give a reason' : null,
+                validator: (v) => ValidationUtils.validateReason(v, minLength: 3, maxLength: 200),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep sale')),
+          TextButton(autofocus: true, onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep sale')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () {
@@ -423,6 +416,7 @@ class _PaymentReferenceDialog extends StatefulWidget {
 
 class _PaymentReferenceDialogState extends State<_PaymentReferenceDialog> {
   final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -430,21 +424,30 @@ class _PaymentReferenceDialogState extends State<_PaymentReferenceDialog> {
     super.dispose();
   }
 
+  void _submit() {
+    if (_formKey.currentState?.validate() ?? false) Navigator.pop(context, _controller.text.trim());
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Confirm payment'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Payment reference number'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: 40,
+          textCapitalization: TextCapitalization.characters,
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\-]'))],
+          decoration: const InputDecoration(labelText: 'Payment reference number', counterText: ''),
+          validator: (v) => (v ?? '').trim().length < 4 ? 'Enter the reference (at least 4 characters).' : null,
+          onFieldSubmitted: (_) => _submit(),
+        ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
-          child: const Text('Confirm'),
-        ),
+        TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: _submit, child: const Text('Confirm')),
       ],
     );
   }
@@ -598,7 +601,7 @@ class _ReturnDialogState extends State<_ReturnDialog> {
                 controller: _reason,
                 maxLength: 200,
                 decoration: InputDecoration(labelText: AppLocalizations.of(context).returnReason),
-                validator: (v) => (v ?? '').trim().length < 3 ? 'Please give a reason' : null,
+                validator: (v) => ValidationUtils.validateReason(v, minLength: 3, maxLength: 200),
               ),
               Text(AppLocalizations.of(context).returnComputedBySystem, style: AppTextStyles.bodySm),
             ],

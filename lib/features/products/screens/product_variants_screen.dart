@@ -4,6 +4,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
@@ -63,7 +66,8 @@ class _ProductVariantsScreenState extends State<ProductVariantsScreen> {
       if (!mounted) return;
       setState(() => _busy = false);
       messenger.showSnackBar(SnackBar(content: Text(okMessage)));
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'product_variants_screen:apply', scope: ErrorScope.catalog);
       if (!mounted) return;
       setState(() => _busy = false);
       messenger.showSnackBar(SnackBar(
@@ -91,6 +95,9 @@ class _ProductVariantsScreenState extends State<ProductVariantsScreen> {
       builder: (_) => _VariantFormDialog(variant: variant),
     );
     if (result == null || !mounted) return;
+    // Price / cost edits change what customers pay: confirm first.
+    if (!await ConfirmDialog.save(context, 'the "${variant.label}" variant')) return;
+    if (!mounted) return;
     await _apply(
       product,
       [for (final v in product.variants) v.id == variant.id ? result : variantToPayload(v)],
@@ -116,21 +123,17 @@ class _ProductVariantsScreenState extends State<ProductVariantsScreen> {
       );
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove "${variant.label}"?'),
-        content: const Text(
-          'A variant that has stock or order history cannot be removed. '
-          'In that case, deactivate the product instead.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Remove')),
-        ],
-      ),
+    // Standard Cancel | Remove dialog (destructive button in the error colour).
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Remove "${variant.label}"?',
+      message: 'The "${variant.label}" variant of ${product.name} will be removed. '
+          'A variant that has stock or order history cannot be removed; '
+          'deactivate the product instead to keep its history.',
+      confirmLabel: 'Remove',
+      icon: Icons.remove_circle_outline_rounded,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await _apply(
       product,
       [for (final v in product.variants) if (v.id != variant.id) variantToPayload(v)],
@@ -296,7 +299,7 @@ class _VariantFormDialogState extends State<_VariantFormDialog> {
   }
 
   void _submit() {
-    if (!_formKey.currentState!.validate()) return;
+    if (!FormUtils.validateAndFocus(_formKey)) return;
     final cost = double.tryParse(_cost.text.trim());
     Navigator.of(context).pop(<String, dynamic>{
       if (_isEdit) 'id': widget.variant!.id,
@@ -323,13 +326,17 @@ class _VariantFormDialogState extends State<_VariantFormDialog> {
                 label: 'Label *',
                 controller: _label,
                 hint: 'e.g. 250g pouch',
-                validator: (v) => ValidationUtils.validateRequired(v, 'Label'),
+                maxLength: 40,
+                textInputAction: TextInputAction.next,
+                validator: (v) => ValidationUtils.validateText(v, fieldName: 'Label', required: true, maxLength: 40),
               ),
               const SizedBox(height: 12),
               AppTextField(
                 label: 'Retail price (SRP) *',
                 controller: _price,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: InputRules.decimal(),
+                textInputAction: TextInputAction.next,
                 validator: (v) => ValidationUtils.validatePrice(v, fieldName: 'Price'),
               ),
               const SizedBox(height: 12),
@@ -337,19 +344,34 @@ class _VariantFormDialogState extends State<_VariantFormDialog> {
                 label: 'Cost of goods (COGS)',
                 controller: _cost,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'Cost', min: 0, allowEmpty: true),
+                inputFormatters: InputRules.decimal(),
+                textInputAction: TextInputAction.next,
+                validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'Cost', min: 0, max: 100000, allowEmpty: true),
               ),
               const SizedBox(height: 12),
-              AppTextField(label: 'SKU', controller: _sku),
+              AppTextField(
+                label: 'SKU / barcode',
+                controller: _sku,
+                inputFormatters: InputRules.sku(),
+                textInputAction: TextInputAction.next,
+                validator: (v) => ValidationUtils.validateSku(v, required: false),
+              ),
               const SizedBox(height: 12),
-              AppTextField(label: 'Badge', controller: _badge, hint: 'e.g. Best Value'),
+              AppTextField(
+                label: 'Badge',
+                controller: _badge,
+                hint: 'e.g. Best Value',
+                maxLength: 30,
+                textInputAction: TextInputAction.done,
+                validator: (v) => ValidationUtils.validateText(v, fieldName: 'Badge', maxLength: 30),
+              ),
             ],
           ),
         ),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        TextButton(onPressed: _submit, child: const Text('Save')),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
       ],
     );
   }

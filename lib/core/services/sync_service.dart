@@ -140,10 +140,28 @@ class SyncService extends ChangeNotifier {
 
   /// Sends everything that can be sent right now. Safe to call at any time and
   /// from several places: overlapping calls share one run.
+  ///
+  /// A call that arrives while a run is in progress asks for one more pass
+  /// (the run may have started before the connection came back, or before the
+  /// new operation was saved) and waits for it. The in-progress marker is
+  /// cleared in the same step that decides the run is over, so a call can
+  /// never be answered by a run that already finished without looking.
   Future<void> processPending() {
-    return _running ??= _process().whenComplete(() {
+    _passRequested = true;
+    return _running ??= _drain();
+  }
+
+  bool _passRequested = false;
+
+  Future<void> _drain() async {
+    try {
+      while (_passRequested) {
+        _passRequested = false;
+        await _process();
+      }
+    } finally {
       _running = null;
-    });
+    }
   }
 
   Future<void> _process() async {

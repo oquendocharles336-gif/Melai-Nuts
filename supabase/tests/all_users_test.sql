@@ -158,8 +158,19 @@ select pg_temp.chk_true('a zero or negative limit is raised to 1',
   jsonb_array_length(pg_temp.all_users('au buyer', 0)->'customers') = 1);
 
 -- 5. Privileges -----------------------------------------------------------------------
+-- Signature is (search, limit, offset) since 20261025030000_pagination.sql.
 select pg_temp.chk_true('anon has no EXECUTE on owner_all_users',
-  not has_function_privilege('anon', 'public.owner_all_users(text, int)', 'execute'));
+  not has_function_privilege('anon', 'public.owner_all_users(text, int, int)', 'execute'));
+
+-- 6. Paging in the database (20261025030000_pagination.sql) -------------------------------
+select pg_temp.chk_true('offset pages through customers, total stays the same',
+  (select (pg_temp.call_as('au-own', $q$select public.owner_all_users(null, 1, 0)::text$q$)::jsonb ->> 'customers_total')
+        = (pg_temp.call_as('au-own', $q$select public.owner_all_users(null, 1, 1)::text$q$)::jsonb ->> 'customers_total'))
+  and (pg_temp.call_as('au-own', $q$select public.owner_all_users(null, 1, 0)::text$q$)::jsonb -> 'customers' -> 0 ->> 'firebase_uid')
+      is distinct from
+      (pg_temp.call_as('au-own', $q$select public.owner_all_users(null, 1, 1)::text$q$)::jsonb -> 'customers' -> 0 ->> 'firebase_uid'));
+select pg_temp.chk_true('a page never exceeds the 2000-row cap',
+  (pg_temp.call_as('au-own', $q$select public.owner_all_users(null, 1000000, 0)::text$q$)::jsonb ->> 'limit')::int = 2000);
 
 -- Report ---------------------------------------------------------------------
 select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;

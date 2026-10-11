@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/widgets/list_tools.dart';
 import '../../core/utils/app_error.dart';
 import '../models/order.dart';
 
@@ -87,8 +89,28 @@ class OrdersRepository {
   /// Columns fetched with every order: the order row plus its line items,
   /// status history and payment, in ONE round trip (PostgREST embedded
   /// resources) instead of three extra queries per order.
-  static const String _orderSelect =
-      '*, order_items(*), order_status_events(*), payments(*)';
+  /// Explicit columns (never `*`): only what the app shows.
+  static const String _orderColumns =
+      'id,firebase_uid,branch_id,branch_name,is_delivery,delivery_address_id,status,subtotal,discount,'
+      'delivery_fee,total,payment_method,points_earned,rider_name,rider_phone,eta_label,created_at,'
+      'updated_at,customer_notes,contact_phone,delivery_address_text,delivery_latitude,delivery_longitude';
+  static const String _orderSelect = '$_orderColumns,'
+      ' order_items(id,order_id,product_name,variant_label,quantity,unit_price,product_id,variant_id),'
+      ' order_status_events(id,order_id,status,note,created_at),'
+      ' payments(id,order_id,firebase_uid,method,status,amount,reference_number,created_at,updated_at,'
+      'gateway,gateway_payment_id,gateway_checkout_url)';
+
+  /// The customer's most recent orders kept in memory (dashboard, active
+  /// order, loyalty). Older ones are read page by page ([fetchOrdersPage]).
+  static const int recentLimit = 50;
+
+  /// Order statuses grouped as the history screen's filter shows them.
+  static const Map<String, List<String>> statusGroups = {
+    'active': ['pending', 'confirmed', 'preparing', 'readyForPickup', 'outForDelivery', 'refundRequested'],
+    'completed': ['completed'],
+    'cancelled': ['cancelled'],
+    'refunded': ['refunded'],
+  };
 
   /// Looks up the customer's own order that was created with
   /// [idempotencyKey], or null if the server never accepted one. Used to
@@ -106,14 +128,78 @@ class OrdersRepository {
     }, scope: ErrorScope.order);
   }
 
+  /// The [recentLimit] newest orders. The rows are also saved in the local
+  /// database (local-first: shown at once on the next start, and offline).
   Future<List<Order>> fetchOrders(String firebaseUid) {
     return AppErrors.guard(() async {
       final raw = await _client
           .from('orders')
           .select(_orderSelect)
           .eq('firebase_uid', firebaseUid)
-          .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(raw).map(_orderFromEmbeddedRow).toList();
+          .order('created_at', ascending: false)
+          .order('id', ascending: false)
+          .limit(recentLimit);
+      final rows = List<Map<String, dynamic>>.from(raw);
+      unawaited(CustomerLocalDb.instance.replaceAll(firebaseUid, LocalKind.orders, rows));
+      return rows.map(_orderFromEmbeddedRow).toList();
+    }, scope: ErrorScope.order);
+  }
+
+  /// The orders saved on this device (last server copy), newest first.
+  Future<List<Order>> localOrders(String firebaseUid) async {
+    final page = await CustomerLocalDb.instance.query(firebaseUid, LocalKind.orders, sort: LocalSort.newest);
+    return page.rows.map(_orderFromEmbeddedRow).toList();
+  }
+
+  /// The same page read from the copy saved on this device (offline). The
+  /// saved copy holds the orders this device has seen, so `total` counts
+  /// those only; the screen labels it as saved data.
+  Future<(PageResult<Order>, DateTime?)> localOrdersPage(
+      String firebaseUid, ListQuery query, int offset, int limit) async {
+    final page = await CustomerLocalDb.instance.query(
+      firebaseUid,
+      LocalKind.orders,
+      search: query.search,
+      sort: query.sortId == 'oldest' ? LocalSort.oldest : LocalSort.newest,
+    );
+    final group = statusGroups[query.filters['status']];
+    final days = int.tryParse(query.filters['date'] ?? '');
+    final since = days == null ? null : DateTime.now().subtract(Duration(days: days));
+    var orders = page.rows.map(_orderFromEmbeddedRow).where((o) {
+      if (group != null && !group.contains(o.status.name)) return false;
+      if (since != null && o.date.isBefore(since)) return false;
+      return true;
+    }).toList();
+    if (query.sortId == 'totalHigh') orders.sort((a, b) => b.total.compareTo(a.total));
+    if (query.sortId == 'totalLow') orders.sort((a, b) => a.total.compareTo(b.total));
+    final total = orders.length;
+    orders = orders.skip(offset).take(limit).toList();
+    return (PageResult(orders, total), page.savedAt);
+  }
+
+  /// One page of the customer's orders with search (order ID or branch),
+  /// status filter and sort applied BY THE SERVER, plus the total count.
+  Future<PageResult<Order>> fetchOrdersPage(String firebaseUid, ListQuery query, int offset, int limit) {
+    return AppErrors.guard(() async {
+      var q = _client.from('orders').select(_orderSelect).eq('firebase_uid', firebaseUid);
+      final term = query.search.replaceAll(RegExp(r'[^A-Za-z0-9 \-]'), '').trim();
+      if (term.isNotEmpty) q = q.or('id.ilike.%$term%,branch_name.ilike.%$term%');
+      final group = statusGroups[query.filters['status']];
+      if (group != null) q = q.inFilter('status', group);
+      final days = int.tryParse(query.filters['date'] ?? '');
+      if (days != null) {
+        q = q.gte('created_at', DateTime.now().toUtc().subtract(Duration(days: days)).toIso8601String());
+      }
+      final ascending = query.sortId == 'oldest' || query.sortId == 'totalLow';
+      final column = query.sortId.startsWith('total') ? 'total' : 'created_at';
+      final res = await q
+          .order(column, ascending: ascending)
+          .order('id', ascending: ascending)
+          .range(offset, offset + limit - 1)
+          .count(CountOption.exact);
+      final rows = List<Map<String, dynamic>>.from(res.data);
+      unawaited(CustomerLocalDb.instance.upsert(firebaseUid, LocalKind.orders, rows));
+      return PageResult(rows.map(_orderFromEmbeddedRow).toList(), res.count);
     }, scope: ErrorScope.order);
   }
 

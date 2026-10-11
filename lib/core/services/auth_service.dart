@@ -20,7 +20,9 @@ import 'sync_service.dart';
 import '../../data/repositories/driver_repository.dart';
 import '../../data/repositories/staff_repository.dart';
 import '../utils/app_error.dart';
+import '../utils/validation_utils.dart';
 import 'push_service.dart';
+import 'legal_service.dart';
 import '../../data/repositories/favorites_repository.dart';
 
 /// A user-facing authentication failure. The [message] is already written
@@ -126,6 +128,10 @@ class AuthService {
 
   final _FailureBrake _signInBrake = _FailureBrake();
   final _FailureBrake _phoneCodeBrake = _FailureBrake();
+  // Same on-device brake for wrong e-mail verification codes and for repeated
+  // failed sign-ups (the e-mail code API and Firebase also limit server-side).
+  final _FailureBrake _emailCodeBrake = _FailureBrake();
+  final _FailureBrake _signUpBrake = _FailureBrake();
   final Map<String, DateTime> _lastResetRequest = {};
   static const Duration _resetCooldown = Duration(seconds: 60);
 
@@ -210,6 +216,7 @@ class AuthService {
     required String phone,
     required String password,
   }) async {
+    _throwIfBraked(_signUpBrake);
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -220,7 +227,8 @@ class AuthService {
         throw const AuthException('Account creation failed. Please try again.');
       }
       _pendingName = name.trim();
-      _pendingPhone = phone.trim();
+      // One stored format for every phone number: E.164 (+639171234567).
+      _pendingPhone = ValidationUtils.normalizePhone(phone);
       _userInitiatedSignOut = false;
       try {
         await user.updateDisplayName(name.trim());
@@ -229,6 +237,7 @@ class AuthService {
         // Not critical; the name is also kept in memory and written to the profile.
       }
     } on FirebaseAuthException catch (e) {
+      if (e.code != 'network-request-failed') _signUpBrake.recordFailure();
       throw AuthException(_messageFor(e));
     }
   }
@@ -256,9 +265,12 @@ class AuthService {
     if (user == null) {
       throw const AuthException('Your sign-up session expired. Please register again.');
     }
+    _throwIfBraked(_emailCodeBrake);
     try {
       await EmailVerificationService.instance.verify(user, code: code);
+      _emailCodeBrake.reset();
     } on EmailVerificationException catch (e) {
+      if (code != null) _emailCodeBrake.recordFailure();
       throw AuthException(e.message);
     }
 
@@ -574,7 +586,7 @@ class AuthService {
           email: newUser.email ?? email.trim(),
           name: name.trim(),
           role: role,
-          phone: phone?.trim(),
+          phone: phone == null ? null : ValidationUtils.normalizePhone(phone),
           branch: needsBranch ? branch : null,
           isActive: true,
         );
@@ -591,14 +603,15 @@ class AuthService {
               role: role == UserRole.owner ? 'owner' : 'staff',
               branchName: needsBranch ? branch : null,
             );
-          } catch (e) {
+          } catch (e, st) {
+            AppErrors.report(e, st, 'auth_service:upsertStaffMember');
             try {
               await newUser.delete();
             } catch (caughtError, caughtStack) {
               AppErrors.report(caughtError, caughtStack, 'auth_service:587');
             }
             throw AuthException(
-              e is AuthException ? e.message : 'Could not register this account in the staff database. ${e.toString()}',
+              e is AuthException ? e.message : 'Could not register this account in the staff database. Please try again.',
             );
           }
         }
@@ -611,16 +624,17 @@ class AuthService {
               fullName: name.trim(),
               email: newUser.email ?? email.trim(),
               branchName: branch!,
-              phone: phone?.trim(),
+              phone: phone == null ? null : ValidationUtils.normalizePhone(phone),
             );
-          } catch (e) {
+          } catch (e, st) {
+            AppErrors.report(e, st, 'auth_service:registerDriver');
             try {
               await newUser.delete();
             } catch (caughtError, caughtStack) {
               AppErrors.report(caughtError, caughtStack, 'auth_service:607');
             }
             throw AuthException(
-              e is AuthException ? e.message : 'Could not register this account as a driver. ${e.toString()}',
+              e is AuthException ? e.message : 'Could not register this account as a driver. Please try again.',
             );
           }
         }
@@ -671,14 +685,14 @@ class AuthService {
     try {
       await StaffRepository.instance.setStaffActive(uid, isActive);
     } catch (e) {
-      throw AuthException(e.toString());
+      throw AuthException(AppErrors.from(e).message);
     }
     // Drivers live in their own registry; "could not be found" just means
     // this account is not a driver.
     try {
       await DriverRepository.instance.setDriverStatus(uid, isActive ? 'active' : 'inactive');
     } catch (e) {
-      if (!e.toString().contains('could not be found')) throw AuthException(e.toString());
+      if (!e.toString().contains('could not be found')) throw AuthException(AppErrors.from(e).message);
     }
     await _firestore.collection(_usersCollection).doc(uid).update({
       'isActive': isActive,
@@ -759,6 +773,7 @@ class AuthService {
       await SyncService.instance.flushBeforeSignOut();
     }
     _currentProfile = null;
+    LegalService.instance.resetSession();
     FavoritesRepository.instance.clear();
     // Drop the staff member's profile, branch, permissions and every hook
     // registered by later staff stores, synchronously, before anything awaits.

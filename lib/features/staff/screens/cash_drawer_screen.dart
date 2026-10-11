@@ -5,6 +5,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/request_key.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -244,18 +247,19 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 controller: amountCtrl,
                 autofocus: true,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: amountLabel),
-                validator: (v) {
-                  final n = double.tryParse((v ?? '').trim());
-                  return n == null || n < 0 ? 'Enter an amount' : null;
-                },
+                inputFormatters: InputRules.decimal(),
+                decoration: InputDecoration(labelText: amountLabel, prefixText: '₱ '),
+                validator: (v) => ValidationUtils.validateNumber(v, fieldName: amountLabel, min: 0, max: 1000000),
               ),
               if (withReason)
                 TextFormField(
                   controller: textCtrl,
                   maxLength: 200,
+                  textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(labelText: reasonLabel),
-                  validator: (v) => reasonRequired && (v ?? '').trim().length < 3 ? 'Please give a reason' : null,
+                  validator: (v) => reasonRequired
+                      ? ValidationUtils.validateReason(v, fieldName: reasonLabel, minLength: 3, maxLength: 200)
+                      : ValidationUtils.validateText(v, fieldName: reasonLabel, maxLength: 200),
                 ),
             ],
           ),
@@ -271,8 +275,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         ],
       ),
     );
+    final result = (amount: double.tryParse(amountCtrl.text.trim()) ?? 0, text: textCtrl.text.trim());
+    disposeAfterDialog([amountCtrl, textCtrl]);
     if (ok != true) return null;
-    return (amount: double.parse(amountCtrl.text.trim()), text: textCtrl.text.trim());
+    return result;
   }
 
   Widget _card(List<Widget> children) => Container(

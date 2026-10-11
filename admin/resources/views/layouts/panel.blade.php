@@ -103,6 +103,8 @@
             <div class="menu up" role="menu" x-show="menu" x-cloak x-transition.origin.bottom>
                 <a href="{{ route('settings') }}" role="menuitem"><x-icon name="settings" :size="16" /> Settings</a>
                 <a href="{{ route('help') }}" role="menuitem"><x-icon name="keyboard" :size="16" /> Shortcuts & help</a>
+                <a href="{{ route('legal.terms') }}" role="menuitem"><x-icon name="scroll" :size="16" /> Terms and Conditions</a>
+                <a href="{{ route('legal.privacy') }}" role="menuitem"><x-icon name="shield" :size="16" /> Privacy Policy</a>
                 <form method="POST" action="{{ route('logout') }}">@csrf
                     <button type="submit" role="menuitem"><x-icon name="logout" :size="16" /> Logout</button></form>
             </div>
@@ -119,6 +121,10 @@
         <div class="main-inner page-enter">
             @include('layouts._page')
         </div>
+        <footer class="legal-footer muted" style="padding:1.5rem 0 .5rem;font-size:.8rem;text-align:center">
+            <a class="link" href="{{ route('legal.terms') }}">Terms and Conditions</a> ·
+            <a class="link" href="{{ route('legal.privacy') }}">Privacy Policy</a>
+        </footer>
     </main>
 </div>
 
@@ -189,6 +195,7 @@
     </div>
 </x-modal>
 
+<x-confirm-modal />
 <x-toast />
 @endif
 @endsection

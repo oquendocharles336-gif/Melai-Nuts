@@ -47,7 +47,7 @@ class BusinessSettingsRepository {
     } catch (e) {
       // Not readable (not staff, offline, migration missing): stay "Not set".
       _loading = null;
-      debugPrint('business settings could not be read: $e');
+      if (kDebugMode) debugPrint('business settings could not be read: $e');
     }
   }
 }

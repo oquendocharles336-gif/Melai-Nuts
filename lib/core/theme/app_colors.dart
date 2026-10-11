@@ -44,4 +44,13 @@ class AppColors {
   static const Color roleStaff = Color(0xFF7B563F);
   static const Color roleDelivery = Color(0xFF387B44);
   static const Color roleCustomer = Color(0xFF91571C);
+
+  // ---- Gradients and accents (hero banners, loyalty card) ----------------
+  // Kept here so no screen hard-codes a colour (docs/DESIGN_GUIDE.md).
+  static const Color heroGradientStart = Color(0xFF6B3F1E);
+  static const Color heroGradientEnd = Color(0xFFC48A55);
+  static const Color primaryDeep = Color(0xFF5E3519);
+  static const Color loyaltyGradientEnd = Color(0xFF8A5530);
+  static const Color gold = Color(0xFFFFD27A);
+  static const Color productCardGradientStart = Color(0xFFBE7B47);
 }

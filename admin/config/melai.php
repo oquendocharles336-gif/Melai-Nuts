@@ -13,8 +13,24 @@ return [
         // whose email equals ADMIN_EMAIL is used instead.
         'staff_uid' => env('ADMIN_STAFF_UID'),
     ],
-    // Login rate limit (per email + IP)
+    // Terms and Conditions / Privacy Policy shown at /terms and /privacy (same text as the app's
+    // lib/features/legal). Bump the version when the wording changes; registration records it.
+    'legal' => ['terms_version' => env('MELAI_TERMS_VERSION', '2026-10-11')],
+
+    // Login rate limit (per email + IP): after max_attempts failures the login is locked for
+    // decay_seconds ("Too many attempts, try again in N seconds").
     'login' => ['max_attempts' => 5, 'decay_seconds' => 60],
+
+    // Two-step sign-in (TOTP) is REQUIRED for admin (owner) logins: until it is set up, an admin can
+    // only open the two-step setup page (and sign out). Turned off only by the automated tests, which
+    // sign admins in directly (phpunit.xml), and re-enabled by tests/Feature/AdminSecurityTest.php.
+    'two_factor' => [
+        'required_for_admins' => filter_var(env('MELAI_REQUIRE_ADMIN_2FA', true), FILTER_VALIDATE_BOOL),
+    ],
+
+    // Every POST / PUT / PATCH / DELETE is limited per signed-in login (or per IP for guests), on top
+    // of the tighter limits on single routes in routes/web.php (App\Http\Middleware\ThrottleWrites).
+    'write_limit_per_minute' => (int) env('MELAI_WRITE_LIMIT_PER_MINUTE', 60),
 
     // Business data ALWAYS comes from the mobile app's real Supabase database. There is no demo /
     // mock option on the website (the automated tests bind their own fixtures from admin/tests/).

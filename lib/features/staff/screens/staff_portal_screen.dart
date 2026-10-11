@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/format_utils.dart';
+import '../../../core/widgets/list_tools.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/catalog_store.dart';
@@ -369,8 +370,9 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
     return GridView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        // 2 columns on phones, more on tablets / web.
+        maxCrossAxisExtent: 260,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
         childAspectRatio: 1.25,
@@ -536,6 +538,25 @@ class _TransactionsTab extends StatefulWidget {
 
 class _TransactionsTabState extends State<_TransactionsTab> {
   _OrderFilter _filter = _OrderFilter.active;
+  ListQuery _query = const ListQuery(sortId: 'newest');
+
+  static final List<SortOption<StaffOrder>> _sorts = [
+    SortOption('newest', 'Newest first', (a, b) => b.createdAt.compareTo(a.createdAt)),
+    SortOption('oldest', 'Oldest first', (a, b) => a.createdAt.compareTo(b.createdAt)),
+    SortOption('totalHigh', 'Highest amount', (a, b) => b.total.compareTo(a.total)),
+    SortOption('totalLow', 'Lowest amount', (a, b) => a.total.compareTo(b.total)),
+  ];
+
+  static final List<FilterGroup<StaffOrder>> _groups = [
+    FilterGroup('payment', 'Payment method', [
+      FilterChoice('cash', 'Cash', (o) => o.paymentMethod == 'cash'),
+      FilterChoice('other', 'Non-cash', (o) => o.paymentMethod != 'cash'),
+    ]),
+    FilterGroup('channel', 'Channel', [
+      FilterChoice('pos', 'Walk-in (POS)', (o) => o.isPos),
+      FilterChoice('online', 'Online', (o) => !o.isPos),
+    ]),
+  ];
 
   String _filterLabel(_OrderFilter f) {
     switch (f) {
@@ -554,7 +575,7 @@ class _TransactionsTabState extends State<_TransactionsTab> {
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
-        final orders = store.orders.where((o) {
+        final scoped = store.orders.where((o) {
           switch (_filter) {
             case _OrderFilter.active:
               return o.status.isActive;
@@ -563,10 +584,48 @@ class _TransactionsTabState extends State<_TransactionsTab> {
             case _OrderFilter.all:
               return true;
           }
-        }).toList();
+        });
+        // Search (order ID, customer, phone, item), sort and filters.
+        final orders = applyListQuery<StaffOrder>(
+          scoped,
+          _query,
+          text: (o) => '${o.id} ${o.customerName ?? ''} ${o.contactPhone} ${o.cashierName ?? ''} '
+              '${o.items.map((i) => i.productName).join(' ')}',
+          sorts: _sorts,
+          groups: _groups,
+        );
 
         return Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+              child: AppSearchBar(
+                hint: 'Search order ID, customer, phone or item',
+                initialValue: _query.search,
+                onChanged: (text) => setState(() => _query = _query.copyWith(search: text)),
+                trailing: SortFilterButton(
+                  active: _query.hasFilters || _query.sortId != 'newest',
+                  onPressed: () async {
+                    final next = await SortFilterSheet.show<StaffOrder>(
+                      context,
+                      query: _query,
+                      sorts: _sorts,
+                      groups: _groups,
+                    );
+                    if (next != null && mounted) setState(() => _query = next);
+                  },
+                ),
+              ),
+            ),
+            if (_query.hasFilters)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: ActiveFilterChips<StaffOrder>(
+                  query: _query,
+                  groups: _groups,
+                  onChanged: (q) => setState(() => _query = q),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
               child: Row(
@@ -594,7 +653,9 @@ class _TransactionsTabState extends State<_TransactionsTab> {
                   isEmpty: orders.isEmpty,
                   onRetry: store.refreshOrders,
                   emptyIcon: Icons.receipt_long_outlined,
-                  emptyTitle: _filter == _OrderFilter.active
+                  emptyTitle: _query.isNarrowed
+                      ? 'No orders match your search.'
+                      : _filter == _OrderFilter.active
                       ? 'No active orders.'
                       : (_filter == _OrderFilter.today ? 'No orders today.' : 'No orders yet.'),
                   emptyMessage: 'New orders and sales appear here as they happen.',

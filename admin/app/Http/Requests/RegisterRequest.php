@@ -4,7 +4,6 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Password;
 
 class RegisterRequest extends FormRequest
 {
@@ -27,20 +26,24 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'min:2', 'max:100'],
-            'email' => ['required', 'string', 'email:rfc', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', Password::min(8)->mixedCase()->numbers()->symbols()],
+            // Same rules as the app (lib/core/utils/validation_utils.dart) — see Rules.
+            'name' => Rules::name(),
+            'email' => [...Rules::email(), 'unique:users,email'],
+            'password' => Rules::newPassword($this->input('email'), $this->input('name')),
             'password_confirmation' => ['required', 'same:password'],
+            // An active choice: the box is never pre-ticked (resources/views/auth/register.blade.php).
+            'terms' => ['accepted'],
         ];
     }
 
     public function messages(): array
     {
-        return [
+        return Rules::messages() + [
             'name.required' => 'Full name is required.',
             'email.unique' => 'An account with this email already exists.',
             'password_confirmation.required' => 'Please confirm your password.',
             'password_confirmation.same' => 'Passwords do not match.',
+            'terms.accepted' => 'Please tick the box to agree to the Terms and Conditions and the Privacy Policy.',
         ];
     }
 }

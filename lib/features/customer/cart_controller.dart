@@ -590,6 +590,17 @@ class CartController extends ChangeNotifier {
     }
   }
 
+  /// Undo for [removeLine]: puts [line] back at [index] (or the end).
+  Future<void> restoreLine(CartLine line, int index) async {
+    if (_lines.any((l) => l.id == line.id)) return;
+    _lines.insert(index.clamp(0, _lines.length).toInt(), line);
+    _pricing = _localPricing();
+    _markDirty();
+    if (_firebaseUid != null && _branchId != null) {
+      await _syncNow();
+    }
+  }
+
   Future<void> clear() async {
     _lines.clear();
     appliedVoucherCode = null;
@@ -754,7 +765,8 @@ class CartController extends ChangeNotifier {
   }
 
   String _messageFor(Object e) {
-    final text = e.toString().replaceFirst('Exception: ', '').trim();
+    // AppErrors.from maps any error to customer-safe wording (no SQL / internals).
+    final text = AppErrors.from(e, scope: ErrorScope.cart).message.trim();
     return text.isEmpty ? 'Cart sync failed. We will retry when the connection is available.' : text;
   }
 }

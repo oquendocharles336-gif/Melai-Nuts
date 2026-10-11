@@ -13,6 +13,9 @@
     @if (session('status'))
         <div class="alert">{{ session('status') }}</div>
     @endif
+    @if (session('error'))
+        <div class="alert" role="alert" style="color:#C0392B;background:#fdecea;border-color:#f5b7b1">{{ session('error') }}</div>
+    @endif
     @php $firebaseMissing = app(\App\Services\Firebase\FirebaseConfig::class)->missing(); @endphp
     @if ($firebaseMissing)
         <div class="alert" role="status" style="color:#8a5a00;background:#fff6e0;border-color:#f3d48a">

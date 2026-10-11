@@ -25,7 +25,7 @@
                 <td><span class="status {{ $p['is_active'] ? 'high' : 'low' }}">{{ $p['is_active'] ? 'Available' : 'Hidden' }}</span></td>
                 <td>
                     @if (auth()->user()->isAdmin())
-                        <form method="POST" action="{{ route('ops.products.toggle', $p['id']) }}" onsubmit="return confirm('{{ $p['is_active'] ? 'Hide this product from customers?' : 'Show this product to customers?' }}')">
+                        <form method="POST" action="{{ route('ops.products.toggle', $p['id']) }}" data-confirm="{{ $p['is_active'] ? 'Hide '.$p['name'].' from customers? Its order history is kept and you can show it again later.' : 'Show '.$p['name'].' to customers again?' }}" data-confirm-title="{{ $p['is_active'] ? 'Hide product?' : 'Show product?' }}" data-confirm-label="{{ $p['is_active'] ? 'Hide' : 'Show' }}" {{ $p['is_active'] ? '' : 'data-confirm-safe' }}>
                             @csrf <input type="hidden" name="active" value="{{ $p['is_active'] ? 0 : 1 }}">
                             <button class="btn-outline" type="submit" style="padding:.3rem .8rem">{{ $p['is_active'] ? 'Hide' : 'Show' }}</button>
                         </form>

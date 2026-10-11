@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -25,11 +29,56 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
   final _voucherController = TextEditingController();
+  String? _voucherError;
 
   @override
   void dispose() {
     _voucherController.dispose();
     super.dispose();
+  }
+
+  /// Remove one line — asks first, then offers Undo.
+  Future<void> _removeLine(CartLine line) async {
+    final cart = CartController.instance;
+    final t = AppLocalizations.of(context);
+    final name = '${line.product.name} (${line.variant.label})';
+    if (!await ConfirmDialog.remove(context, name)) return;
+    if (!mounted) return;
+    final index = cart.lines.indexWhere((l) => l.id == line.id);
+    final messenger = ScaffoldMessenger.of(context);
+    await cart.removeLine(line.id);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(t.removedSnack(name)),
+        action: SnackBarAction(label: t.undo, onPressed: () => cart.restoreLine(line, index)),
+      ));
+  }
+
+  /// Clear the whole cart — asks first (Cancel | Clear Cart).
+  Future<void> _clearCart() async {
+    final cart = CartController.instance;
+    final t = AppLocalizations.of(context);
+    final ok = await ConfirmDialog.show(
+      context,
+      title: t.clearCartTitle,
+      message: t.clearCartMessage(cart.itemCount),
+      confirmLabel: t.clearCart,
+      icon: Icons.remove_shopping_cart_outlined,
+    );
+    if (ok) await cart.clear();
+  }
+
+  Future<void> _applyVoucher() async {
+    final error = ValidationUtils.validateVoucherCode(_voucherController.text);
+    setState(() => _voucherError = error);
+    if (error != null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final serverError = await CartController.instance.applyVoucher(_voucherController.text.trim());
+    if (!mounted) return;
+    if (serverError == null) return;
+    setState(() => _voucherError = serverError);
+    messenger.showSnackBar(SnackBar(content: Text(serverError)));
   }
 
   @override
@@ -45,7 +94,7 @@ class _CartScreenState extends State<CartScreen> {
           actions: [
             if (cart.lines.isNotEmpty)
               TextButton(
-                onPressed: cart.isSyncing ? null : () => cart.clear(),
+                onPressed: cart.isSyncing ? null : _clearCart,
                 child: const Text('Clear cart'),
               ),
           ],
@@ -93,8 +142,9 @@ class _CartScreenState extends State<CartScreen> {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: CartItemTile(
                     line: line,
-                    onQuantityChanged: (q) => cart.updateQuantity(line.id, q),
-                    onRemove: () => cart.removeLine(line.id),
+                    // Going below 1 is a removal: it asks first, like the bin icon.
+                    onQuantityChanged: (q) => q <= 0 ? _removeLine(line) : cart.updateQuantity(line.id, q),
+                    onRemove: () => _removeLine(line),
                   ),
                 ),
               Container(
@@ -160,25 +210,24 @@ class _CartScreenState extends State<CartScreen> {
                   Expanded(
                     child: TextField(
                       controller: _voucherController,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.confirmation_number_outlined, size: 20),
+                      inputFormatters: InputRules.voucherCode(),
+                      textCapitalization: TextCapitalization.characters,
+                      autocorrect: false,
+                      onChanged: (_) {
+                        if (_voucherError != null) setState(() => _voucherError = null);
+                      },
+                      onSubmitted: (_) => _applyVoucher(),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.confirmation_number_outlined, size: 20),
                         hintText: 'Enter voucher code',
+                        errorText: _voucherError,
+                        errorMaxLines: 2,
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: cart.isSyncing
-                        ? null
-                        : () async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      final error = await cart.applyVoucher(_voucherController.text);
-                      if (!mounted) return;
-                      if (error == null) return;
-                      messenger.showSnackBar(
-                        SnackBar(content: Text(error)),
-                      );
-                    },
+                    onPressed: cart.isSyncing ? null : _applyVoucher,
                     child: cart.isSyncing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Apply'),
                   ),
                 ],

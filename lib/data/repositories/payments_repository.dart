@@ -33,7 +33,10 @@ class PaymentsRepository {
         .from('payments')
         .select()
         .eq('firebase_uid', firebaseUid)
-        .order('created_at', ascending: false);
+        .order('created_at', ascending: false)
+        // Newest payments only: each order row also embeds its own payments,
+        // so older orders opened from the paged history still show theirs.
+        .limit(200);
     return List<Map<String, dynamic>>.from(raw).map(PaymentTransaction.fromRow).toList();
   }
 

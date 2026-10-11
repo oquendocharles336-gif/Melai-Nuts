@@ -6,6 +6,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -50,7 +52,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
 
     if (_selectedBranchIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -79,7 +81,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         SnackBar(content: Text('"${_nameController.text.trim()}" saved.')),
       );
       Navigator.of(context).pop();
-    } catch (e) {
+    } catch (e, st) {
+      // The form keeps everything typed so the owner can retry.
+      AppErrors.report(e, st, 'add_product_screen:save', scope: ErrorScope.catalog);
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppError ? e.message : 'Could not save the product. Please try again.')));
@@ -132,7 +136,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       label: 'Product Name *',
                       controller: _nameController,
                       hint: 'e.g. Honey Glazed Cashew Peanuts',
-                      validator: (v) => ValidationUtils.validateMinLength(v, 2, 'Product Name'),
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.next,
+                      maxLength: InputLimits.productName,
+                      validator: (v) => ValidationUtils.validateTitle(v, fieldName: 'Product name'),
                     ),
                     const SizedBox(height: 14),
                     Text('Category *', style: AppTextStyles.labelLg),
@@ -144,7 +151,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       validator: (v) => ValidationUtils.validateRequired(v, 'Category'),
                     ),
                     const SizedBox(height: 14),
-                    AppTextField(label: 'Product Description', controller: _descriptionController, hint: 'Handcrafted, roasted...'),
+                    AppTextField(
+                      label: 'Product Description',
+                      controller: _descriptionController,
+                      hint: 'Handcrafted, roasted...',
+                      maxLines: 4,
+                      maxLength: InputLimits.description,
+                      textCapitalization: TextCapitalization.sentences,
+                      validator: (v) => ValidationUtils.validateText(v, fieldName: 'Description', maxLength: InputLimits.description),
+                    ),
                   ],
                 ),
               ),
@@ -160,8 +175,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             label: 'Cost of Goods (COGS)',
                             controller: _cogsController,
                             prefixIcon: Icons.receipt_long_outlined,
-                            keyboardType: TextInputType.number,
-                            validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'COGS', min: 0, allowEmpty: true),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: InputRules.decimal(),
+                            validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'COGS', min: 0, max: 100000, allowEmpty: true),
                             onChanged: (_) => setState(() {}),
                           ),
                         ),
@@ -171,7 +187,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             label: 'Base Retail Price (SRP) *',
                             controller: _srpController,
                             prefixIcon: Icons.sell_outlined,
-                            keyboardType: TextInputType.number,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: InputRules.decimal(),
                             validator: (v) => ValidationUtils.validatePrice(v, fieldName: 'Retail Price'),
                             onChanged: (_) => setState(() {}),
                           ),

@@ -22,6 +22,9 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Tests sign admins in directly; tests/Feature/AdminSecurityTest.php turns these back on. -->
+        <env name="MELAI_REQUIRE_ADMIN_2FA" value="false"/>
+        <env name="MELAI_WRITE_LIMIT_PER_MINUTE" value="100000"/>
         <env name="FIREBASE_WEB_API_KEY" value="test-web-api-key"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

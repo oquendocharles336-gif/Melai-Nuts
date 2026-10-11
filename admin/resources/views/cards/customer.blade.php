@@ -55,7 +55,7 @@
             </div>
             <div style="display:flex;gap:.5rem;flex-wrap:wrap">
                 @if ($card['status'] === 'active')
-                    <form method="POST" action="{{ route('cards.block', $card['id']) }}" style="display:flex;gap:.4rem" onsubmit="return confirm('Block card {{ $card['label'] }}? It will stop working at every branch.')">
+                    <form method="POST" action="{{ route('cards.block', $card['id']) }}" style="display:flex;gap:.4rem" data-confirm="Block card {{ $card['label'] }}? It will stop working at every branch." data-confirm-title="Block this card?" data-confirm-label="Block card">
                         @csrf
                         <input class="light-input" name="reason" required minlength="3" maxlength="200" placeholder="Reason (e.g. reported lost)" style="max-width:14rem">
                         <button class="btn-outline" style="padding:.3rem .9rem;border-color:#C0392B;color:#C0392B" type="submit">Block</button>

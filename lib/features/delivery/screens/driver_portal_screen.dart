@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/routes.dart';
@@ -10,6 +9,10 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/services/permission_service.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -302,7 +305,17 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                       ),
                     );
                     if (agreed != true) return;
-                    await _tracker.start(d.id);
+                    final started = await _tracker.start(d.id);
+                    if (!started && mounted) {
+                      // Explain what will not work; Try again / Open Settings.
+                      final retry = await PermissionDeniedDialog.show(
+                        context,
+                        AppPermission.location,
+                        PermissionPurpose.deliveryTracking,
+                        permanentlyDenied: _tracker.permissionBlocked,
+                      );
+                      if (retry) await _tracker.start(d.id);
+                    }
                   } else {
                     await _tracker.stop();
                   }
@@ -489,21 +502,33 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                 ),
                 TextFormField(
                   controller: nameCtrl,
+                  keyboardType: TextInputType.name,
                   textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(labelText: 'Received by (name)'),
-                  validator: (v) => (v ?? '').trim().isEmpty ? 'Enter who received the order' : null,
+                  autofillHints: const [AutofillHints.name],
+                  maxLength: InputLimits.name,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  decoration: const InputDecoration(labelText: 'Received by (name)', counterText: ''),
+                  validator: (v) => ValidationUtils.validateName(v, 'Receiver name'),
                 ),
                 if (s.needsCashCollection)
                   TextFormField(
                     controller: cashCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: InputRules.decimal(),
                     decoration: InputDecoration(labelText: 'Cash collected (${peso(s.orderTotal ?? 0)} due)'),
-                    validator: (v) => double.tryParse((v ?? '').trim()) == null ? 'Enter the amount collected' : null,
+                    validator: (v) => ValidationUtils.validateNumber(
+                      v,
+                      fieldName: 'Cash collected',
+                      min: 0,
+                      max: 1000000,
+                    ),
                   ),
                 TextFormField(
                   controller: noteCtrl,
                   decoration: const InputDecoration(labelText: 'Note (optional)'),
                   maxLength: 200,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  validator: (v) => ValidationUtils.validateText(v, fieldName: 'Note', maxLength: 200),
                 ),
               ],
             ),
@@ -521,6 +546,10 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
        ),
       ),
     );
+    final recipientName = nameCtrl.text.trim();
+    final noteText = noteCtrl.text.trim();
+    final cashText = cashCtrl.text.trim();
+    disposeAfterDialog([nameCtrl, noteCtrl, cashCtrl]);
     if (confirmed != true) return;
     await _run(
       () async => _repo.markDelivered(
@@ -530,32 +559,54 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         proofPhotoPath: photo == null
             ? null
             : await _repo.uploadProofPhoto(deliveryId: d.id, stopId: s.id, bytes: photo!),
-        recipientName: nameCtrl.text.trim(),
-        note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
-        cashCollected: s.needsCashCollection ? double.tryParse(cashCtrl.text.trim()) : null,
+        recipientName: recipientName,
+        note: noteText.isEmpty ? null : noteText,
+        cashCollected: s.needsCashCollection ? double.tryParse(cashText) : null,
       ),
       done: 'Delivered. Thank you!',
     );
   }
 
-  /// Camera photo, downscaled and compressed (a few hundred KB) before upload.
+  /// Largest proof photo that is uploaded (after compression).
+  static const int _maxPhotoBytes = 1024 * 1024; // ~1 MB
+
+  /// Camera photo, downscaled to at most 1280 px and JPEG quality 80 (usually
+  /// 200–500 KB) before upload. The camera permission is explained first; a
+  /// refusal is handled with Try again / Open Settings.
   Future<List<int>?> _takeProofPhoto() async {
+    final go = await PermissionService.instance.beforeCamera(context, PermissionPurpose.proofPhoto);
+    if (!go || !mounted) return null;
     try {
       final file = await ImagePicker().pickImage(
         source: ImageSource.camera,
         maxWidth: 1280,
         maxHeight: 1280,
-        imageQuality: 70,
+        imageQuality: 80,
       );
       if (file == null) return null;
+      await PermissionService.instance.cameraGranted();
       final bytes = await file.readAsBytes();
-      if (bytes.length > 5 * 1024 * 1024) {
+      if (bytes.length > _maxPhotoBytes) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The photo is too large. Please try again.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('The photo is larger than 1 MB. Please take it again, a little further away.')));
         }
         return null;
       }
       return bytes;
+    } on PlatformException catch (e, st) {
+      if (e.code == 'camera_access_denied' || e.code == 'camera_access_restricted') {
+        if (mounted) {
+          final retry = await PermissionService.instance.cameraDenied(context, PermissionPurpose.proofPhoto);
+          if (retry && mounted) return _takeProofPhoto();
+        }
+        return null;
+      }
+      AppErrors.report(e, st, 'driver_portal_screen:takeProofPhoto');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The camera could not be opened.')));
+      }
+      return null;
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'driver_portal_screen:506');
       if (mounted) {
@@ -577,9 +628,16 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           child: TextFormField(
             controller: ctrl,
             autofocus: true,
-            maxLength: 300,
+            maxLength: InputLimits.shortReason,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
+            maxLines: 3,
+            minLines: 1,
             decoration: InputDecoration(labelText: label),
-            validator: (v) => (v ?? '').trim().length < 3 ? 'Please give a short reason' : null,
+            validator: (v) => ValidationUtils.validateReason(
+              v,
+              minLength: InputLimits.shortReasonMin,
+              maxLength: InputLimits.shortReason,
+            ),
           ),
         ),
         actions: [
@@ -593,7 +651,9 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         ],
       ),
     );
-    return ok == true ? ctrl.text.trim() : null;
+    final text = ctrl.text.trim();
+    disposeAfterDialog([ctrl]);
+    return ok == true ? text : null;
   }
 
   Widget _historyTab() {

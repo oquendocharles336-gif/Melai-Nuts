@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/format_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
@@ -116,6 +117,8 @@ class StaffNotificationsScreen extends StatelessWidget {
                         decoration: BoxDecoration(color: AppColors.error, borderRadius: BorderRadius.circular(AppSpacing.radiusMd)),
                         child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
                       ),
+                      // Ask first: a swipe can be accidental.
+                      confirmDismiss: (_) => ConfirmDialog.delete(context, '"${n.title}"'),
                       onDismissed: (_) => store.deleteNotification(n.id),
                       child: InkWell(
                         onTap: () => _open(context, store, n),

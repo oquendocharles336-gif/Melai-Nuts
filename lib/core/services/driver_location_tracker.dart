@@ -90,6 +90,11 @@ class DriverLocationTracker extends ChangeNotifier {
   Position? _last;
   Position? get lastPosition => _last;
 
+  /// True when the last [start] failed because location permission is
+  /// blocked for good (the screen then offers "Open Settings").
+  bool _deniedForever = false;
+  bool get permissionBlocked => _deniedForever;
+
   /// Asks for permission if needed and starts sharing. Returns false (and sets
   /// [problem]) when location is off or permission was refused.
   Future<bool> start(String deliveryId) async {
@@ -106,6 +111,7 @@ class DriverLocationTracker extends ChangeNotifier {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
+    _deniedForever = permission == LocationPermission.deniedForever;
     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
       _problem = permission == LocationPermission.deniedForever
           ? 'Location permission is blocked. Allow it in the phone settings to share your position.'

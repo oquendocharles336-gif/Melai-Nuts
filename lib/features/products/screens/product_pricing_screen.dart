@@ -7,6 +7,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/primary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
@@ -59,7 +62,10 @@ class _ProductPricingScreenState extends State<ProductPricingScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
+    // Price changes affect what customers pay: "Save changes?" first.
+    if (!await ConfirmDialog.save(context, 'the prices of ${_product.name}')) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
     try {
@@ -93,7 +99,8 @@ class _ProductPricingScreenState extends State<ProductPricingScreen> {
         SnackBar(content: Text('Pricing updated for ${_product.name}.')),
       );
       Navigator.of(context).pop();
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'product_pricing_screen:save', scope: ErrorScope.catalog);
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppError ? e.message : 'Could not update pricing. Please try again.')));
@@ -173,9 +180,10 @@ class _PricingRowCard extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   controller: row.cogs,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: InputRules.decimal(),
                   onChanged: (_) => onChanged(),
-                  validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'COGS', min: 0),
+                  validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'COGS', min: 0, max: 100000),
                   decoration: const InputDecoration(labelText: 'COGS (₱)', prefixIcon: Icon(Icons.receipt_long_outlined, size: 18)),
                 ),
               ),
@@ -183,7 +191,8 @@ class _PricingRowCard extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   controller: row.srp,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: InputRules.decimal(),
                   onChanged: (_) => onChanged(),
                   validator: (v) => ValidationUtils.validatePrice(v, fieldName: 'SRP'),
                   decoration: const InputDecoration(labelText: 'SRP (₱)', prefixIcon: Icon(Icons.sell_outlined, size: 18)),

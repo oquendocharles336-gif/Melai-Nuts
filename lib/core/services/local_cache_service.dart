@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_error.dart';
+import 'customer_local_db.dart';
 
 /// One cached server response and when it was saved from a *live* fetch.
 class CachedEntry {
@@ -14,6 +15,12 @@ class CachedEntry {
 /// Durable, per-user store for the last successful server reads, so the
 /// customer app can still show real (previously fetched) data after a cold
 /// start with no connection.
+///
+/// STORAGE: the device's SQLite database (`response_cache` table,
+/// CustomerLocalDb) wherever SQLite exists (Android, iOS, desktop). Only on
+/// the web, which has no SQLite, it falls back to shared_preferences. Older
+/// versions kept everything in shared_preferences; that copy is removed the
+/// first time SQLite is used.
 ///
 /// What this is and is not:
 ///
@@ -39,6 +46,32 @@ class LocalCache {
   final Map<String, List<String>> _indexes = {};
   Future<void> _tail = Future.value();
 
+  Future<bool>? _sqlite;
+
+  /// True when the SQLite store is used (and the old shared_preferences copy
+  /// has been removed).
+  Future<bool> _useSqlite() => _sqlite ??= () async {
+        final ok = await CustomerLocalDb.instance.available;
+        if (ok) await _dropLegacyPrefsCopy();
+        return ok;
+      }();
+
+  Future<void> _dropLegacyPrefsCopy() async {
+    try {
+      final scopes = await _prefs.getStringList(_scopesKey) ?? const <String>[];
+      for (final scope in scopes) {
+        final index = await _prefs.getStringList(_indexKey(scope)) ?? const <String>[];
+        for (final key in index) {
+          await _prefs.remove(_entryKey(scope, key));
+        }
+        await _prefs.remove(_indexKey(scope));
+      }
+      await _prefs.remove(_scopesKey);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'local_cache_service:dropLegacy');
+    }
+  }
+
   /// Serialises all mutations so the per-scope index never races itself.
   Future<T> _serial<T>(Future<T> Function() action) {
     final next = _tail.then((_) => action());
@@ -61,6 +94,10 @@ class LocalCache {
   Future<void> put(String scope, String key, String value) {
     if (value.length > _maxValueChars) return Future.value();
     return _serial(() async {
+      if (await _useSqlite()) {
+        await CustomerLocalDb.instance.putResponse(scope, key, value);
+        return;
+      }
       try {
         await _prefs.setString(
           _entryKey(scope, key),
@@ -85,6 +122,10 @@ class LocalCache {
   }
 
   Future<CachedEntry?> get(String scope, String key) async {
+    if (await _useSqlite()) {
+      final hit = await CustomerLocalDb.instance.getResponse(scope, key);
+      return hit == null ? null : CachedEntry(hit.$1, hit.$2);
+    }
     try {
       final raw = await _prefs.getString(_entryKey(scope, key));
       if (raw == null) return null;
@@ -101,6 +142,11 @@ class LocalCache {
 
   Future<void> clearScope(String scope) {
     return _serial(() async {
+      if (await _useSqlite()) {
+        // Records and saved responses of this account.
+        await CustomerLocalDb.instance.clearScope(scope);
+        return;
+      }
       try {
         final index = await _readIndex(scope);
         for (final key in List<String>.from(index)) {
@@ -123,6 +169,10 @@ class LocalCache {
   /// account changes, so a previous customer's cached data can't outlive
   /// their session (including forced/expired sign-outs).
   Future<void> keepOnly(Set<String> scopes) async {
+    if (await _useSqlite()) {
+      await CustomerLocalDb.instance.keepOnly(scopes);
+      return;
+    }
     try {
       final known = await _prefs.getStringList(_scopesKey) ?? const <String>[];
       for (final scope in known) {

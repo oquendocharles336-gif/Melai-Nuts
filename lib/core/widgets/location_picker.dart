@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../services/device_location.dart';
+import '../services/permission_service.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -185,6 +186,29 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       _locating = true;
       if (!quiet) _problem = null;
     });
+    if (widget.locate == null && DeviceLocation.supported) {
+      final permissions = PermissionService.instance;
+      if (quiet) {
+        // Opening the picker never triggers a permission prompt: centre on the
+        // person only when location was already allowed.
+        if (!await permissions.locationGranted()) {
+          if (mounted) setState(() => _locating = false);
+          return;
+        }
+      } else {
+        // "Use my location" tapped: explain first, then ask.
+        final outcome = await permissions.requestLocation(context, PermissionPurpose.pinAddress);
+        if (!mounted) return;
+        if (outcome == PermissionOutcome.denied || outcome == PermissionOutcome.permanentlyDenied) {
+          setState(() {
+            _locating = false;
+            _problem = 'Location permission was not given. You can still move the map to place the pin by hand.';
+            _problemNeedsSettings = outcome == PermissionOutcome.permanentlyDenied;
+          });
+          return;
+        }
+      }
+    }
     final result = await (widget.locate ?? DeviceLocation.current)();
     if (!mounted) return;
     setState(() => _locating = false);

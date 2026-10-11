@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/services/permission_service.dart';
+import '../../../core/services/push_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -21,7 +23,11 @@ class OrderConfirmationScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      body: SafeArea(
+      // The first order is the moment notification permission is asked for
+      // (with an explanation first), never at app start.
+      body: AskNotificationsOnce(
+        onGranted: PushService.instance.registerIfAllowed,
+        child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
@@ -204,6 +210,7 @@ class OrderConfirmationScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

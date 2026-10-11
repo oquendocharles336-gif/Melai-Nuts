@@ -21,7 +21,19 @@ class CrashReporter {
   /// Call once after `Firebase.initializeApp`. Uncaught Flutter and async
   /// errors become fatal reports. Collection is off in debug builds.
   static Future<void> init() async {
-    if (!_supported) return;
+    if (!_supported) {
+      // Web / desktop / tests: no Crashlytics, but uncaught errors must still
+      // be caught (logged in debug builds) instead of ending the app silently.
+      final previous = FlutterError.onError;
+      FlutterError.onError = (details) {
+        if (kDebugMode) previous?.call(details);
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        if (kDebugMode) debugPrint('[uncaught] ${error.runtimeType}: $error');
+        return true;
+      };
+      return;
+    }
     try {
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(!kDebugMode);
       FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
@@ -31,13 +43,15 @@ class CrashReporter {
       };
       _enabled = true;
     } catch (e) {
-      debugPrint('Crash reporting could not start: $e');
+      if (kDebugMode) debugPrint('Crash reporting could not start: $e');
     }
   }
 
   /// A caught, unexpected error the app recovered from.
   static void recordNonFatal(Object error, StackTrace stack, {required String context}) {
-    debugPrint('[error:$context] ${error.runtimeType}: $error');
+    // Debug builds only: the raw error text can contain request details. Release
+    // builds log nothing to the console (logcat / device console are readable).
+    if (kDebugMode) debugPrint('[error:$context] ${error.runtimeType}: $error');
     if (!_enabled) return;
     FirebaseCrashlytics.instance.recordError(error, stack, reason: context, fatal: false);
   }

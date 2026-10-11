@@ -54,7 +54,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
 
         @if ($r['effectiveRefundStatus'] === 'requested')
             <div class="refund-actions">
-                <form method="POST" action="{{ route('admin.refunds.approve', $r['id']) }}" onsubmit="return confirm('Approve this refund of {{ $peso($refundAmount) }}?')">
+                <form method="POST" action="{{ route('admin.refunds.approve', $r['id']) }}" data-confirm="Approve the refund of {{ $peso($refundAmount) }} for order {{ $r['id'] }}?" data-confirm-title="Approve refund?" data-confirm-label="Approve" data-confirm-safe">
                     @csrf
                     @if ($r['paymentMethod'] === $cashMethod)
                         <input type="hidden" name="note" value="Refunded in cash on delivery return.">
@@ -94,7 +94,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
                         <button class="btn-outline" type="submit" style="padding:.4rem .9rem">Close attempt</button></form>
                 @else
                     <form method="POST" action="{{ route('admin.refunds.hitpay', $r['id']) }}" style="margin-bottom:.5rem"
-                          onsubmit="this.querySelector('button').disabled = true; return confirm('Send {{ $peso($r['refundAmount']) }} back to the customer through HitPay now?')">@csrf
+                          data-confirm="Send {{ $peso($r['refundAmount']) }} back to the customer through HitPay now?" data-confirm-title="Send refund?" data-confirm-label="Send refund" data-confirm-safe data-disable-on-submit">@csrf
                         <x-password-confirm />
                         <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Send {{ $peso($r['refundAmount']) }} via HitPay</button></form>
                 @endif

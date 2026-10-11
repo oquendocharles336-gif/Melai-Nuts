@@ -259,6 +259,8 @@ a.ui-card:hover .card-chevron { opacity: 1; transform: none; }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.ghost:hover { background: var(--surface-2); }
 .btn.danger { color: var(--bad); }
+.btn.danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn.danger-solid:hover { filter: brightness(.95); }
 .btn.sm { height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 9px; }
 .btn.icon { width: 36px; padding: 0; }
 .btn.sm.icon { width: 30px; }

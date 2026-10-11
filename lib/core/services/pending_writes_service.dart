@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/repositories/customer_profile_repository.dart';
 import '../../data/repositories/notifications_repository.dart';
 import 'connectivity_service.dart';
+import 'customer_local_db.dart';
 import 'network_errors.dart';
 import '../utils/app_error.dart';
 
@@ -130,7 +131,23 @@ class PendingWritesService extends ChangeNotifier {
 
   Future<void> _ensureLoaded() => _loading ??= _load();
 
+  /// Storage: one row per write in SQLite (`customer_pending_writes`) where
+  /// SQLite exists; shared_preferences only on the web. A queue saved by an
+  /// older version in shared_preferences is moved into SQLite once.
   Future<void> _load() async {
+    final rows = await CustomerLocalDb.instance.loadPendingWrites();
+    if (rows != null) {
+      for (final row in rows) {
+        try {
+          _items.add(PendingWrite.fromJson(row));
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'pending_writes_service:sqliteRow');
+        }
+      }
+      await _importLegacyPrefsQueue();
+      notifyListeners();
+      return;
+    }
     try {
       final raw = await _prefs.getString(_storageKey);
       if (raw != null && raw.isNotEmpty) {
@@ -149,7 +166,29 @@ class PendingWritesService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _importLegacyPrefsQueue() async {
+    try {
+      final raw = await _prefs.getString(_storageKey);
+      if (raw == null || raw.isEmpty) return;
+      final known = {for (final w in _items) w.id};
+      for (final entry in jsonDecode(raw) as List) {
+        try {
+          final w = PendingWrite.fromJson(Map<String, dynamic>.from(entry as Map));
+          if (!known.contains(w.id)) _items.add(w);
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'pending_writes_service:legacyEntry');
+        }
+      }
+      if (await CustomerLocalDb.instance.savePendingWrites([for (final w in _items) w.toJson()])) {
+        await _prefs.remove(_storageKey);
+      }
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'pending_writes_service:importLegacy');
+    }
+  }
+
   Future<void> _persist() async {
+    if (await CustomerLocalDb.instance.savePendingWrites([for (final w in _items) w.toJson()])) return;
     try {
       await _prefs.setString(_storageKey, jsonEncode([for (final w in _items) w.toJson()]));
     } catch (caughtError, caughtStack) {

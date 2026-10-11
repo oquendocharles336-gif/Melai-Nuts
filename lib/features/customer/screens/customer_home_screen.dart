@@ -185,7 +185,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF6B3F1E), AppColors.primary, Color(0xFFC48A55)],
+            colors: [AppColors.heroGradientStart, AppColors.primary, AppColors.heroGradientEnd],
           ),
         ),
         child: Stack(
@@ -416,7 +416,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColors.primary, Color(0xFF5E3519)],
+          colors: [AppColors.primary, AppColors.primaryDeep],
         ),
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
         boxShadow: AppShadows.md,
@@ -511,7 +511,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF4A2C18), Color(0xFF8A5530)],
+          colors: [AppColors.darkBrown, AppColors.loyaltyGradientEnd],
         ),
         boxShadow: AppShadows.md,
       ),
@@ -524,7 +524,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.14),
             ),
-            child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFFD27A), size: 30),
+            child: const Icon(Icons.workspace_premium_rounded, color: AppColors.gold, size: 30),
           ),
           const SizedBox(width: 14),
           Expanded(

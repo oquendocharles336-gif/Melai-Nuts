@@ -89,5 +89,264 @@
         "type": "String"
       }
     }
-  }
+  },
+  "legalTermsTitle": "Terms and Conditions",
+  "legalPrivacyTitle": "Privacy Policy",
+  "legalVersion": "Version {version}",
+  "@legalVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "legalOwnerReview": "Draft wording — to be confirmed by Melai Nuts.",
+  "legalSection": "LEGAL",
+  "legalTermsSubtitle": "Rules for using the app",
+  "legalPrivacySubtitle": "What data we collect and your rights",
+  "termsS1Title": "1. What this app does",
+  "termsS1Body": "Melai Nuts lets you browse products, order from a Melai Nuts branch for delivery or pickup, track your orders, request refunds and earn loyalty points. Staff, owners and delivery riders use the same app for the shop counter, stock and deliveries.",
+  "termsS2Title": "2. Your account",
+  "termsS2Body": "Give your real name, a working email and a mobile number you own. Keep your password secret and do not share your account. You are responsible for what is done with your account. Tell a branch right away if you think someone else is using it. We may deactivate an account that breaks these terms.",
+  "termsS3Title": "3. Orders and payment",
+  "termsS3Body": "Prices, stock, delivery fees and discounts are checked by our system when you place the order; the total on your confirmation is the amount you pay. You pay in cash on delivery or in cash when you pick up at the counter. Online payment is offered only when the shop turns it on. An order may be cancelled if an item runs out; you are not charged for cancelled items.",
+  "termsS4Title": "4. Refunds",
+  "termsS4Body": "You can ask for a refund in the app, with a reason. The branch reviews each request. The refund amount is computed by the system from the items you return, not typed in by anyone. Approved refunds are paid back in cash at the branch or to the original payment method. The time limit for asking for a refund is set by Melai Nuts.",
+  "termsS5Title": "5. Loyalty points",
+  "termsS5Body": "You earn points when an order is completed. Points from an order that is refunded are taken back. Points have no cash value, cannot be transferred to another person and are used only for rewards in this app. Melai Nuts may change the earning and reward rules; changes are shown in the app before they apply.",
+  "termsS6Title": "6. Delivery",
+  "termsS6Body": "Delivery areas and fees are set by each branch and shown before you order. Please be at the delivery address and keep your phone on. While your order is out for delivery you can follow the rider on a map. The rider may take a photo of the delivered parcel as proof of delivery.",
+  "termsS7Title": "7. Acceptable use",
+  "termsS7Body": "Do not place orders you do not mean to pay for or collect, guess voucher codes, copy the catalog with automated tools, try to get around the app's security, or use another person's account. The app limits repeated attempts to protect every customer.",
+  "termsS8Title": "8. Changes to these terms",
+  "termsS8Body": "When these terms or the Privacy Policy change, the app shows the new version and asks you to accept it again before you continue.",
+  "termsS9Title": "9. Contact",
+  "termsS9Body": "For questions about your account, an order or these terms, contact any Melai Nuts branch. Branch phone numbers are listed in the app under Settings > Branch Settings.",
+  "privacyS1Title": "1. Who is responsible for your data",
+  "privacyS1Body": "Melai Nuts is the personal information controller for the data in this app, as defined by the Philippine Data Privacy Act of 2012 (Republic Act No. 10173).",
+  "privacyS2Title": "2. Data we collect",
+  "privacyS2Body": "• Your name, email address and mobile number.\n• Delivery addresses and the map pin you place.\n• Your orders, payments, refunds and loyalty points.\n• Your location, only while you use \"Use my location\" or, for riders, during an active delivery run.\n• Photos taken as proof of delivery.\n• A notification token so we can send order updates to this phone.\n• Crash reports, which carry an account ID but not your name, email or phone.",
+  "privacyS3Title": "3. How we use it",
+  "privacyS3Body": "To create your account, prepare and deliver your orders, take payment, handle refunds, keep your loyalty points, send the updates you chose, keep the app secure, and fix problems. We do not sell your data.",
+  "privacyS4Title": "4. Where it is stored and who can see it",
+  "privacyS4Body": "Sign-in is handled by Firebase (Google). Business data is stored in our Supabase database. A copy of recent data is kept on your phone so the app works offline; it is erased when you sign out. Staff see only what their branch needs; a rider sees the name, phone and address for the deliveries assigned to them.",
+  "privacyS5Title": "5. How long we keep it",
+  "privacyS5Body": "We keep your account data while your account is active. Sales and payment records are kept for as long as Philippine tax and business rules require. The exact retention periods are set by Melai Nuts.",
+  "privacyS6Title": "6. Your rights (RA 10173)",
+  "privacyS6Body": "You have the right to be informed, to access your data, to object, to have it corrected, to have it erased or blocked, to data portability, to claim damages, and to file a complaint with the National Privacy Commission (privacy.gov.ph).",
+  "privacyS7Title": "7. Deleting your data",
+  "privacyS7Body": "To ask for a copy of your data or for your account to be deleted, contact any Melai Nuts branch. Records the law requires us to keep (for example, receipts) are kept but no longer linked to your profile where possible.",
+  "privacyS8Title": "8. Permissions on your phone",
+  "privacyS8Body": "The app asks for the camera (scan barcodes, proof-of-delivery photos), location (pin your address, riders' live delivery) and notifications (order updates) only when you use that feature. You can change them any time in Settings > Permissions.",
+  "consentPrefix": "I have read and agree to the ",
+  "consentAnd": " and the ",
+  "consentSuffix": ".",
+  "consentRequired": "Please tick the box to agree to the Terms and Conditions and the Privacy Policy.",
+  "consentOrderUpdates": "Send me order, delivery and refund updates (optional).",
+  "legalUpdatedTitle": "We updated our terms",
+  "legalUpdatedBody": "Please read the new Terms and Conditions and Privacy Policy and accept them to keep using the app.",
+  "iAgree": "I Agree",
+  "signOut": "Sign Out",
+  "permCameraTitle": "Camera Permission",
+  "permCameraScan": "We need access to your camera to scan product barcodes at the register.",
+  "permCameraProof": "We need access to your camera to take a proof-of-delivery photo.",
+  "permLocationTitle": "Location Permission",
+  "permLocationPin": "We need your location so you can pin your delivery address on the map.",
+  "permLocationDelivery": "We need your location so customers can follow their delivery.",
+  "permNotificationsTitle": "Notification Permission",
+  "permNotificationsBody": "We send order, delivery, and refund updates.",
+  "permContinue": "Continue",
+  "permOpenSettings": "Open Settings",
+  "permDeniedTitle": "{permission} is off",
+  "@permDeniedTitle": {
+    "placeholders": {
+      "permission": {
+        "type": "String"
+      }
+    }
+  },
+  "permBlockedBody": "Melai Nuts can no longer ask for it. Turn it on in your phone's Settings.",
+  "permCameraScanFallback": "Without the camera you can still type the SKU or barcode.",
+  "permCameraProofFallback": "Without the camera the proof-of-delivery photo cannot be taken.",
+  "permLocationPinFallback": "Without location you can still place the pin on the map by hand.",
+  "permLocationDeliveryFallback": "Without location, customers cannot follow the delivery on the map.",
+  "permNotificationsFallback": "You will not get updates on this phone, but you can still see them in the app.",
+  "permissionsTitle": "Permissions",
+  "permissionsSubtitle": "Camera, location and notifications",
+  "permissionsIntro": "Melai Nuts asks for each permission only when you use the feature that needs it.",
+  "permStatusAllowed": "Allowed",
+  "permStatusDenied": "Not allowed",
+  "permStatusBlocked": "Blocked — change it in phone Settings",
+  "permStatusNotAsked": "Not asked yet",
+  "permStatusOnUse": "Asked when you use the camera",
+  "permStatusUnsupported": "Not used on this device",
+  "permAllow": "Allow",
+  "permManage": "Manage",
+  "permCameraUse": "Scan barcodes (staff) and proof-of-delivery photos (riders).",
+  "permLocationUse": "Pin your address; riders share their location during a delivery.",
+  "permNotificationsUse": "Order, delivery and refund updates.",
+  "delete": "Delete",
+  "remove": "Remove",
+  "confirm": "Confirm",
+  "deactivate": "Deactivate",
+  "reactivate": "Reactivate",
+  "undo": "Undo",
+  "back": "Back",
+  "keepEditing": "Keep Editing",
+  "confirmDeleteTitle": "Delete {item}?",
+  "@confirmDeleteTitle": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "confirmDeleteMessage": "{item} will be deleted. This cannot be undone.",
+  "@confirmDeleteMessage": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "confirmRemoveTitle": "Remove {item}?",
+  "@confirmRemoveTitle": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "confirmRemoveMessage": "{item} will be removed.",
+  "@confirmRemoveMessage": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "confirmSaveTitle": "Save changes?",
+  "confirmSaveMessage": "Your changes to {item} will be saved.",
+  "@confirmSaveMessage": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "confirmDiscardTitle": "Discard changes?",
+  "confirmDiscardMessage": "You have changes that are not saved. If you leave now they will be lost.",
+  "deletedSnack": "{item} deleted.",
+  "@deletedSnack": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "removedSnack": "{item} removed.",
+  "@removedSnack": {
+    "placeholders": {
+      "item": {
+        "type": "String"
+      }
+    }
+  },
+  "clearCartTitle": "Clear your cart?",
+  "clearCartMessage": "All {count} item(s) will be removed from your cart.",
+  "@clearCartMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "clearCart": "Clear Cart",
+  "notificationLabel": "this notification",
+  "searchHint": "Search",
+  "clearSearch": "Clear search",
+  "noResultsFor": "No results for \"{query}\"",
+  "@noResultsFor": {
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "noResultsMessage": "Try another word, or clear the filters.",
+  "noMatchingFilters": "Nothing matches these filters",
+  "clearFilters": "Clear filters",
+  "clearAll": "Clear all",
+  "sortAndFilter": "Sort & filter",
+  "sortBy": "Sort by",
+  "apply": "Apply",
+  "reset": "Reset",
+  "endOfList": "You've reached the end of the list.",
+  "loadingMore": "Loading more…",
+  "lastUpdated": "Saved data · last updated {time}",
+  "@lastUpdated": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sortNewest": "Newest first",
+  "sortOldest": "Oldest first",
+  "sortAZ": "Name A–Z",
+  "sortZA": "Name Z–A",
+  "sortAmountHigh": "Highest amount",
+  "sortAmountLow": "Lowest amount",
+  "sortQuantityLow": "Lowest quantity",
+  "sortQuantityHigh": "Highest quantity",
+  "sortExpirySoon": "Expiring soonest",
+  "sortPriceLow": "Price: low to high",
+  "sortPriceHigh": "Price: high to low",
+  "sortPointsHigh": "Most points",
+  "filterStatus": "Status",
+  "filterAll": "All",
+  "filterType": "Type",
+  "filterRead": "Read",
+  "filterUnread": "Unread",
+  "filterEarned": "Earned",
+  "filterRedeemed": "Redeemed",
+  "filterDate": "Date",
+  "last7Days": "Last 7 days",
+  "last30Days": "Last 30 days",
+  "last90Days": "Last 90 days",
+  "filterPayment": "Payment method",
+  "filterStock": "Stock",
+  "stockLow": "Low",
+  "stockNormal": "Normal",
+  "stockOut": "Out of stock",
+  "filterBranch": "Branch",
+  "filterCategory": "Category",
+  "filterActive": "Active",
+  "filterInactive": "Inactive",
+  "filterSize": "Size",
+  "sizeSmall": "Small",
+  "sizeMedium": "Medium",
+  "sizeLarge": "Large",
+  "statusPending": "Pending",
+  "statusApproved": "Approved",
+  "statusRejected": "Rejected",
+  "statusRefunded": "Refunded",
+  "statusCompleted": "Completed",
+  "statusCancelled": "Cancelled",
+  "statusActiveOrders": "In progress",
+  "statusDelivered": "Delivered",
+  "statusFailed": "Failed",
+  "resultsCount": "{count} result(s)",
+  "@resultsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "startupFailedTitle": "The app could not start",
+  "startupFailedMessage": "Please check your internet connection and open the app again. If this keeps happening, contact Melai Nuts support.",
+  "screenErrorTitle": "This part of the screen could not be shown",
+  "screenErrorMessage": "Go back and try again. Your data is safe.",
+  "sortRelevance": "Best match"
 }

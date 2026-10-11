@@ -12,4 +12,8 @@
     </section>
     <section class="glass">@yield('form')</section>
 </div>
+<footer class="legal-footer" style="text-align:center;padding:1rem;font-size:.85rem">
+    <a class="link" href="{{ route('legal.terms') }}">Terms and Conditions</a> ·
+    <a class="link" href="{{ route('legal.privacy') }}">Privacy Policy</a>
+</footer>
 @endsection

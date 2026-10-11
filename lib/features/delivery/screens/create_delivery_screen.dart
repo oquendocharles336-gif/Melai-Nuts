@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/delivery_map.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -152,7 +153,7 @@ class _CreateDeliveryBodyState extends State<_CreateDeliveryBody> {
   }
 
   Future<void> _create() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!FormUtils.validateAndFocus(_formKey)) return;
     if (_selectedOrderIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select at least one order for this delivery.')),
@@ -308,7 +309,9 @@ class _CreateDeliveryBodyState extends State<_CreateDeliveryBody> {
                       controller: _vehicleController,
                       prefixIcon: Icons.local_shipping_outlined,
                       hint: 'Vehicle name or plate number',
-                      validator: (v) => ValidationUtils.validateRequired(v, 'Vehicle'),
+                      maxLength: 80,
+                      textCapitalization: TextCapitalization.characters,
+                      validator: (v) => ValidationUtils.validateText(v, fieldName: 'Vehicle', required: true, minLength: 2, maxLength: 80),
                     ),
                   ),
                 ],
@@ -343,6 +346,9 @@ class _CreateDeliveryBodyState extends State<_CreateDeliveryBody> {
                 controller: _riderController,
                 prefixIcon: Icons.badge_outlined,
                 hint: 'Rider full name',
+                keyboardType: TextInputType.name,
+                textCapitalization: TextCapitalization.words,
+                maxLength: InputLimits.name,
                 validator: (v) => ValidationUtils.validateName(v, 'Rider name'),
               ),
               const SizedBox(height: AppSpacing.lg),

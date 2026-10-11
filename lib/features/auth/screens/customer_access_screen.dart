@@ -4,6 +4,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/services/legal_service.dart';
+import '../../../l10n/generated/app_localizations.dart';
+import '../../legal/widgets/terms_consent_field.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -28,27 +33,36 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _agreed = true;
+  // Consent is never pre-ticked; order updates is a separate, optional choice.
+  bool _agreed = false;
+  bool _orderUpdates = false;
   bool _submitting = false;
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _continue() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    if (!_isSignIn && !_agreed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please agree to the Terms of Service')),
-      );
-      return;
-    }
+    if (_submitting) return; // no double submit
+    // Field messages (and the consent message) appear under each field; the
+    // first invalid field is focused.
+    if (!FormUtils.validateAndFocus(_formKey)) return;
+    if (!_isSignIn && !_agreed) return;
 
     setState(() => _submitting = true);
     try {
       if (!_isSignIn) {
+        LegalService.instance.markConsentGiven(orderUpdates: _orderUpdates);
         // Step 1 of sign-up; the verification screen completes it.
         await AuthService.instance.startCustomerRegistration(
           name: _nameController.text,
           email: _emailController.text,
-          phone: _phoneController.text,
+          phone: ValidationUtils.normalizePhone(_phoneController.text),
           password: _passwordController.text,
         );
         if (!mounted) return;
@@ -200,6 +214,11 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                         label: 'Full Name',
                         controller: _nameController,
                         prefixIcon: Icons.person_outline_rounded,
+                        keyboardType: TextInputType.name,
+                        textCapitalization: TextCapitalization.words,
+                        autofillHints: const [AutofillHints.name],
+                        textInputAction: TextInputAction.next,
+                        maxLength: InputLimits.name,
                         validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
                       ),
                       const SizedBox(height: 14),
@@ -208,7 +227,11 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                         controller: _phoneController,
                         prefixIcon: Icons.phone_outlined,
                         keyboardType: TextInputType.phone,
-                        helperText: 'Used for order and delivery updates.',
+                        autofillHints: const [AutofillHints.telephoneNumber],
+                        textInputAction: TextInputAction.next,
+                        inputFormatters: InputRules.phone(),
+                        hint: '0917 123 4567',
+                        helperText: 'Used by the rider to reach you about a delivery.',
                         validator: ValidationUtils.validatePhone,
                       ),
                       const SizedBox(height: 14),
@@ -218,9 +241,12 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       controller: _emailController,
                       prefixIcon: Icons.email_outlined,
                       keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
+                      textInputAction: TextInputAction.next,
+                      maxLength: InputLimits.email,
                       helperText: _isSignIn
                           ? null
-                          : 'For digital receipts and pack batch tracking.',
+                          : 'Used to sign in and to verify your account.',
                       // Sign-in: format only (existing accounts). Sign-up: also catch typos.
                       validator: _isSignIn
                           ? ValidationUtils.validateEmailFormat
@@ -232,7 +258,16 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       controller: _passwordController,
                       prefixIcon: Icons.lock_outline_rounded,
                       obscure: true,
-                      validator: (v) => _isSignIn ? ValidationUtils.validateRequired(v, 'Password') : ValidationUtils.validatePassword(v),
+                      autofillHints: [_isSignIn ? AutofillHints.password : AutofillHints.newPassword],
+                      textInputAction: TextInputAction.done,
+                      maxLength: InputLimits.passwordMax,
+                      validator: (v) => _isSignIn
+                          ? ValidationUtils.validateRequired(v, 'Password')
+                          : ValidationUtils.validatePassword(
+                              v,
+                              email: _emailController.text,
+                              name: _nameController.text,
+                            ),
                     ),
                     const SizedBox(height: 16),
                     const InfoBanner(
@@ -242,23 +277,14 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                           'Have a Melai Nuts RFID loyalty card? Branch staff can link it to your account when you tap it at the counter.',
                     ),
                     const SizedBox(height: 14),
-                    if (!_isSignIn)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Checkbox(
-                            value: _agreed,
-                            activeColor: AppColors.primary,
-                            onChanged: (v) => setState(() => _agreed = v ?? false),
-                          ),
-                          Expanded(
-                            child: Text(
-                              'I agree to the Melai Nuts Customer Terms of Service and to receiving order updates.',
-                              style: AppTextStyles.bodySm,
-                            ),
-                          ),
-                        ],
+                    if (!_isSignIn) ...[
+                      TermsConsentField(initialValue: _agreed, onChanged: (v) => _agreed = v),
+                      OptionalConsentTile(
+                        value: _orderUpdates,
+                        label: AppLocalizations.of(context).consentOrderUpdates,
+                        onChanged: (v) => setState(() => _orderUpdates = v),
                       ),
+                    ],
                     const SizedBox(height: 6),
                     PrimaryButton(
                       label: _isSignIn
@@ -286,6 +312,19 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                         onPressed: _guestAccess,
                         child: const Text('Browse Catalog as Guest →'),
                       ),
+                    ),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pushNamed(AppRoutes.legalTerms),
+                          child: Text(AppLocalizations.of(context).legalTermsTitle),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pushNamed(AppRoutes.legalPrivacy),
+                          child: Text(AppLocalizations.of(context).legalPrivacyTitle),
+                        ),
+                      ],
                     ),
                   ],
                 ),

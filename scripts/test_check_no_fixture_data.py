@@ -42,6 +42,27 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("key/token", r.stdout)
 
+    def test_key_anywhere_in_repo_fails_even_outside_shipping_code(self):
+        # docs, tests and android/app/src are not "shipping code" but a committed key is still public
+        for path in ("docs/notes.md", "test/a_test.dart", "android/app/src/google-services.json.example"):
+            r = run({path: '"current_key": "AIza' + "B" * 35 + '"\n'})
+            self.assertEqual(r.returncode, 1, path)
+            self.assertIn(path, r.stdout)
+            self.assertNotIn("B" * 35, r.stdout, "the full key must never be echoed into CI logs")
+
+    def test_other_secret_shapes_fail(self):
+        jwt = "eyJ" + "a" * 20 + ".eyJ" + "b" * 20 + "." + "c" * 20
+        for text in (f"key = '{jwt}'", "STRIPE=sk_live_" + "9" * 24, "k=sb_secret_" + "z" * 20,
+                     "SUPABASE_SERVICE_ROLE_KEY=" + "q" * 40, "-----BEGIN " + "PRIVATE KEY-----"):
+            r = run({"scripts/x.sh": text + "\n"})
+            self.assertEqual(r.returncode, 1, text)
+
+    def test_placeholders_and_mentions_pass(self):
+        r = run({"env/firebase.example.json": '{"FIREBASE_API_KEY_WEB": "YOUR_FIREBASE_WEB_API_KEY"}\n',
+                 "SECURITY.md": "Never put the `service_role` key in the app. SUPABASE_SERVICE_ROLE_KEY=\n",
+                 "supabase/migrations/1.sql": "grant execute on function f() to service_role;\n"})
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_allowlist_needs_a_reason_and_allows_the_line(self):
         r = run({"lib/a.dart": "final d = dummyVariable;\n", "scripts/hardcoded-data-allowlist.txt": "lib/a.dart|dummyVariable|\n"})
         self.assertNotEqual(r.returncode, 0)

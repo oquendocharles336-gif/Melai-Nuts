@@ -1,6 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/widgets/date_form_field.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -93,40 +97,10 @@ class _ReceiveFormState extends State<_ReceiveForm> {
     super.dispose();
   }
 
-  String _fmt(DateTime d) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[d.month - 1]} ${d.day}, ${d.year}';
-  }
-
-  Future<void> _pickReceived() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _received,
-      firstDate: DateTime(now.year - 1),
-      lastDate: now,
-    );
-    if (picked != null) setState(() => _received = picked);
-  }
-
-  Future<void> _pickExpiry() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _expiry ?? now.add(const Duration(days: 90)),
-      firstDate: now.add(const Duration(days: 1)),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (picked != null) setState(() => _expiry = picked);
-  }
-
   Future<void> _submit() async {
     if (_saving) return;
-    if (!_formKey.currentState!.validate()) return;
-    if (_expiry == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please choose the expiration date.')));
-      return;
-    }
+    // Every field (dates included) shows its own message; first one focused.
+    if (!FormUtils.validateAndFocus(_formKey) || _expiry == null) return;
     final branchId = widget.store.activeBranchId;
     if (branchId == null || _variantId == null) return;
 
@@ -161,7 +135,9 @@ class _ReceiveFormState extends State<_ReceiveForm> {
       widget.store.refreshLive();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Batch saved to inventory.')));
       Navigator.of(context).pop();
-    } catch (e) {
+    } catch (e, st) {
+      // The form keeps its values; the same request key makes a retry safe.
+      AppErrors.report(e, st, 'receive_batch_screen:submit');
       if (!mounted) return;
       setState(() => _saving = false);
       AppErrors.showSnack(context, e);
@@ -204,43 +180,58 @@ class _ReceiveFormState extends State<_ReceiveForm> {
             controller: _codeController,
             textCapitalization: TextCapitalization.characters,
             maxLength: 40,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
             decoration: const InputDecoration(labelText: 'Batch code', hintText: 'e.g. as printed on the supplier slip'),
-            validator: (v) => ValidationUtils.validateRequired(v, 'Batch code'),
+            validator: (v) => ValidationUtils.validateText(v, fieldName: 'Batch code', required: true, maxLength: 40),
           ),
           TextFormField(
             controller: _qtyController,
             keyboardType: TextInputType.number,
+            inputFormatters: InputRules.integer(),
             decoration: const InputDecoration(labelText: 'Quantity received (packs)'),
-            validator: (v) {
-              final n = int.tryParse((v ?? '').trim());
-              if (n == null || n <= 0) return 'Enter a quantity greater than 0';
-              if (n > 100000) return 'That quantity is too large';
-              return null;
-            },
+            validator: (v) => ValidationUtils.validateQuantity(v, fieldName: 'Quantity received', min: 1, max: 99999),
           ),
           const SizedBox(height: AppSpacing.md),
-          _DateTile(label: 'Received date', value: _fmt(_received), onTap: _pickReceived),
+          DateFormField(
+            label: 'Received date',
+            initialValue: _received,
+            firstDate: DateTime(DateTime.now().year - 1),
+            lastDate: DateTime.now(),
+            onChanged: (d) => setState(() => _received = d),
+            // Received today or earlier — never in the future.
+            validator: (d) => ValidationUtils.validateDateValue(d, fieldName: 'Received date', allowFuture: false),
+          ),
           const SizedBox(height: 10),
-          _DateTile(
+          DateFormField(
             label: 'Expiration date',
-            value: _expiry == null ? 'Choose a date' : _fmt(_expiry!),
-            onTap: _pickExpiry,
-            highlight: _expiry == null,
+            initialValue: _expiry,
+            firstDate: DateTime.now().add(const Duration(days: 1)),
+            lastDate: DateTime(DateTime.now().year + 5),
+            onChanged: (d) => setState(() => _expiry = d),
+            // Stock being received cannot already be expired, nor expire before it
+            // arrived. Same rule as staff_receive_batch: strictly after today.
+            validator: (d) => d != null && !DateUtils.dateOnly(d).isAfter(DateUtils.dateOnly(DateTime.now()))
+                ? 'Expiration date must be after today.'
+                : ValidationUtils.validateDateValue(
+              d,
+              fieldName: 'Expiration date',
+              allowPast: false,
+              notBefore: _received,
+              notBeforeLabel: 'the received date',
+            ),
           ),
           const SizedBox(height: AppSpacing.md),
           TextFormField(
             controller: _thresholdController,
             keyboardType: TextInputType.number,
+            inputFormatters: InputRules.integer(),
             decoration: const InputDecoration(
               labelText: 'Restock level (optional)',
               helperText: 'You will be alerted when stock falls to this number or below.',
             ),
-            validator: (v) {
-              if ((v ?? '').trim().isEmpty) return null;
-              final n = int.tryParse(v!.trim());
-              if (n == null || n < 0) return 'Enter 0 or more';
-              return null;
-            },
+            validator: (v) => (v ?? '').trim().isEmpty
+                ? null
+                : ValidationUtils.validateQuantity(v, fieldName: 'Restock level', min: 0, max: 99999),
           ),
           if (item != null && item.unassignedQuantity > 0) ...[
             const SizedBox(height: AppSpacing.sm),
@@ -265,39 +256,6 @@ class _ReceiveFormState extends State<_ReceiveForm> {
             onPressed: _submit,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DateTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final VoidCallback onTap;
-  final bool highlight;
-
-  const _DateTile({required this.label, required this.value, required this.onTap, this.highlight = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          border: Border.all(color: highlight ? AppColors.warning : AppColors.border),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.textSecondary),
-            const SizedBox(width: 10),
-            Expanded(child: Text(label, style: AppTextStyles.bodyMd)),
-            Text(value, style: AppTextStyles.labelLg),
-          ],
-        ),
       ),
     );
   }

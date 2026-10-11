@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StorePosOrderRequest;
 use App\Services\ActivityLogger;
 use App\Services\AdminActions;
 use App\Services\OrderQueryService;
@@ -136,22 +137,11 @@ class OrdersController extends Controller
     }
 
     /** POST /orders  In-store sale (walk-in), recorded by the app's own POS function. */
-    public function store(Request $request, AdminActions $actions): JsonResponse
+    public function store(StorePosOrderRequest $request, AdminActions $actions): JsonResponse
     {
         $this->needsDatabase();
-        $v = $request->validate([
-            'branch' => ['required', 'string'],
-            'items' => ['required', 'array', 'min:1', 'max:50'],
-            'items.*.variant_id' => ['required', 'uuid'],
-            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:1000'],
-            'method' => ['required', 'in:cash,gcash,card'],
-            'reference' => ['nullable', 'string', 'max:80', 'required_unless:method,cash'],
-            'cash_received' => ['nullable', 'numeric', 'min:0', 'max:10000000'],
-            'key' => ['required', 'string', 'max:100'],
-            // In-store sales only: a delivery order can never be created from the website.
-            'type' => ['prohibited'], 'order_type' => ['prohibited'], 'is_delivery' => ['prohibited'],
-            'delivery_address' => ['prohibited'], 'delivery_address_id' => ['prohibited'], 'fulfillment' => ['prohibited'],
-        ]);
+        // StorePosOrderRequest: in-store sales only (delivery fields are prohibited).
+        $v = $request->validated();
         $branchId = $this->branch($v['branch']);
         $items = collect($v['items'])->map(fn ($i) => ['variant_id' => $i['variant_id'], 'quantity' => (int) $i['quantity']])->all();
 

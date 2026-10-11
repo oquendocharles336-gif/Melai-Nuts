@@ -21,8 +21,9 @@ class ProductCategoriesScreen extends StatelessWidget {
         child: GridView.builder(
           padding: const EdgeInsets.all(AppSpacing.md),
           itemCount: kProductCategories.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            // 2 columns on phones, more on tablets / web.
+            maxCrossAxisExtent: 260,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
             childAspectRatio: 1.3,

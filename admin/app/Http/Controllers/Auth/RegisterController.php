@@ -49,6 +49,8 @@ class RegisterController extends Controller
         FirebaseTokenVerifier $verifier, FirebaseSession $session, AccountLinkStatus $status)
     {
         $data = $request->validated();
+        // Recorded on the login: which Terms / Privacy version was accepted, and when.
+        $terms = ['terms_version' => (string) config('melai.legal.terms_version'), 'terms_accepted_at' => now()];
         if (! $config->ready()) {
             throw ValidationException::withMessages(['auth' => $config->missingMessage()]);
         }
@@ -56,6 +58,7 @@ class RegisterController extends Controller
         // 1. Does this person already have an app account with this password?
         try {
             [$user, $tokens, $claims] = $login->attempt($data['email'], $data['password']);
+            $user->forceFill($terms)->save();
 
             return $this->signIn($request, $user, $tokens, $claims, $session, $status, 'account.created_from_app',
                 'You already had a Melai Nuts app account, so your website login uses it.');
@@ -82,7 +85,7 @@ class RegisterController extends Controller
 
         try {
             $claims = $verifier->verify($tokens['id_token']);
-            $user = (new User)->forceFill([
+            $user = (new User)->forceFill($terms + [
                 'name' => $data['name'],
                 'email' => $tokens['email'],
                 'password' => Hash::make(Str::random(64)), // Firebase holds the real password

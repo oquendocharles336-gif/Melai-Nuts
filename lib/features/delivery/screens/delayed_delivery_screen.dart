@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
@@ -25,8 +28,15 @@ class DelayedDeliveryScreen extends StatefulWidget {
 }
 
 class _DelayedDeliveryScreenState extends State<DelayedDeliveryScreen> {
+  final _formKey = GlobalKey<FormState>();
   String _reason = 'Traffic congestion';
   final _noteController = TextEditingController();
+
+  /// Optional details: when given, 5–300 characters and not emoji-only.
+  static String? _validateNote(String? v) => ValidationUtils.validateText(v,
+      fieldName: 'Details',
+      minLength: (v ?? '').trim().isEmpty ? 0 : InputLimits.shortReasonMin,
+      maxLength: InputLimits.shortReason);
   bool _submitting = false;
 
   static const _reasons = [
@@ -44,6 +54,7 @@ class _DelayedDeliveryScreenState extends State<DelayedDeliveryScreen> {
   }
 
   Future<void> _submit() async {
+    if (_submitting || !FormUtils.validateAndFocus(_formKey)) return;
     setState(() => _submitting = true);
     final reason = _noteController.text.trim().isEmpty ? _reason : '$_reason — ${_noteController.text.trim()}';
 
@@ -65,7 +76,8 @@ class _DelayedDeliveryScreenState extends State<DelayedDeliveryScreen> {
         SnackBar(content: Text('Delay logged for ${widget.stop.customerName}.')),
       );
       Navigator.of(context).pushReplacementNamed(AppRoutes.deliveryNextStop, arguments: widget.delivery);
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'delayed_delivery_screen:submit');
       if (!mounted) return;
       setState(() => _submitting = false);
       AppErrors.showSnack(context, e);
@@ -80,7 +92,9 @@ class _DelayedDeliveryScreenState extends State<DelayedDeliveryScreen> {
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Report Delay', showBack: true),
       body: SafeArea(
-        child: ListView(
+        child: Form(
+          key: _formKey,
+          child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -111,9 +125,18 @@ class _DelayedDeliveryScreenState extends State<DelayedDeliveryScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            Text('Additional Notes (optional)', style: AppTextStyles.labelLg),
+            Text('Details (optional)', style: AppTextStyles.labelLg),
             const SizedBox(height: 6),
-            TextField(controller: _noteController, maxLines: 2, decoration: const InputDecoration(hintText: 'Add more detail...')),
+            TextFormField(
+              controller: _noteController,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: InputLimits.shortReason,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(hintText: 'Add more detail...'),
+              validator: _validateNote,
+            ),
             if (laterStops.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.lg),
               Text('Stops After This One', style: AppTextStyles.headlineSm),
@@ -149,6 +172,7 @@ class _DelayedDeliveryScreenState extends State<DelayedDeliveryScreen> {
               onPressed: _submit,
             ),
           ],
+        ),
         ),
       ),
     );

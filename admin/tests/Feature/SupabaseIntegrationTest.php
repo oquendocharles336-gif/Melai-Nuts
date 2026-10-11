@@ -882,7 +882,7 @@ class SupabaseIntegrationTest extends TestCase
     public function test_website_registration_is_approved_by_the_owner_and_registered_in_the_app(): void
     {
         $email = "reg-{$this->sfx}@test.local";
-        $this->post('/register', ['name' => 'Rhea Reg', 'email' => $email, 'password' => 'Reg#Pass12', 'password_confirmation' => 'Reg#Pass12'])
+        $this->post('/register', ['name' => 'Rhea Reg', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1'])
             ->assertRedirect(route('waiting'));
         $reg = User::firstWhere('email', $email);
         $uid = $reg->firebase_uid;
@@ -936,7 +936,7 @@ class SupabaseIntegrationTest extends TestCase
     {
         // Registration ignores any role field.
         $email = "self-{$this->sfx}@test.local";
-        $this->post('/register', ['name' => 'Self', 'email' => $email, 'password' => 'Self#Pass12', 'password_confirmation' => 'Self#Pass12', 'role' => 'admin']);
+        $this->post('/register', ['name' => 'Self', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1', 'role' => 'admin']);
         $self = User::firstWhere('email', $email);
         $this->assertSame('staff', $self->role);
         $this->fb->set($self->firebase_uid, 'verified', true);
@@ -962,7 +962,7 @@ class SupabaseIntegrationTest extends TestCase
         $owner = $this->portalAdmin();
         $email = "made-{$this->sfx}@test.local";
         $this->actingAs($owner)->post(route('admin.users.store'), ['name' => 'Made Staff', 'email' => $email, 'role' => 'staff',
-            'branch_id' => $this->fx['branch_a'], 'password' => 'Made#Pass12', 'password_confirmation' => 'Made#Pass12'])
+            'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])
             ->assertRedirect(route('admin.users.index'));
 
         $u = User::firstWhere('email', $email);
@@ -972,12 +972,12 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame('staff', $this->fb->profiles[$u->firebase_uid]['role']);
         $this->post('/logout');
 
-        $this->post('/login', ['email' => $email, 'password' => 'Made#Pass12'])->assertRedirect(route('dashboard'));
+        $this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12'])->assertRedirect(route('dashboard'));
         $this->assertAuthenticatedAs($u->fresh());
 
         // Same email again: refused, nothing duplicated.
         $this->actingAs($owner)->from('/admin/users/create')->post(route('admin.users.store'), ['name' => 'Again', 'email' => $email, 'role' => 'staff',
-            'branch_id' => $this->fx['branch_a'], 'password' => 'Made#Pass12', 'password_confirmation' => 'Made#Pass12'])->assertSessionHasErrors('email');
+            'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])->assertSessionHasErrors('email');
         $this->assertSame(1, User::where('email', $email)->count());
     }
 

@@ -159,7 +159,8 @@ select pg_temp.chk('a branch B driver cannot be put on a branch A run', 'd-sa',
 select pg_temp.chk('staff A assigns driver 1', 'd-sa',
   format($q$select public.staff_assign_driver(%L, 'drv-1')$q$, pg_temp.f('run1')), 'ok');
 select pg_temp.chk_true('order shows the driver name and phone',
-  (select rider_name = 'Rider One' and rider_phone = '09990000001' from public.orders where id = pg_temp.f('o1')));
+  -- Phones are stored as E.164 since 20261025000000_input_check_constraints.sql (typed as 09990000001).
+  (select rider_name = 'Rider One' and rider_phone = '+639990000001' from public.orders where id = pg_temp.f('o1')));
 select pg_temp.chk_true('driver got a notification it can read',
   pg_temp.visible('drv-1', 'select count(*) from public.staff_notifications where title = ''New delivery assigned''') = 1);
 select pg_temp.chk_true('driver 1 now lists 1 run with addresses',

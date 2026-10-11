@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/notification_item.dart';
@@ -29,6 +30,8 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
   /// yet); if the server refuses it, the notification comes back.
   Future<void> _delete() async {
     if (_deleting) return;
+    final confirmed = await ConfirmDialog.delete(context, 'this notification');
+    if (!confirmed || !mounted) return;
     setState(() => _deleting = true);
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
@@ -10,6 +11,8 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/staff_repository.dart';
@@ -362,14 +365,17 @@ class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
           TextField(
             controller: _controller,
             autofocus: true,
+            maxLength: InputLimits.email,
             onSubmitted: (_) => _search(),
             decoration: InputDecoration(
+              counterText: '',
+              errorText: _results.isEmpty ? _message : null,
+              errorMaxLines: 3,
               labelText: 'Tap card, or type phone / email / GK- label',
               suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
             ),
           ),
           if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator()),
-          if (_message != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_message!, style: AppTextStyles.bodySm)),
           for (final c in _results)
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -427,8 +433,11 @@ class _LinkCardDialogState extends State<_LinkCardDialog> {
       setState(() => _message = 'Tap the card on the reader.');
       return;
     }
-    if (_replace && _reason.text.trim().length < 3) {
-      setState(() => _message = 'Give a reason, e.g. "lost".');
+    final reasonError = _replace
+        ? ValidationUtils.validateReason(_reason.text, minLength: 3, maxLength: 200)
+        : null;
+    if (reasonError != null) {
+      setState(() => _message = reasonError);
       return;
     }
     setState(() {
@@ -469,10 +478,16 @@ class _LinkCardDialogState extends State<_LinkCardDialog> {
             controller: _card,
             autofocus: true,
             enabled: !_busy,
+            maxLength: 32,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Fa-f:\-.\s]'))],
             onSubmitted: (_) {
               if (!_replace) _save();
             },
-            decoration: const InputDecoration(labelText: 'Tap the new card', prefixIcon: Icon(Icons.contactless_rounded)),
+            decoration: const InputDecoration(
+              labelText: 'Tap the new card',
+              prefixIcon: Icon(Icons.contactless_rounded),
+              counterText: '',
+            ),
           ),
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
@@ -485,10 +500,15 @@ class _LinkCardDialogState extends State<_LinkCardDialog> {
             TextField(
               controller: _reason,
               enabled: !_busy,
+              maxLength: 200,
               decoration: const InputDecoration(labelText: 'Reason (e.g. lost)'),
             ),
           if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator()),
-          if (_message != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_message!, style: AppTextStyles.bodySm)),
+          if (_message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_message!, style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+            ),
         ],
       ),
       actions: [
@@ -621,7 +641,7 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
   }
 
   Future<void> _complete() async {
-    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
     setState(() => _saving = true);
     try {
       final sale = await _submitSale(widget.checkout, cashReceived: _received);
@@ -659,13 +679,14 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 style: AppTextStyles.headlineMd,
                 autofocus: true,
-                validator: (v) {
-                  final requiredError = ValidationUtils.validateRequired(v, 'Amount Received');
-                  if (requiredError != null) return requiredError;
-                  final val = double.tryParse(v!) ?? 0;
-                  if (val < amount) return 'Amount must be at least ${peso(amount)}';
-                  return null;
-                },
+                inputFormatters: InputRules.decimal(),
+                // At least the total, at most ₱1,000,000, 2 decimals.
+                validator: (v) => ValidationUtils.validateNumber(
+                  v,
+                  fieldName: 'Amount received',
+                  min: amount,
+                  max: 1000000,
+                ),
                 decoration: InputDecoration(
                   labelText: 'Amount Received',
                   prefixText: '₱ ',
@@ -720,7 +741,7 @@ class _PosProcessingScreenState extends State<PosProcessingScreen> {
   }
 
   Future<void> _confirm() async {
-    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
     setState(() => _saving = true);
     try {
       final sale = await _submitSale(widget.checkout, reference: _reference.text.trim());
@@ -760,11 +781,19 @@ class _PosProcessingScreenState extends State<PosProcessingScreen> {
                 controller: _reference,
                 autofocus: true,
                 textCapitalization: TextCapitalization.characters,
+                keyboardType: _isGcash ? TextInputType.number : TextInputType.text,
+                maxLength: 40,
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\-]'))],
                 decoration: InputDecoration(
                   labelText: _isGcash ? 'GCash reference number' : 'Approval / reference code',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                validator: (v) => (v ?? '').trim().length < 4 ? 'Enter the reference (at least 4 characters)' : null,
+                validator: (v) {
+                  final t = (v ?? '').trim();
+                  if (t.length < 4) return 'Enter the reference (at least 4 characters)';
+                  if (_isGcash && !RegExp(r'^\d{4,40}$').hasMatch(t)) return 'A GCash reference number has digits only';
+                  return null;
+                },
               ),
               const Spacer(),
               PrimaryButton(label: 'Confirm Payment Received', loading: _saving, onPressed: _confirm),

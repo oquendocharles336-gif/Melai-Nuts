@@ -7,6 +7,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -59,7 +62,21 @@ class _EditProductScreenState extends State<EditProductScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
+    // Name, price and cost changes affect the catalog and margins: confirm.
+    final priceChanged = _srp != _product.price || _cogs != _product.costPrice;
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Save changes?',
+      message: priceChanged
+          ? 'The changes to "${_product.name}" will be saved, including the new price '
+              '₱${_srp.toStringAsFixed(2)} (was ₱${_product.price.toStringAsFixed(2)}).'
+          : 'Your changes to "${_product.name}" will be saved.',
+      confirmLabel: 'Save',
+      destructive: false,
+      icon: Icons.save_outlined,
+    );
+    if (!ok || !mounted) return;
 
     setState(() => _saving = true);
     try {
@@ -99,7 +116,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
         SnackBar(content: Text('"${_nameController.text.trim()}" changes saved.')),
       );
       Navigator.of(context).pop();
-    } catch (e) {
+    } catch (e, st) {
+      // The form keeps everything typed so the owner can retry.
+      AppErrors.report(e, st, 'edit_product_screen:save', scope: ErrorScope.catalog);
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is AppError ? e.message : 'Could not save changes. Please try again.')));
@@ -170,7 +189,10 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     AppTextField(
                       label: 'Product Name *',
                       controller: _nameController,
-                      validator: (v) => ValidationUtils.validateMinLength(v, 2, 'Product Name'),
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.next,
+                      maxLength: InputLimits.productName,
+                      validator: (v) => ValidationUtils.validateTitle(v, fieldName: 'Product name'),
                     ),
                     const SizedBox(height: 14),
                     Text('Category *', style: AppTextStyles.labelLg),
@@ -182,14 +204,38 @@ class _EditProductScreenState extends State<EditProductScreen> {
                       validator: (v) => ValidationUtils.validateRequired(v, 'Category'),
                     ),
                     const SizedBox(height: 14),
-                    AppTextField(label: 'Product Description', controller: _descriptionController),
+                    AppTextField(
+                      label: 'Product Description',
+                      controller: _descriptionController,
+                      maxLines: 4,
+                      maxLength: InputLimits.description,
+                      textCapitalization: TextCapitalization.sentences,
+                      validator: (v) => ValidationUtils.validateText(v, fieldName: 'Description', maxLength: InputLimits.description),
+                    ),
                     const SizedBox(height: 4),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: _isActive,
                       activeThumbColor: AppColors.primary,
                       title: Text('Active in catalog & POS', style: AppTextStyles.labelLg),
-                      onChanged: (v) => setState(() => _isActive = v),
+                      subtitle: Text(
+                        'Turning this off hides the product (soft delete); its order history is kept.',
+                        style: AppTextStyles.bodySm,
+                      ),
+                      onChanged: (v) async {
+                        if (!v) {
+                          final ok = await ConfirmDialog.show(
+                            context,
+                            title: 'Deactivate "${_product.name}"?',
+                            message: 'Customers and the POS will no longer see "${_product.name}" after you save. '
+                                'Its order history and stock records are kept, and you can reactivate it later.',
+                            confirmLabel: 'Deactivate',
+                            icon: Icons.visibility_off_outlined,
+                          );
+                          if (!ok) return;
+                        }
+                        if (mounted) setState(() => _isActive = v);
+                      },
                     ),
                   ],
                 ),
@@ -206,8 +252,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
                             label: 'Cost of Goods (COGS)',
                             controller: _cogsController,
                             prefixIcon: Icons.receipt_long_outlined,
-                            keyboardType: TextInputType.number,
-                            validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'COGS', min: 0, allowEmpty: true),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: InputRules.decimal(),
+                            validator: (v) => ValidationUtils.validateNumber(v, fieldName: 'COGS', min: 0, max: 100000, allowEmpty: true),
                             onChanged: (_) => setState(() {}),
                           ),
                         ),
@@ -217,7 +264,8 @@ class _EditProductScreenState extends State<EditProductScreen> {
                             label: 'Base Retail Price (SRP) *',
                             controller: _srpController,
                             prefixIcon: Icons.sell_outlined,
-                            keyboardType: TextInputType.number,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: InputRules.decimal(),
                             validator: (v) => ValidationUtils.validatePrice(v, fieldName: 'Retail Price'),
                             onChanged: (_) => setState(() {}),
                           ),

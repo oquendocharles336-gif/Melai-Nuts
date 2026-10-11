@@ -13,6 +13,7 @@ import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/user_role.dart';
 import '../../../core/utils/app_error.dart';
@@ -99,7 +100,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (resend) {
       e164 = _e164;
     } else {
-      if (!_formKey.currentState!.validate()) return;
+      if (!FormUtils.validateAndFocus(_formKey)) return;
       e164 = PhoneUtils.tryFormatPhilippineMobile(_phoneController.text);
     }
     if (e164 == null) {
@@ -198,7 +199,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   Future<void> _submitName() async {
     if (_busy) return;
-    if (!_formKey.currentState!.validate()) return;
+    if (!FormUtils.validateAndFocus(_formKey)) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -343,6 +344,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           LengthLimitingTextInputFormatter(6),
         ],
         style: AppTextStyles.headlineMd.copyWith(letterSpacing: 8),
+        validator: ValidationUtils.validateVerificationCode,
         onChanged: (value) {
           if (_error != null) setState(() => _error = null);
           if (value.length == 6 && !_busy) _confirmCode();
@@ -382,6 +384,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         label: 'Full Name',
         controller: _nameController,
         prefixIcon: Icons.person_outline_rounded,
+        keyboardType: TextInputType.name,
+        textCapitalization: TextCapitalization.words,
+        autofillHints: const [AutofillHints.name],
+        maxLength: InputLimits.name,
         validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
       ),
       _errorText(),

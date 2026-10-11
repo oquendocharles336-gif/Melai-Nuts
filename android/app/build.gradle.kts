@@ -68,6 +68,8 @@ android {
             // (keep build/symbols for crash de-obfuscation; never ship it).
             isMinifyEnabled = true
             isShrinkResources = true
+            // Explicit (it is also the release default): a release build can never be debugged.
+            isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

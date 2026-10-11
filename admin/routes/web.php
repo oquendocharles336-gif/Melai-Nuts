@@ -20,6 +20,10 @@ use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\StockController;
 use Illuminate\Support\Facades\Route;
 
+// Terms and Privacy Policy: readable by everyone, signed in or not (same text as the app).
+Route::view('/terms', 'legal.terms')->name('legal.terms');
+Route::view('/privacy', 'legal.privacy')->name('legal.privacy');
+
 // Guests only (logged-in users are redirected to the dashboard)
 Route::middleware('guest')->group(function () {
     Route::view('/', 'landing')->name('landing');

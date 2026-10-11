@@ -4,7 +4,8 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../utils/app_error.dart';
 import 'sqlite/sqlite_factory.dart';
 
-/// The ONE on-device SQLite database for the staff side.
+/// The ONE on-device SQLite database (staff side since version 1, customer
+/// side since version 2 — see docs/ARCHITECTURE.md).
 ///
 /// ROLE (see SECURITY.md)
 ///   Firebase  = who you are (authentication authority)
@@ -26,6 +27,15 @@ class SqliteService {
 
   /// `migrations[i]` brings the schema from version `i` to `i + 1`.
   /// Version 1 (Batch 1): staff cache, sync metadata, synchronization queue.
+  /// Version 2: the customer side's local database (CustomerLocalDb):
+  ///   * customer_records — the last server copy of each customer record
+  ///     (products, categories, orders, loyalty, notifications, refunds,
+  ///     addresses, favorites, profile), one row per record, with indexed
+  ///     columns for search / sort / filter;
+  ///   * response_cache — saved server responses (OfflineReadCacheClient),
+  ///     moved here from shared_preferences;
+  ///   * customer_pending_writes — the customer's offline write queue
+  ///     (PendingWritesService), moved here from shared_preferences.
   @visibleForTesting
   static const List<List<String>> migrations = [
     [
@@ -73,6 +83,54 @@ class SqliteService {
       CREATE INDEX idx_sync_operations_owner
         ON sync_operations (staff_firebase_uid, sync_status, created_at)
       ''',
+    ],
+    // Version 2: customer side (never edit version 1 above).
+    [
+      '''
+      CREATE TABLE customer_records (
+        scope       TEXT NOT NULL,
+        kind        TEXT NOT NULL,
+        id          TEXT NOT NULL,
+        title       TEXT NOT NULL DEFAULT '',
+        search_text TEXT NOT NULL DEFAULT '',
+        status      TEXT,
+        category    TEXT,
+        amount      REAL,
+        sort_time   TEXT,
+        position    INTEGER NOT NULL DEFAULT 0,
+        json        TEXT NOT NULL,
+        saved_at    INTEGER NOT NULL,
+        PRIMARY KEY (scope, kind, id)
+      )
+      ''',
+      'CREATE INDEX idx_records_time ON customer_records (scope, kind, sort_time)',
+      'CREATE INDEX idx_records_title ON customer_records (scope, kind, title)',
+      'CREATE INDEX idx_records_status ON customer_records (scope, kind, status)',
+      'CREATE INDEX idx_records_category ON customer_records (scope, kind, category)',
+      'CREATE INDEX idx_records_amount ON customer_records (scope, kind, amount)',
+      '''
+      CREATE TABLE response_cache (
+        scope     TEXT NOT NULL,
+        cache_key TEXT NOT NULL,
+        value     TEXT NOT NULL,
+        saved_at  INTEGER NOT NULL,
+        PRIMARY KEY (scope, cache_key)
+      )
+      ''',
+      'CREATE INDEX idx_response_cache_age ON response_cache (scope, saved_at)',
+      '''
+      CREATE TABLE customer_pending_writes (
+        id         TEXT PRIMARY KEY,
+        uid        TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        attempts   INTEGER NOT NULL DEFAULT 0,
+        status     TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'failed')),
+        last_error TEXT
+      )
+      ''',
+      'CREATE INDEX idx_customer_pending_writes_uid ON customer_pending_writes (uid, created_at)',
     ],
   ];
 

@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/utils/app_error.dart';
+import '../../core/widgets/list_tools.dart';
 import '../models/order.dart';
 import '../models/refund.dart';
 import '../models/refund_summary.dart';
@@ -110,14 +112,47 @@ class RefundsRepository {
 
   static const String _refundSelect = '*, refund_items(*), refund_status_events(*)';
 
+  /// How many refund requests a plain [fetchAll] downloads (newest first).
+  /// Older ones are read page by page ([fetchPage]).
+  static const int recentLimit = 50;
+
   Future<List<RefundRequest>> fetchAll(String firebaseUid) {
     return AppErrors.guard(() async {
       final raw = await _client
           .from('refund_requests')
           .select(_refundSelect)
           .eq('firebase_uid', firebaseUid)
-          .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(raw).map(_fromEmbeddedRow).toList();
+          .order('created_at', ascending: false)
+          .limit(recentLimit);
+      final rows = List<Map<String, dynamic>>.from(raw);
+      unawaited(CustomerLocalDb.instance.replaceAll(firebaseUid, LocalKind.refunds, rows));
+      return rows.map(_fromEmbeddedRow).toList();
+    }, scope: ErrorScope.refund);
+  }
+
+  /// The last copy of the customer's refund requests saved on this device
+  /// (empty when nothing was saved or on web).
+  Future<List<RefundRequest>> localAll(String firebaseUid) async {
+    final page = await CustomerLocalDb.instance.query(firebaseUid, LocalKind.refunds, sort: LocalSort.newest);
+    return page.rows.map(_fromEmbeddedRow).toList();
+  }
+
+  /// One page of refund requests, status filter and sort applied by the
+  /// server, plus the total count.
+  Future<PageResult<RefundRequest>> fetchPage(String firebaseUid, ListQuery query, int offset, int limit) {
+    return AppErrors.guard(() async {
+      var q = _client.from('refund_requests').select(_refundSelect).eq('firebase_uid', firebaseUid);
+      final status = query.filters['status'];
+      if (status != null && status.isNotEmpty) q = q.eq('status', status);
+      final ascending = query.sortId == 'oldest';
+      final res = await q
+          .order('created_at', ascending: ascending)
+          .order('id', ascending: ascending)
+          .range(offset, offset + limit - 1)
+          .count(CountOption.exact);
+      final rows = List<Map<String, dynamic>>.from(res.data);
+      unawaited(CustomerLocalDb.instance.upsert(firebaseUid, LocalKind.refunds, rows));
+      return PageResult(rows.map(_fromEmbeddedRow).toList(), res.count);
     }, scope: ErrorScope.refund);
   }
 

@@ -37,6 +37,16 @@
         <p class="field-ok" x-show="values.password_confirmation && values.password_confirmation === values.password && !error('password_confirmation')">Passwords match.</p>
     </x-field>
 
+    {{-- Consent is an active choice (never pre-ticked); the links open the full documents. --}}
+    <div class="field">
+        <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400">
+            <input type="checkbox" name="terms" value="1" @checked(old('terms')) style="margin-top:.2rem" aria-describedby="terms-error">
+            <span>I have read and agree to the <a class="link" href="{{ route('legal.terms') }}" target="_blank" rel="noopener">Terms and Conditions</a>
+                and the <a class="link" href="{{ route('legal.privacy') }}" target="_blank" rel="noopener">Privacy Policy</a>.</span>
+        </label>
+        @error('terms')<p class="field-error" id="terms-error" role="alert">{{ $message }}</p>@enderror
+    </div>
+
     <button type="submit" class="btn-primary" :disabled="submitting">
         <span x-text="submitting ? 'Creating account…' : 'Create Account'"></span>
     </button>

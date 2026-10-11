@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/services/staff_store.dart';
@@ -59,7 +60,7 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _applying = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not switch branch: $e')));
+      AppErrors.showSnack(context, e); // customer-safe wording, never the raw error
     }
   }
 

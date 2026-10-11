@@ -3,6 +3,7 @@ import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/secondary_button.dart';
@@ -225,7 +226,8 @@ class CustomerProfileScreen extends StatelessWidget {
                   const Divider(height: 20),
                   _FieldRow(label: 'FULL NAME', value: name.isEmpty ? 'Not set' : name),
                   _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
-                  _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : phone),
+                  // Masked: the full number is only needed when editing it.
+                  _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : maskPhone(phone)),
                   _FieldRow(
                     label: 'DELIVERY ADDRESS',
                     value: defaultAddress == null ? 'Not set' : defaultAddress.fullAddress,

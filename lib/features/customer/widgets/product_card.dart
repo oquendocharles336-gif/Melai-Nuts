@@ -259,7 +259,7 @@ class _AddButton extends StatelessWidget {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFBE7B47), AppColors.primaryDark],
+            colors: [AppColors.productCardGradientStart, AppColors.primaryDark],
           ),
           boxShadow: [
             BoxShadow(

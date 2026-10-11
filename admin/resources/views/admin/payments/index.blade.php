@@ -63,7 +63,7 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
                 <td>{{ $o['createdAt']->format('M j, g:i A') }}</td>
                 <td>
                     @if ($o['paymentMethod'] === $cashMethod && $o['effectivePaymentStatus'] === 'pending')
-                        <form method="POST" action="{{ route('admin.payments.mark-paid', $o['id']) }}" onsubmit="return confirm('Mark this cash order as paid? Only do this once the cash has been collected.')">
+                        <form method="POST" action="{{ route('admin.payments.mark-paid', $o['id']) }}" data-confirm="Mark order {{ $o['id'] }} as paid? Only do this once the cash has been collected." data-confirm-title="Mark as paid?" data-confirm-label="Mark as paid" data-confirm-safe">
                             @csrf<button class="btn-outline" type="submit" style="padding:.3rem .8rem">Mark as paid</button>
                         </form>
                     @endif

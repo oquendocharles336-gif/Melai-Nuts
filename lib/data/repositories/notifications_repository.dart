@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/widgets/list_tools.dart';
 import '../../core/utils/app_error.dart';
 import '../models/notification_item.dart';
 
@@ -15,13 +17,52 @@ class NotificationsRepository {
 
   SupabaseClient get _client => SupabaseService.instance.client;
 
+  static const String _columns = 'id,firebase_uid,category,title,body,read,created_at';
+
+  /// Newest notifications kept in memory (badge count, home screen); the
+  /// notification center pages through the rest ([fetchPage]).
+  static const int recentLimit = 100;
+
   Future<List<NotificationItem>> fetchAll(String firebaseUid) async {
     final raw = await _client
         .from('notifications')
-        .select()
+        .select(_columns)
         .eq('firebase_uid', firebaseUid)
-        .order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(raw).map(NotificationItem.fromRow).toList();
+        .order('created_at', ascending: false)
+        .limit(recentLimit);
+    final rows = List<Map<String, dynamic>>.from(raw);
+    unawaited(CustomerLocalDb.instance.replaceAll(firebaseUid, LocalKind.notifications, rows));
+    return rows.map(NotificationItem.fromRow).toList();
+  }
+
+  /// Saved copy on this device (local-first / offline).
+  Future<List<NotificationItem>> localAll(String firebaseUid) async {
+    final page = await CustomerLocalDb.instance.query(firebaseUid, LocalKind.notifications, sort: LocalSort.newest);
+    return page.rows.map(NotificationItem.fromRow).toList();
+  }
+
+  /// One page with search (title / text), read-unread and type filters and
+  /// sort applied by the server, plus the total.
+  Future<PageResult<NotificationItem>> fetchPage(String firebaseUid, ListQuery query, int offset, int limit) {
+    return AppErrors.guard(() async {
+      var q = _client.from('notifications').select(_columns).eq('firebase_uid', firebaseUid);
+      final term = query.search.replaceAll(RegExp(r'[^\p{L}\p{N} \-]', unicode: true), '').trim();
+      if (term.isNotEmpty) q = q.or('title.ilike.%$term%,body.ilike.%$term%');
+      final read = query.filters['read'];
+      if (read == 'read') q = q.eq('read', true);
+      if (read == 'unread') q = q.eq('read', false);
+      final type = query.filters['type'];
+      if (type != null) q = q.eq('category', type);
+      final ascending = query.sortId == 'oldest';
+      final res = await q
+          .order('created_at', ascending: ascending)
+          .order('id', ascending: ascending)
+          .range(offset, offset + limit - 1)
+          .count(CountOption.exact);
+      final rows = List<Map<String, dynamic>>.from(res.data);
+      unawaited(CustomerLocalDb.instance.upsert(firebaseUid, LocalKind.notifications, rows));
+      return PageResult(rows.map(NotificationItem.fromRow).toList(), res.count);
+    });
   }
 
   /// Live view of this customer's notifications, newest first. Every event
@@ -56,10 +97,14 @@ class NotificationsRepository {
     await _client.from('notifications').delete().eq('id', id);
   }
 
+  /// Removes a deleted notification from the device copy too.
+  Future<void> forgetLocal(String firebaseUid, String id) =>
+      CustomerLocalDb.instance.remove(firebaseUid, LocalKind.notifications, id);
+
   Future<Map<String, dynamic>?> fetchPreferences(String firebaseUid) async {
     return _client
         .from('notification_preferences')
-        .select()
+        .select('firebase_uid,order_updates,promos,loyalty_updates,delivery_updates')
         .eq('firebase_uid', firebaseUid)
         .maybeSingle();
   }

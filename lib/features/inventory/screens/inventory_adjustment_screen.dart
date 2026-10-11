@@ -1,6 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -33,6 +37,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
   int _adjustment = 0;
   bool _saving = false;
   final _reasonController = TextEditingController();
+  final _amountController = TextEditingController(text: '0');
   String _reasonPreset = 'Stock count correction';
   final _requestKey = RequestKeyHolder();
 
@@ -42,24 +47,52 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
   @override
   void dispose() {
     _reasonController.dispose();
+    _amountController.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (_saving || !_formKey.currentState!.validate()) return;
-    if (_rawNewStock < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Stock cannot go below 0. Reduce the adjustment amount.')),
-      );
-      return;
+  void _step(int by) {
+    setState(() => _adjustment += by);
+    _amountController.text = '$_adjustment';
+  }
+
+  /// Adjustment amount: a whole number (negative to remove stock), not 0,
+  /// at most 99,999 either way, and stock may not go below 0.
+  String? _validateAmount(String? v) {
+    final raw = (v ?? '').trim();
+    final n = int.tryParse(raw);
+    if (raw.isEmpty || raw == '-') return 'Enter how many packs to add or remove.';
+    if (n == null) return 'Adjustment must be a whole number.';
+    if (n == 0) return 'Adjustment cannot be 0.';
+    final sizeError = ValidationUtils.validateQuantity('${n.abs()}', fieldName: 'Adjustment', min: 1, max: 99999);
+    if (sizeError != null) return sizeError;
+    if (widget.batch.quantity + n < 0) {
+      return 'Stock cannot go below 0 (only ${widget.batch.quantity} in this batch).';
     }
+    return null;
+  }
+
+  Future<void> _submit() async {
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
+    // Stock changes are recorded in the audit log: confirm first.
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Save this adjustment?',
+      message: '${_adjustment > 0 ? 'Add' : 'Remove'} ${_adjustment.abs()} pack(s) '
+          '${_adjustment > 0 ? 'to' : 'from'} batch ${widget.batch.batchCode} '
+          '(${widget.batch.quantity} → $_newStock). Reason: $_reasonPreset.',
+      confirmLabel: 'Save',
+      destructive: _adjustment < 0,
+      icon: Icons.inventory_2_outlined,
+    );
+    if (!ok || !mounted) return;
     setState(() => _saving = true);
     try {
       final result = await StaffRepository.instance.adjustBatch(
         batchId: widget.batch.id,
         delta: _adjustment,
         reason: _reasonPreset,
-        note: _reasonController.text,
+        note: _reasonController.text.trim(),
         // One key per distinct request: a retry after a timeout reuses it, so
         // the server applies the adjustment once even if the first try landed.
         idempotencyKey: _requestKey.keyFor(
@@ -77,7 +110,8 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
           'newStock': (result['new_quantity'] as num).toInt(),
         },
       );
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'inventory_adjustment_screen:submit');
       if (!mounted) return;
       setState(() => _saving = false);
       AppErrors.showSnack(context, e);
@@ -153,19 +187,36 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         IconButton.filled(
-                          onPressed: () => setState(() => _adjustment -= 5),
+                          tooltip: 'Remove 5 packs',
+                          onPressed: () => _step(-5),
                           icon: const Icon(Icons.remove_rounded),
                         ),
                         const SizedBox(width: 16),
-                        Text('$_adjustment', style: AppTextStyles.headlineLg),
+                        SizedBox(
+                          width: 120,
+                          child: TextFormField(
+                            controller: _amountController,
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.headlineMd,
+                            keyboardType: const TextInputType.numberWithOptions(signed: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(RegExp(r'^-?\d{0,5}')),
+                            ],
+                            decoration: const InputDecoration(labelText: 'Packs (+/-)'),
+                            onChanged: (v) => setState(() => _adjustment = int.tryParse(v.trim()) ?? 0),
+                            validator: _validateAmount,
+                          ),
+                        ),
                         const SizedBox(width: 16),
                         IconButton.filled(
-                          onPressed: () => setState(() => _adjustment += 5),
+                          tooltip: 'Add 5 packs',
+                          onPressed: () => _step(5),
                           icon: const Icon(Icons.add_rounded),
                         ),
                       ],
                     ),
-                    Text('Tap +/- to adjust by 5 packs', style: AppTextStyles.bodySm),
+                    Text('Type the exact number (negative removes stock), or tap +/- to change it by 5.',
+                        style: AppTextStyles.bodySm, textAlign: TextAlign.center),
                   ],
                 ),
               ),
@@ -189,14 +240,20 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
               TextFormField(
                 controller: _reasonController,
                 decoration: const InputDecoration(hintText: 'Optional notes...'),
-                maxLines: 2,
+                minLines: 1,
+                maxLines: 3,
+                maxLength: 200,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                textCapitalization: TextCapitalization.sentences,
+                validator: (v) => ValidationUtils.validateText(v, fieldName: 'Notes', maxLength: 200),
               ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(
                 label: 'Submit Adjustment',
                 icon: Icons.check_rounded,
                 loading: _saving,
-                onPressed: _adjustment == 0 || _rawNewStock < 0 ? null : _submit,
+                // Always enabled: problems are explained under the field instead.
+                onPressed: _submit,
               ),
             ],
           ),

@@ -39,15 +39,30 @@ class FakeFirebase
     public static function keys(): array
     {
         if (self::$keys === null) {
-            $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-            $csr = openssl_csr_new(['commonName' => 'securetoken.test'], $key, ['digest_alg' => 'sha256']);
-            $cert = openssl_csr_sign($csr, null, $key, 1, ['digest_alg' => 'sha256']);
-            openssl_pkey_export($key, $private);
+            // PHP on Windows usually has no openssl.cnf where OpenSSL looks for it, and then
+            // openssl_csr_new()/openssl_csr_sign() fail ("CSR cannot be retrieved"). A tiny
+            // config written for the test run makes key generation work on every platform.
+            $options = ['digest_alg' => 'sha256', 'config' => self::opensslConfig()];
+            $key = openssl_pkey_new($options + ['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+            $csr = openssl_csr_new(['commonName' => 'securetoken.test'], $key, $options);
+            $cert = openssl_csr_sign($csr, null, $key, 1, $options);
+            openssl_pkey_export($key, $private, null, $options);
             openssl_x509_export($cert, $certPem);
             self::$keys = ['private' => $private, 'cert' => $certPem];
         }
 
         return self::$keys;
+    }
+
+    /** Path of a minimal OpenSSL config (test use only; holds no keys). */
+    private static function opensslConfig(): string
+    {
+        $path = rtrim(sys_get_temp_dir(), '/\\').DIRECTORY_SEPARATOR.'melai-test-openssl.cnf';
+        if (! is_file($path)) {
+            file_put_contents($path, "[ req ]\ndistinguished_name = req_dn\n[ req_dn ]\n");
+        }
+
+        return $path;
     }
 
     public function install(): self

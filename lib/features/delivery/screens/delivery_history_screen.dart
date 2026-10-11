@@ -4,6 +4,7 @@ import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/list_tools.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../../data/views/branch_deliveries.dart';
@@ -22,6 +23,13 @@ enum _Filter { all, completed, cancelled }
 
 class _DeliveryHistoryScreenState extends State<DeliveryHistoryScreen> {
   _Filter _filter = _Filter.all;
+  ListQuery _query = const ListQuery(sortId: 'newest');
+
+  static final List<SortOption<Delivery>> _sorts = [
+    SortOption('newest', 'Newest first', (a, b) => b.createdAt.compareTo(a.createdAt)),
+    SortOption('oldest', 'Oldest first', (a, b) => a.createdAt.compareTo(b.createdAt)),
+    SortOption('distance', 'Longest distance', (a, b) => b.totalDistanceKm.compareTo(a.totalDistanceKm)),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +51,13 @@ class _DeliveryHistoryScreenState extends State<DeliveryHistoryScreen> {
       case _Filter.all:
         break;
     }
+    // Search (delivery ID, rider, branch) and sort.
+    deliveries = applyListQuery<Delivery>(
+      deliveries,
+      _query,
+      text: (d) => '${d.id} ${d.riderName} ${d.branch}',
+      sorts: _sorts,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -50,6 +65,21 @@ class _DeliveryHistoryScreenState extends State<DeliveryHistoryScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, 0),
+              child: AppSearchBar(
+                hint: 'Search delivery ID, rider or branch',
+                initialValue: _query.search,
+                onChanged: (text) => setState(() => _query = _query.copyWith(search: text)),
+                trailing: SortFilterButton(
+                  active: _query.sortId != 'newest',
+                  onPressed: () async {
+                    final next = await SortFilterSheet.show<Delivery>(context, query: _query, sorts: _sorts);
+                    if (next != null && mounted) setState(() => _query = next);
+                  },
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
               child: SegmentedButton<_Filter>(

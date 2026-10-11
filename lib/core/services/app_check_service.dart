@@ -41,7 +41,7 @@ class AppCheckService {
       );
       await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
     } catch (e) {
-      debugPrint('App Check could not be activated: $e');
+      if (kDebugMode) debugPrint('App Check could not be activated: $e');
     }
   }
 }

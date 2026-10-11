@@ -78,7 +78,7 @@
                                     <span class="cell-sub">Linked to {{ $u->staff_uid }}</span>
                                 @endunless
                                 @unless ($u->is($me))
-                                    <form method="POST" action="{{ route('admin.users.unlink', $u) }}" onsubmit="return confirm('Unlink this login from its app account?')">
+                                    <form method="POST" action="{{ route('admin.users.unlink', $u) }}" data-confirm="Unlink {{ $u->email }} from its app account? The login keeps working but loses its app access until it is linked again." data-confirm-title="Unlink this login?" data-confirm-label="Unlink">
                                         @csrf<button class="btn sm ghost" type="submit">Unlink app account</button>
                                     </form>
                                 @endunless
@@ -96,7 +96,7 @@
                                         @foreach ($branches as $b) <option value="{{ $b['id'] }}">{{ $b['name'] }}</option> @endforeach
                                     </select>
                                     <button class="btn sm primary" type="submit" @disabled(! $u->firebase_email_verified)
-                                            onclick="return this.form.role.value !== 'owner' || confirm('Give this person OWNER rights in the Melai Nuts app (all branches, user management)?')">Approve</button>
+                                            data-confirm="Give {{ $u->email }} OWNER rights in the Melai Nuts app (all branches, user management)?" data-confirm-title="Make this person an owner?" data-confirm-label="Approve as owner" data-confirm-if="role=owner">Approve</button>
                                 </form>
                             @elseif (count($directory))
                                 @php $wanted = $u->isAdmin() ? 'owner' : 'staff';

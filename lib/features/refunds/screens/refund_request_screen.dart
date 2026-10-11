@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -22,8 +25,32 @@ class RefundRequestScreen extends StatefulWidget {
 
 class _RefundRequestScreenState extends State<RefundRequestScreen> {
   final Map<int, bool> _selected = {};
+  final _formKey = GlobalKey<FormState>();
   String _reason = kRefundReasons.first;
   final _notesController = TextEditingController();
+
+  /// Free-text description: required, 10–500 characters, not emoji-only.
+  static String? validateDetails(String? v) => ValidationUtils.validateReason(
+        v,
+        fieldName: 'Description of the problem',
+        minLength: InputLimits.reasonMin,
+        maxLength: InputLimits.reason,
+      );
+
+  void _review() {
+    if (!FormUtils.validateAndFocus(_formKey)) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RefundReviewScreen(
+          order: widget.order,
+          items: _chosenItems,
+          reason: _reason,
+          notes: _notesController.text.trim(),
+          amount: _chosenAmount,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -59,7 +86,9 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
         showBack: true,
       ),
       body: SafeArea(
-        child: ListView(
+        child: Form(
+          key: _formKey,
+          child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -157,18 +186,25 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'Additional Notes (optional)',
+              'Describe the Problem',
               style: AppTextStyles.titleMd,
             ),
             const SizedBox(height: AppSpacing.sm),
-            TextField(
+            TextFormField(
               controller: _notesController,
-              maxLines: 3,
+              minLines: 3,
+              maxLines: 6,
+              maxLength: InputLimits.reason,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
-                hintText: 'Describe the issue in a few words…',
+                hintText: 'What is wrong with the item(s)? At least 10 characters.',
               ),
+              validator: validateDetails,
             ),
           ],
+        ),
         ),
       ),
       bottomNavigationBar: SafeArea(
@@ -177,19 +213,7 @@ class _RefundRequestScreenState extends State<RefundRequestScreen> {
           child: PrimaryButton(
             label: 'Review Request (₱${_chosenAmount.toStringAsFixed(0)})',
             icon: Icons.arrow_forward_rounded,
-            onPressed: canContinue
-                ? () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => RefundReviewScreen(
-                          order: widget.order,
-                          items: _chosenItems,
-                          reason: _reason,
-                          notes: _notesController.text,
-                          amount: _chosenAmount,
-                        ),
-                      ),
-                    )
-                : null,
+            onPressed: canContinue ? _review : null,
           ),
         ),
       ),

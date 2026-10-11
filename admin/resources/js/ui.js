@@ -187,6 +187,25 @@ export function registerUi(Alpine) {
         close() { this.open = false; },
     }));
 
+    // Confirmation for forms marked data-confirm (replaces the browser's confirm()).
+    Alpine.data('confirmAction', () => ({
+        title: '', message: '', label: 'Confirm', danger: true, pending: null,
+        ask(d) {
+            Object.assign(this, { title: d.title, message: d.message, label: d.label, danger: d.danger, pending: d });
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'confirm-action' }));
+            this.$nextTick(() => setTimeout(() => this.$refs.cancel?.focus(), 30));
+        },
+        cancel() { this.pending = null; window.dispatchEvent(new CustomEvent('close-modal', { detail: 'confirm-action' })); },
+        go() {
+            const p = this.pending; this.pending = null;
+            window.dispatchEvent(new CustomEvent('close-modal', { detail: 'confirm-action' }));
+            if (!p) return;
+            p.form.dataset.confirmed = '1';
+            if (p.form.hasAttribute('data-disable-on-submit')) p.form.querySelectorAll('button').forEach(b => { b.disabled = true; });
+            p.form.requestSubmit(p.submitter || undefined);
+        },
+    }));
+
     Alpine.data('palette', () => paletteComponent());
     Alpine.data('liveRefresh', (seconds) => liveRefreshComponent(seconds));
     Alpine.data('overview', (opts) => overviewComponent(opts));
@@ -207,6 +226,28 @@ export function bootUi(Alpine) {
         setInterval(() => { if (!document.hidden) Alpine.store('counts').refresh(); }, 60000);
     }
     (window.MelaiFlash || []).forEach(f => ui.toast(f.message, f.tone, true));
+
+    // data-confirm on a form or its submit button: ask in the shared confirm modal first.
+    document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        if (form.dataset.confirmed === '1') { delete form.dataset.confirmed; return; }
+        const src = e.submitter?.dataset?.confirm ? e.submitter : (form.dataset.confirm ? form : null);
+        if (!src) return;
+        const cond = src.dataset.confirmIf;
+        if (cond) {
+            const [field, value] = cond.split('=');
+            if (form.elements[field]?.value !== value) return;
+        }
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('melai-confirm', { detail: {
+            form, submitter: e.submitter,
+            title: src.dataset.confirmTitle || 'Are you sure?',
+            message: src.dataset.confirm,
+            label: src.dataset.confirmLabel || 'Confirm',
+            danger: !src.hasAttribute('data-confirm-safe'),
+        } }));
+    }, true);
 
     // This browser runs our JavaScript: heavy pages may now answer with an instant shell (ShellFirst).
     document.cookie = 'melai_js=1; path=/; max-age=31536000; SameSite=Lax';

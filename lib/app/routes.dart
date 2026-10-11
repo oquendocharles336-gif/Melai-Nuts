@@ -111,6 +111,8 @@ import '../features/settings/screens/security_screen.dart';
 import '../features/settings/screens/branch_settings_screen.dart';
 import '../features/settings/screens/logout_confirmation_screen.dart';
 import '../features/settings/screens/logout_success_screen.dart';
+import '../features/settings/screens/permissions_screen.dart';
+import '../features/legal/screens/legal_document_screen.dart';
 import '../core/utils/app_error.dart';
 
 /// Centralized route names. Keep every navigable screen registered here so
@@ -209,6 +211,11 @@ class AppRoutes {
   static const String branchSettings = '/settings/branch';
   static const String logoutConfirmation = '/settings/logout';
   static const String logoutSuccess = '/settings/logout-success';
+  static const String appPermissions = '/settings/permissions';
+
+  // Legal documents — public, so they can be read before signing up.
+  static const String legalTerms = '/legal/terms';
+  static const String legalPrivacy = '/legal/privacy';
 
   static String homeFor(UserRole role) {
     switch (role) {
@@ -311,6 +318,9 @@ class AppRoutes {
     login: _public,
     forgotPassword: _public,
     logoutSuccess: _public,
+    legalTerms: _public,
+    legalPrivacy: _public,
+    appPermissions: _anySignedIn,
     resetPassword: _anySignedIn,
     resetSuccess: _anySignedIn,
     security: _anySignedIn,
@@ -543,6 +553,9 @@ class AppRoutes {
     branchSettings: (_) => const BranchSettingsScreen(),
     logoutConfirmation: (_) => const LogoutConfirmationScreen(),
     logoutSuccess: (_) => const LogoutSuccessScreen(),
+    legalTerms: (_) => const TermsAndConditionsScreen(),
+    legalPrivacy: (_) => const PrivacyPolicyScreen(),
+    appPermissions: (_) => const PermissionsScreen(),
     // NOTE: paymentPay, paymentStatus, customerRefundRequest,
     // refundProcessing, and notificationDetail all take arguments and are
     // handled exclusively in onGenerateRoute below (see the earlier note on

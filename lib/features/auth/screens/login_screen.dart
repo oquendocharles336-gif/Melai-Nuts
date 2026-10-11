@@ -11,6 +11,11 @@ import '../../../core/widgets/motion.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/services/legal_service.dart';
+import '../../../l10n/generated/app_localizations.dart';
+import '../../legal/widgets/terms_consent_field.dart';
 import 'email_verification_screen.dart';
 import 'phone_login_screen.dart';
 import '../../../data/models/user_role.dart';
@@ -45,7 +50,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _newPasswordController = TextEditingController();
-  bool _agreed = true;
+  // Two separate choices, both unticked until the person ticks them:
+  // the Terms/Privacy agreement (required) and order updates (optional).
+  bool _agreed = false;
+  bool _orderUpdates = false;
 
   @override
   void dispose() {
@@ -94,20 +102,18 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _createAccount() async {
-    if (!_agreed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please agree to the Terms of Service')),
-      );
-      return;
-    }
+    // The consent checkbox is a form field: an unticked box already shows its
+    // own message under the checkbox (see _submit).
+    if (!_agreed) return;
 
     setState(() => _submitting = true);
+    LegalService.instance.markConsentGiven(orderUpdates: _orderUpdates);
     try {
       // Step 1 of sign-up; the verification screen completes it.
       await AuthService.instance.startCustomerRegistration(
         name: _nameController.text,
         email: _emailController.text,
-        phone: _phoneController.text,
+        phone: ValidationUtils.normalizePhone(_phoneController.text),
         password: _newPasswordController.text,
       );
       if (!mounted) return;
@@ -128,7 +134,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_submitting) return; // no double submit
+    if (!FormUtils.validateAndFocus(_formKey)) return;
     if (_isSignIn) {
       await _signIn();
     } else {
@@ -260,6 +267,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _emailController,
                         prefixIcon: Icons.person_outline_rounded,
                         keyboardType: TextInputType.emailAddress,
+                        autofillHints: const [AutofillHints.email, AutofillHints.username],
+                        textInputAction: TextInputAction.next,
+                        maxLength: InputLimits.email,
                         validator: ValidationUtils.validateEmailFormat,
                       ),
                       const SizedBox(height: 14),
@@ -279,9 +289,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       TextFormField(
                         controller: _passwordController,
                         obscureText: !_passwordVisible,
+                        autofillHints: const [AutofillHints.password],
+                        textInputAction: TextInputAction.done,
+                        maxLength: InputLimits.passwordMax,
+                        onFieldSubmitted: (_) => _submit(),
                         style: AppTextStyles.bodyLg,
                         validator: (v) => ValidationUtils.validateRequired(v, 'Password'),
                         decoration: InputDecoration(
+                          counterText: '',
                           prefixIcon: const Icon(
                             Icons.lock_outline_rounded,
                             size: 20,
@@ -312,6 +327,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         label: 'Full Name',
                         controller: _nameController,
                         prefixIcon: Icons.person_outline_rounded,
+                        keyboardType: TextInputType.name,
+                        textCapitalization: TextCapitalization.words,
+                        autofillHints: const [AutofillHints.name],
+                        textInputAction: TextInputAction.next,
+                        maxLength: InputLimits.name,
                         validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
                       ),
                       const SizedBox(height: 14),
@@ -320,7 +340,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _phoneController,
                         prefixIcon: Icons.phone_outlined,
                         keyboardType: TextInputType.phone,
-                        helperText: 'Used for order and delivery updates.',
+                        autofillHints: const [AutofillHints.telephoneNumber],
+                        textInputAction: TextInputAction.next,
+                        inputFormatters: InputRules.phone(),
+                        hint: '0917 123 4567',
+                        helperText: 'Used by the rider to reach you about a delivery.',
                         validator: ValidationUtils.validatePhone,
                       ),
                       const SizedBox(height: 14),
@@ -329,7 +353,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _emailController,
                         prefixIcon: Icons.email_outlined,
                         keyboardType: TextInputType.emailAddress,
-                        helperText: 'For digital receipts and pack batch tracking.',
+                        autofillHints: const [AutofillHints.email],
+                        textInputAction: TextInputAction.next,
+                        maxLength: InputLimits.email,
+                        helperText: 'Used to sign in and to verify your account.',
                         validator: ValidationUtils.validateEmail,
                       ),
                       const SizedBox(height: 14),
@@ -338,7 +365,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _newPasswordController,
                         prefixIcon: Icons.lock_outline_rounded,
                         obscure: true,
-                        validator: ValidationUtils.validatePassword,
+                        autofillHints: const [AutofillHints.newPassword],
+                        textInputAction: TextInputAction.done,
+                        maxLength: InputLimits.passwordMax,
+                        helperText: '8–64 characters with an uppercase letter, a number and a symbol.',
+                        validator: (v) => ValidationUtils.validatePassword(
+                          v,
+                          email: _emailController.text,
+                          name: _nameController.text,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       const InfoBanner(
@@ -348,21 +383,11 @@ class _LoginScreenState extends State<LoginScreen> {
                             'Have a Melai Nuts RFID loyalty card? Branch staff can link it to your account when you tap it at the counter.',
                       ),
                       const SizedBox(height: 14),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Checkbox(
-                            value: _agreed,
-                            activeColor: AppColors.primary,
-                            onChanged: (v) => setState(() => _agreed = v ?? false),
-                          ),
-                          Expanded(
-                            child: Text(
-                              'I agree to the Melai Nuts Customer Terms of Service and to receiving order updates.',
-                              style: AppTextStyles.bodySm,
-                            ),
-                          ),
-                        ],
+                      TermsConsentField(initialValue: _agreed, onChanged: (v) => _agreed = v),
+                      OptionalConsentTile(
+                        value: _orderUpdates,
+                        label: AppLocalizations.of(context).consentOrderUpdates,
+                        onChanged: (v) => setState(() => _orderUpdates = v),
                       ),
                       const SizedBox(height: 6),
                       PrimaryButton(
@@ -405,10 +430,34 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             ),
             const SizedBox(height: AppSpacing.md),
+            const _LegalLinks(),
           ],
         ),
         ),
       ),
+    );
+  }
+}
+
+/// Terms and Privacy are readable at any time, also before signing in.
+class _LegalLinks extends StatelessWidget {
+  const _LegalLinks();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context);
+    return Wrap(
+      alignment: WrapAlignment.center,
+      children: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pushNamed(AppRoutes.legalTerms),
+          child: Text(t.legalTermsTitle),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pushNamed(AppRoutes.legalPrivacy),
+          child: Text(t.legalPrivacyTitle),
+        ),
+      ],
     );
   }
 }

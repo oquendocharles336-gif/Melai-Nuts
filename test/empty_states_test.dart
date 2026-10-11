@@ -45,7 +45,11 @@ void main() {
     )));
     await tester.pumpAndSettle();
     expect(find.text('No orders yet'), findsNothing, reason: 'an error is not shown as "empty"');
-    final retry = find.textContaining(RegExp('retry|try again', caseSensitive: false));
+    // The offline message itself says "try again", so tap the BUTTON.
+    final retry = find.ancestor(
+      of: find.textContaining(RegExp('retry|try again', caseSensitive: false)),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
     expect(retry, findsWidgets);
     await tester.tap(retry.first);
     expect(retried, isTrue);

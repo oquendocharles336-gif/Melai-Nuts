@@ -1,5 +1,35 @@
 import 'dart:math' show min;
 
+import 'phone_utils.dart';
+
+/// Maximum lengths shared by the app forms, the admin website's FormRequests
+/// (`admin/app/Http/Requests/Rules.php`) and the database CHECK constraints
+/// (`supabase/migrations/20261025000000_input_check_constraints.sql`). Change
+/// all three together. Listed per field in docs/FORM_FIELDS.md.
+class InputLimits {
+  InputLimits._();
+  static const int name = 50;
+  static const int email = 254;
+  static const int passwordMin = 8;
+  static const int passwordMax = 64;
+  static const int phone = 16; // "+63 917 123 4567"
+  static const int address = 200;
+  static const int addressLabel = 40;
+  static const int productName = 100;
+  static const int description = 1000;
+  static const int sku = 64;
+  static const int voucherCode = 30;
+  static const int note = 300;
+  static const int reason = 500;
+  static const int reasonMin = 10;
+  static const int shortReasonMin = 5;
+  static const int shortReason = 300;
+  static const int verificationCode = 6;
+  static const int search = 100;
+  static const int quantityDigits = 5; // up to 99,999
+  static const int moneyDigits = 7; // up to 9,999,999.99
+}
+
 class ValidationUtils {
   /// Required field check. Cannot be blank or empty spaces.
   static String? validateRequired(String? value, [String fieldName = 'Field']) {
@@ -30,11 +60,18 @@ class ValidationUtils {
     return null;
   }
 
+  // Any letter in any alphabet (Ñ, ñ, é, ü …) plus combining marks, spaces,
+  // hyphens, apostrophes (straight and curly) and periods: "Niño",
+  // "Ñora", "Dela Cruz-Reyes", "O'Brien", "Ma. Cristina".
+  static final RegExp _namePattern = RegExp(r"^[\p{L}\p{M}\s'’.\-]+$", unicode: true);
+  static final RegExp _letter = RegExp(r'\p{L}', unicode: true);
+  static final RegExp _letterOrDigit = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
   /// Name field validation:
   /// - Cannot be blank
-  /// - Must be at least 2 characters (rejects single-character names)
-  /// - Cannot exceed 50 characters
-  /// - Should not contain digits or invalid special symbols
+  /// - 2 to 50 characters (after trimming)
+  /// - Letters from any alphabet (Ñ/ñ and accents included), spaces, hyphens,
+  ///   apostrophes and periods only; at least two letters
   static String? validateName(String? value, [String fieldName = 'Name']) {
     final requiredError = validateRequired(value, fieldName);
     if (requiredError != null) return requiredError;
@@ -44,17 +81,16 @@ class ValidationUtils {
       return '$fieldName must be at least 2 characters long.';
     }
 
-    if (trimmedValue.length > 50) {
-      return '$fieldName cannot exceed 50 characters.';
+    if (trimmedValue.length > InputLimits.name) {
+      return '$fieldName cannot exceed ${InputLimits.name} characters.';
     }
 
-    // Name should not contain numbers
     if (RegExp(r'[0-9]').hasMatch(trimmedValue)) {
-      return '$fieldName should only contain letters, spaces, or hyphens.';
+      return '$fieldName should only contain letters, spaces, hyphens, apostrophes or periods.';
     }
 
-    // Name should only contain letters, spaces, hyphens, and apostrophes
-    if (!RegExp(r"^[a-zA-Z\s\-\'\.]+$").hasMatch(trimmedValue)) {
+    if (!_namePattern.hasMatch(trimmedValue) ||
+        _letter.allMatches(trimmedValue).length < 2) {
       return 'Please enter a valid $fieldName.';
     }
 
@@ -168,54 +204,110 @@ class ValidationUtils {
     return d[n][m];
   }
 
-  /// Password validation:
-  /// - Minimum 8 characters
-  /// - Maximum 64 characters
-  /// - At least one uppercase letter
-  /// - At least one number
-  /// - At least one special character
-  static String? validatePassword(String? value) {
-    final requiredError = validateRequired(value, 'Password');
-    if (requiredError != null) return requiredError;
+  // Core words of passwords that appear at the top of every breach list. A
+  // password whose letters (digits and symbols removed) are one of these is
+  // refused even when it meets the character rules ("Password1!", "Qwerty123$").
+  static const Set<String> _weakPasswordWords = {
+    'password', 'passw', 'pass', 'pword', 'qwerty', 'qwertyuiop', 'asdf', 'asdfgh',
+    'zxcvbn', 'welcome', 'admin', 'administrator', 'letmein', 'iloveyou', 'abc',
+    'abcd', 'abcdef', 'abcdefg', 'monkey', 'dragon', 'football', 'baseball',
+    'sunshine', 'princess', 'master', 'login', 'changeme', 'secret', 'melainuts',
+    'melai', 'nuts', 'test', 'user', 'qazwsx', 'trustno', 'iloveu', 'mahalkita',
+  };
 
-    final trimmedValue = value!.trim();
-    if (trimmedValue.length < 8) {
-      return 'Password must be at least 8 characters long.';
+  /// True when [password] is a well-known weak password with the usual
+  /// "capital + number + symbol" decoration added.
+  static bool isCommonPassword(String password) {
+    final lower = password.toLowerCase();
+    String lettersOf(String v) => v.replaceAll(RegExp(r'[^a-z]'), '');
+    if (lettersOf(lower).isEmpty) return true; // only digits/symbols
+    // "P@ssw0rd1!" -> "password": undo the usual letter-for-symbol swaps.
+    final leet = lower
+        .replaceAll('@', 'a')
+        .replaceAll('0', 'o')
+        .replaceAll('3', 'e')
+        .replaceAll('\$', 's');
+    final candidates = {
+      lettersOf(lower),
+      lettersOf(leet),
+      lettersOf(leet.replaceAll('1', 'i')),
+      lettersOf(leet.replaceAll('1', 'l')),
+    };
+    return candidates.any(_weakPasswordWords.contains);
+  }
+
+  /// Password validation. The value is **not trimmed**: a leading or trailing
+  /// space is part of the password the person typed.
+  /// - 8 to 64 characters
+  /// - At least one uppercase letter, one number and one special character
+  /// - Must not contain the person's e-mail name or their name
+  /// - Must not be a common password such as "Password1!"
+  static String? validatePassword(String? value, {String? email, String? name}) {
+    if (value == null || value.isEmpty) return 'Password is required.';
+    if (value.trim().isEmpty) return 'Password cannot be only spaces.';
+
+    final password = value;
+    if (password.length < InputLimits.passwordMin) {
+      return 'Password must be at least ${InputLimits.passwordMin} characters long.';
     }
 
-    if (trimmedValue.length > 64) {
-      return 'Password cannot exceed 64 characters.';
+    if (password.length > InputLimits.passwordMax) {
+      return 'Password cannot exceed ${InputLimits.passwordMax} characters.';
     }
 
-    if (!RegExp(r'[A-Z]').hasMatch(trimmedValue)) {
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
       return 'Password must contain at least one uppercase letter (A-Z).';
     }
 
-    if (!RegExp(r'[0-9]').hasMatch(trimmedValue)) {
+    if (!RegExp(r'[0-9]').hasMatch(password)) {
       return 'Password must contain at least one number (0-9).';
     }
 
-    if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>_]').hasMatch(trimmedValue)) {
+    if (!RegExp(r'[^A-Za-z0-9\s]').hasMatch(password)) {
       return 'Password must contain at least one special character (!@#\$...).';
+    }
+
+    final lower = password.toLowerCase();
+    final emailName = (email ?? '').trim().toLowerCase().split('@').first;
+    if (emailName.length >= 3 && lower.contains(emailName)) {
+      return 'Password must not contain your email address.';
+    }
+    for (final part in (name ?? '').toLowerCase().split(RegExp(r'[\s\-.]+'))) {
+      if (part.length >= 3 && lower.contains(part)) {
+        return 'Password must not contain your name.';
+      }
+    }
+
+    if (isCommonPassword(password)) {
+      return 'This password is too common. Choose something harder to guess.';
     }
 
     return null;
   }
 
-  /// Contact phone number validation (Philippine mobile format):
-  /// - Accepts 09XXXXXXXXX (11 digits) or +639XXXXXXXXX (13 chars)
-  static String? validatePhone(String? value) {
-    final requiredError = validateRequired(value, 'Phone number');
+  /// Contact phone number validation (Philippine mobile). Delegates to
+  /// [PhoneUtils] so every screen accepts the same inputs (`0917 123 4567`,
+  /// `09171234567`, `+639171234567`, `639171234567`). Save the value with
+  /// [normalizePhone] so the database always holds E.164 (`+639171234567`).
+  static String? validatePhone(String? value, [String fieldName = 'Phone number']) {
+    final requiredError = validateRequired(value, fieldName);
     if (requiredError != null) return requiredError;
+    return PhoneUtils.validatePhilippineMobile(value);
+  }
 
-    final trimmedValue = value!.trim();
-    final phoneRegex = RegExp(r'^(09|\+639)\d{9}$');
+  /// Same as [validatePhone] but an empty value is allowed (optional fields).
+  static String? validateOptionalPhone(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    return PhoneUtils.validatePhilippineMobile(value);
+  }
 
-    if (!phoneRegex.hasMatch(trimmedValue)) {
-      return 'Please enter a valid 11-digit PH mobile number (e.g. 09123456789).';
-    }
-
-    return null;
+  /// The one stored format for phone numbers: E.164 (`+639171234567`).
+  /// Returns the trimmed input unchanged when it is not a PH mobile number
+  /// (validation should have stopped it already), and '' for empty input.
+  static String normalizePhone(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return '';
+    return PhoneUtils.tryFormatPhilippineMobile(v) ?? v;
   }
 
   /// Delivery/customer address validation:
@@ -233,8 +325,12 @@ class ValidationUtils {
 
     // Require at least one digit (house/unit/street number) alongside
     // letters, so a random short word isn't accepted as an address.
-    if (!RegExp(r'[a-zA-Z]').hasMatch(trimmedValue)) {
+    if (!_letter.hasMatch(trimmedValue)) {
       return 'Please enter a valid delivery address.';
+    }
+
+    if (trimmedValue.length > InputLimits.address) {
+      return '$fieldName cannot exceed ${InputLimits.address} characters.';
     }
 
     return null;
@@ -247,6 +343,7 @@ class ValidationUtils {
         double? min,
         double? max,
         bool allowEmpty = false,
+        String? currencySymbol = '₱',
       }) {
     if (allowEmpty && (value == null || value.trim().isEmpty)) return null;
 
@@ -259,12 +356,24 @@ class ValidationUtils {
       return '$fieldName must be a valid numeric value.';
     }
 
+    if (!number.isFinite) {
+      return '$fieldName must be a valid numeric value.';
+    }
+
+    String show(double n) => currencySymbol == null
+        ? (n == n.roundToDouble() ? n.toStringAsFixed(0) : n.toString())
+        : '$currencySymbol${n.toStringAsFixed(2)}';
+
     if (min != null && number < min) {
-      return '$fieldName cannot be less than ₱${min.toStringAsFixed(2)}.';
+      return '$fieldName cannot be less than ${show(min)}.';
     }
 
     if (max != null && number > max) {
-      return '$fieldName cannot exceed ₱${max.toStringAsFixed(2)}.';
+      return '$fieldName cannot exceed ${show(max)}.';
+    }
+
+    if (currencySymbol != null && RegExp(r'\.\d{3,}$').hasMatch(trimmed)) {
+      return '$fieldName can have at most 2 decimal places.';
     }
 
     return null;
@@ -283,8 +392,11 @@ class ValidationUtils {
 
     final trimmed = value!.trim();
     final parsed = double.tryParse(trimmed);
-    if (parsed == null) {
+    if (parsed == null || !parsed.isFinite) {
       return '$fieldName must be a valid price (e.g. 150.00).';
+    }
+    if (RegExp(r'\.\d{3,}$').hasMatch(trimmed)) {
+      return '$fieldName can have at most 2 decimal places.';
     }
 
     if (allowZero && parsed == 0) return null;
@@ -371,6 +483,129 @@ class ValidationUtils {
       return '$fieldName cannot be in the future.';
     }
 
+    return null;
+  }
+
+  /// Validates a [DateTime] picked with a date picker (most date fields in the
+  /// app are pickers, not typed text). Same rules as [validateDate].
+  static String? validateDateValue(
+    DateTime? value, {
+    String fieldName = 'Date',
+    bool required = true,
+    bool allowPast = true,
+    bool allowFuture = true,
+    DateTime? notBefore,
+    String? notBeforeLabel,
+  }) {
+    if (value == null) return required ? '$fieldName is required.' : null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(value.year, value.month, value.day);
+    if (!allowPast && day.isBefore(today)) return '$fieldName cannot be in the past.';
+    if (!allowFuture && day.isAfter(today)) return '$fieldName cannot be in the future.';
+    if (notBefore != null) {
+      final floor = DateTime(notBefore.year, notBefore.month, notBefore.day);
+      if (day.isBefore(floor)) {
+        return '$fieldName cannot be before ${notBeforeLabel ?? 'the earlier date'}.';
+      }
+    }
+    return null;
+  }
+
+  /// Free text such as notes and reasons:
+  /// - trimmed before checking
+  /// - [minLength]..[maxLength] characters (required when [required] or minLength > 0)
+  /// - must contain at least one letter or digit (rejects emoji-only or
+  ///   punctuation-only input such as "👍👍" or "...")
+  static String? validateText(
+    String? value, {
+    String fieldName = 'This field',
+    bool required = false,
+    int minLength = 0,
+    int maxLength = InputLimits.note,
+  }) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) {
+      return (required || minLength > 0) ? '$fieldName is required.' : null;
+    }
+    if (!_letterOrDigit.hasMatch(v)) {
+      return '$fieldName must contain words, not only emoji or symbols.';
+    }
+    if (v.length < minLength) {
+      return '$fieldName must be at least $minLength characters.';
+    }
+    if (v.length > maxLength) {
+      return '$fieldName cannot exceed $maxLength characters.';
+    }
+    return null;
+  }
+
+  /// A required reason (refund, cancellation, delay, adjustment).
+  static String? validateReason(
+    String? value, {
+    String fieldName = 'Reason',
+    int minLength = InputLimits.reasonMin,
+    int maxLength = InputLimits.reason,
+  }) =>
+      validateText(value,
+          fieldName: fieldName, required: true, minLength: minLength, maxLength: maxLength);
+
+  /// E-mail verification code: exactly 6 digits.
+  static String? validateVerificationCode(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return 'Enter the 6-digit code from the email.';
+    if (!RegExp(r'^\d{6}$').hasMatch(v)) return 'The code must be exactly 6 digits.';
+    return null;
+  }
+
+  /// Voucher / promo code: letters, digits, hyphen and underscore, max 30.
+  static String? validateVoucherCode(String? value, {bool required = true}) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return required ? 'Enter a voucher code.' : null;
+    if (v.length > InputLimits.voucherCode) {
+      return 'Voucher code cannot exceed ${InputLimits.voucherCode} characters.';
+    }
+    if (!RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(v)) {
+      return 'Voucher code can only use letters, numbers, - and _.';
+    }
+    return null;
+  }
+
+  /// SKU / barcode typed by hand: letters, digits, hyphen, underscore and
+  /// period, max 64 (EAN/UPC barcodes are digits only and always fit).
+  static String? validateSku(String? value, {String fieldName = 'SKU', bool required = true}) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return required ? '$fieldName is required.' : null;
+    if (v.length > InputLimits.sku) {
+      return '$fieldName cannot exceed ${InputLimits.sku} characters.';
+    }
+    if (!RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(v)) {
+      return '$fieldName can only use letters, numbers, ".", "-" and "_".';
+    }
+    return null;
+  }
+
+  /// Product / category / supplier / branch names: 2..[maxLength] characters,
+  /// must contain a letter or digit. Digits are allowed (e.g. "Cashew 250g").
+  static String? validateTitle(
+    String? value, {
+    String fieldName = 'Name',
+    int maxLength = InputLimits.productName,
+  }) {
+    final requiredError = validateRequired(value, fieldName);
+    if (requiredError != null) return requiredError;
+    final v = value!.trim();
+    if (v.length < 2) return '$fieldName must be at least 2 characters long.';
+    if (v.length > maxLength) return '$fieldName cannot exceed $maxLength characters.';
+    if (!_letterOrDigit.hasMatch(v)) return 'Please enter a valid $fieldName.';
+    return null;
+  }
+
+  /// Philippine postal (ZIP) code: exactly 4 digits.
+  static String? validatePostalCode(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return 'Postal code is required.';
+    if (!RegExp(r'^\d{4}$').hasMatch(v)) return 'Postal code must be 4 digits (e.g. 4027).';
     return null;
   }
 }

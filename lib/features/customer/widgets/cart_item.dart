@@ -48,9 +48,12 @@ class CartItemTile extends StatelessWidget {
                         style: AppTextStyles.labelLg,
                       ),
                     ),
-                    InkWell(
-                      onTap: onRemove,
-                      child: const Icon(
+                    IconButton(
+                      tooltip: 'Remove ${line.product.name} from cart',
+                      onPressed: onRemove,
+                      // 48×48 touch target (Material minimum).
+                      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                      icon: const Icon(
                         Icons.delete_outline_rounded,
                         size: 20,
                         color: AppColors.textSecondary,
@@ -109,7 +112,7 @@ class _QtyStepper extends StatelessWidget {
         children: [
           IconButton(tooltip: 'Remove one', 
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             icon: const Icon(Icons.remove_rounded, size: 16),
             onPressed: () => onChanged(quantity - 1),
           ),
@@ -123,7 +126,7 @@ class _QtyStepper extends StatelessWidget {
           ),
           IconButton(tooltip: 'Add one more', 
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             icon: const Icon(Icons.add_rounded, size: 16),
             onPressed: () => onChanged(quantity + 1),
           ),

@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -28,7 +29,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool _sending = false;
 
   Future<void> _sendResetCode() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!FormUtils.validateAndFocus(_formKey)) return;
 
     setState(() => _sending = true);
     try {
@@ -113,8 +114,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
+                      maxLength: InputLimits.email,
                       validator: ValidationUtils.validateEmailFormat,
                       decoration: const InputDecoration(
+                        counterText: '',
                         prefixIcon: Icon(
                           Icons.email_outlined,
                           size: 20,

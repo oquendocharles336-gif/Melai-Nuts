@@ -3,16 +3,25 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Push notifications (order status, refunds, low stock, expiring batches), Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- Drivers share their position while a delivery run is out (app in the foreground only). -->
+    <!-- Location (asked only when used, with an explanation first — lib/core/services/permission_service.dart):
+         FINE is needed for riders' live delivery position (street-level accuracy, DriverLocationTracker);
+         customers use the same permission once, for "Use my location" when pinning an address.
+         COARSE must be declared with FINE (Android 12+ lets the person choose approximate). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- Drivers: keep sharing with the screen off through a foreground service (visible notification),
-         started only while the app is open — no ACCESS_BACKGROUND_LOCATION. Stops with the run. -->
+    <!-- Riders only: keep sharing with the screen off through a foreground service (visible notification),
+         started only while the app is open and a run is out — no ACCESS_BACKGROUND_LOCATION.
+         FOREGROUND_SERVICE(_LOCATION) is required by Android 14 for that service; WAKE_LOCK is used by
+         geolocator's ForegroundNotificationConfig(enableWakeLock: true) so positions keep arriving while
+         the screen is off. All three stop with the run. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Camera (barcode scanner, proof-of-delivery photo) is declared by the mobile_scanner and
+         image_picker plugins themselves. No storage, contacts, phone, SMS or microphone permission. -->
     <application
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:label="Melai Nuts"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
-import '../../../core/widgets/state_views.dart';
+import '../../../core/widgets/list_tools.dart';
 import '../../../data/models/order.dart';
-import '../widgets/category_chip.dart';
+import '../../../data/repositories/orders_repository.dart';
 import '../widgets/order_refund_info.dart';
 import '../widgets/order_status_badge.dart';
 import 'order_details_screen.dart';
@@ -15,9 +17,10 @@ import 'order_tracking_screen.dart';
 import 'repeat_order_screen.dart';
 import '../../../l10n/generated/app_localizations.dart';
 
-/// "My Orders" tab — active order tracking banner + filterable list of
-/// past orders with View Details / Repeat Order actions (matches the
-/// prototype's Order History & Repeat Order screen).
+/// "My Orders" tab — active order tracking banner + a searchable, sortable,
+/// filterable order history read page by page from the server (25 at a
+/// time, infinite scroll). Offline, the copy saved on this device is
+/// searched instead and labelled "Saved data · last updated …".
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
 
@@ -25,235 +28,216 @@ class OrderHistoryScreen extends StatefulWidget {
   State<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
 }
 
-enum _Filter { all, active, completed, cancelled }
-
 class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
-  _Filter _filter = _Filter.all;
-  final _searchController = TextEditingController();
+  DateTime? _savedAt;
+  late final PagedListController<Order> _paged = PagedListController<Order>(
+    fetch: _fetch,
+    query: const ListQuery(sortId: 'newest'),
+  );
 
-  List<Order> get _filtered {
-    var list = CustomerDataStore.instance.orders.where((o) {
-      switch (_filter) {
-        case _Filter.all:
-          return true;
-        case _Filter.active:
-          return o.status.isActive;
-        case _Filter.completed:
-          return o.status == OrderStatus.completed;
-        case _Filter.cancelled:
-          return o.status == OrderStatus.cancelled;
-      }
-    }).toList();
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isNotEmpty) {
-      list = list
-          .where((o) =>
-      o.id.toLowerCase().contains(query) || o.branch.toLowerCase().contains(query))
-          .toList();
+  Future<PageResult<Order>> _fetch(ListQuery query, int offset, int limit) async {
+    final uid = AuthService.instance.currentFirebaseUser?.uid;
+    if (uid == null) return const PageResult([], 0);
+    try {
+      final page = await OrdersRepository.instance.fetchOrdersPage(uid, query, offset, limit);
+      if (offset == 0 && _savedAt != null && mounted) setState(() => _savedAt = null);
+      return page;
+    } catch (_) {
+      if (ConnectivityService.instance.isOnline) rethrow;
+      final (page, savedAt) = await OrdersRepository.instance.localOrdersPage(uid, query, offset, limit);
+      if (page.total == 0 && !query.isNarrowed) rethrow;
+      if (mounted) setState(() => _savedAt = savedAt);
+      return page;
     }
-    return list;
   }
+
+  List<SortOption<Order>> _sorts(AppLocalizations t) => [
+        SortOption('newest', t.sortNewest, null),
+        SortOption('oldest', t.sortOldest, null),
+        SortOption('totalHigh', t.sortAmountHigh, null),
+        SortOption('totalLow', t.sortAmountLow, null),
+      ];
+
+  List<FilterGroup<Order>> _groups(AppLocalizations t) => [
+        FilterGroup('status', t.filterStatus, [
+          FilterChoice('active', t.statusActiveOrders, null),
+          FilterChoice('completed', t.statusCompleted, null),
+          FilterChoice('cancelled', t.statusCancelled, null),
+          FilterChoice('refunded', t.statusRefunded, null),
+        ]),
+        FilterGroup('date', t.filterDate, [
+          FilterChoice('7', t.last7Days, null),
+          FilterChoice('30', t.last30Days, null),
+          FilterChoice('90', t.last90Days, null),
+        ]),
+      ];
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _paged.dispose();
     super.dispose();
   }
 
-  /// Pull-to-refresh. Reloads real orders and tells the customer plainly if
-  /// that failed (offline, expired session, ...) instead of failing silently.
-  Future<void> _refresh() async {
-    try {
-      await AppErrors.guard(() async {
-        await CustomerDataStore.instance.refresh(throwOnError: true);
-      }, scope: ErrorScope.order);
-    } catch (e) {
-      if (!mounted) return;
-      AppErrors.showSnack(context, e, scope: ErrorScope.order);
-    }
+  Future<void> _openSortFilter() async {
+    final t = AppLocalizations.of(context);
+    final next = await SortFilterSheet.show<Order>(
+      context,
+      query: _paged.query,
+      sorts: _sorts(t),
+      groups: _groups(t),
+    );
+    if (next != null && mounted) _paged.setQuery(next);
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(title: const Text('My Orders')),
       body: SafeArea(
         child: ListenableBuilder(
-          listenable: CustomerDataStore.instance,
+          listenable: Listenable.merge([CustomerDataStore.instance, _paged]),
           builder: (context, _) {
-            final store = CustomerDataStore.instance;
-            final orders = _filtered;
             final active = CustomerDataStore.instance.activeOrder;
-            return RefreshIndicator(
-              onRefresh: _refresh,
-              // loading / error (+ retry) / empty / success — an empty list
-              // is only shown once the load has actually finished OK.
-              child: DataStateView(
-              isLoading: store.isLoading,
-              error: store.error,
-              isEmpty: CustomerDataStore.instance.orders.isEmpty,
-              onRetry: () => store.retry(),
+            final query = _paged.query;
+            return PagedListView<Order>(
+              controller: _paged,
               errorScope: ErrorScope.order,
               emptyIcon: Icons.receipt_long_outlined,
-              emptyTitle: AppLocalizations.of(context).noOrdersYet,
-              emptyMessage: AppLocalizations.of(context).noOrdersYetMessage,
-              loadingMessage: 'Loading your orders...',
-              builder: (context) => ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(AppSpacing.md),
-              children: [
-                TextField(
-                  controller: _searchController,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search_rounded),
-                    hintText: 'Search branch, or order ID...',
-                  ),
-                ),
-            const SizedBox(height: AppSpacing.sm),
-            SizedBox(
-              height: 42,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
+              emptyTitle: t.noOrdersYet,
+              emptyMessage: t.noOrdersYetMessage,
+              onClearQuery: () => _paged.setQuery(const ListQuery(sortId: 'newest')),
+              header: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  CategoryChip(
-                    label: 'All Orders (${CustomerDataStore.instance.orders.length})',
-                    selected: _filter == _Filter.all,
-                    onTap: () => setState(() => _filter = _Filter.all),
+                  if (_savedAt != null) ...[
+                    LastUpdatedBanner(savedAt: _savedAt),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
+                  AppSearchBar(
+                    hint: 'Search branch, or order ID...',
+                    initialValue: query.search,
+                    onChanged: (text) => _paged.setQuery(query.copyWith(search: text)),
+                    trailing: SortFilterButton(
+                      active: query.hasFilters || query.sortId != 'newest',
+                      onPressed: _openSortFilter,
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  CategoryChip(
-                    label: 'Active (${CustomerDataStore.instance.orders.where((o) => o.status.isActive).length})',
-                    selected: _filter == _Filter.active,
-                    onTap: () => setState(() => _filter = _Filter.active),
+                  ActiveFilterChips<Order>(
+                    query: query,
+                    groups: _groups(t),
+                    onChanged: _paged.setQuery,
                   ),
-                  const SizedBox(width: 8),
-                  CategoryChip(
-                    label:
-                    'Completed (${CustomerDataStore.instance.orders.where((o) => o.status == OrderStatus.completed).length})',
-                    selected: _filter == _Filter.completed,
-                    onTap: () => setState(() => _filter = _Filter.completed),
-                  ),
-                  const SizedBox(width: 8),
-                  CategoryChip(
-                    label:
-                    'Cancelled (${CustomerDataStore.instance.orders.where((o) => o.status == OrderStatus.cancelled).length})',
-                    selected: _filter == _Filter.cancelled,
-                    onTap: () => setState(() => _filter = _Filter.cancelled),
+                  if (active != null && !query.isNarrowed) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _ActiveOrderBanner(active: active),
+                  ],
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Orders', style: AppTextStyles.headlineSm),
+                      if (_paged.total > 0) Text(t.resultsCount(_paged.total), style: AppTextStyles.bodySm),
+                    ],
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (active != null && (_filter == _Filter.all || _filter == _Filter.active))
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.successBg,
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                    border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-                    boxShadow: AppShadows.sm,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(active.id, style: AppTextStyles.titleMd),
-                              Text(
-                                '${active.itemCount} items • ${active.isDelivery ? 'Delivery' : 'Pickup'}',
-                                style: AppTextStyles.bodySm,
-                              ),
-                            ],
-                          ),
-                          OrderStatusBadge(status: active.status),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      if (active.riderName != null)
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.delivery_dining_rounded, color: AppColors.primary),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(active.riderName ?? '—', style: AppTextStyles.labelLg),
-                                    Text('En route from ${active.branch}', style: AppTextStyles.bodySm),
-                                  ],
-                                ),
-                              ),
-                              Text(active.etaLabel ?? '', style: AppTextStyles.labelMd),
-                            ],
-                          ),
-                        ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('TOTAL AMOUNT', style: AppTextStyles.bodySm),
-                              Text(
-                                '₱${active.total.toStringAsFixed(0)}',
-                                style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
-                              ),
-                            ],
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: active)),
-                            ),
-                            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                            label: const Text('Track Live Delivery'),
-                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              itemBuilder: (context, order) => _PastOrderCard(order: order),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ActiveOrderBanner extends StatelessWidget {
+  const _ActiveOrderBanner({required this.active});
+
+  final Order active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.successBg,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+          boxShadow: AppShadows.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Past Orders', style: AppTextStyles.headlineSm),
-                Text('${orders.where((o) => !o.status.isActive).length} Total', style: AppTextStyles.bodySm),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(active.id, style: AppTextStyles.titleMd),
+                    Text(
+                      '${active.itemCount} items • ${active.isDelivery ? 'Delivery' : 'Pickup'}',
+                      style: AppTextStyles.bodySm,
+                    ),
+                  ],
+                ),
+                OrderStatusBadge(status: active.status),
               ],
             ),
-            const SizedBox(height: AppSpacing.sm),
-            for (final order in orders.where((o) => !o.status.isActive))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _PastOrderCard(order: order),
-              ),
-            if (orders.where((o) => !o.status.isActive).isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                  child: Text('No orders found.'),
+            const SizedBox(height: 10),
+            if (active.riderName != null)
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.delivery_dining_rounded, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(active.riderName ?? '—', style: AppTextStyles.labelLg),
+                          Text('En route from ${active.branch}', style: AppTextStyles.bodySm),
+                        ],
+                      ),
+                    ),
+                    Text(active.etaLabel ?? '', style: AppTextStyles.labelMd),
+                  ],
                 ),
               ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('TOTAL AMOUNT', style: AppTextStyles.bodySm),
+                    Text(
+                      '₱${active.total.toStringAsFixed(0)}',
+                      style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
+                    ),
+                  ],
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: active)),
+                  ),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: const Text('Track Live Delivery'),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+                ),
               ],
-              ),
-              ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );

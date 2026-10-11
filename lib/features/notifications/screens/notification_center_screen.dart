@@ -7,7 +7,10 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/services/pending_writes_service.dart';
+import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/list_tools.dart';
 import '../../../core/widgets/state_views.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/models/notification_item.dart';
 import 'notification_detail_screen.dart';
@@ -21,6 +24,39 @@ class NotificationCenterScreen extends StatefulWidget {
 }
 
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
+  static const _initial = ListQuery(sortId: 'newest');
+  ListQuery _query = _initial;
+
+  List<SortOption<NotificationItem>> _sorts(AppLocalizations t) => [
+        SortOption('newest', t.sortNewest, (a, b) => b.time.compareTo(a.time)),
+        SortOption('oldest', t.sortOldest, (a, b) => a.time.compareTo(b.time)),
+      ];
+
+  List<FilterGroup<NotificationItem>> _groups(AppLocalizations t) => [
+        FilterGroup('read', t.filterStatus, [
+          FilterChoice('unread', t.filterUnread, (n) => !n.read),
+          FilterChoice('read', t.filterRead, (n) => n.read),
+        ]),
+        FilterGroup('type', t.filterType, [
+          for (final c in NotificationCategory.values) FilterChoice(c.name, c.label, (n) => n.category == c),
+        ]),
+      ];
+
+  /// Swipe-to-delete asks first; the store keeps the change on this device
+  /// and syncs it.
+  Future<bool> _confirmDelete(NotificationItem n) async {
+    final ok = await ConfirmDialog.delete(context, '"${n.title}"');
+    if (!ok || !mounted) return false;
+    final outcome = await CustomerDataStore.instance.deleteNotification(n.id);
+    _showOutcome(
+      outcome,
+      queuedMessage: 'Deleted on this device — it will sync when the server is reachable.',
+      failedPrefix: 'Could not delete',
+    );
+    // Only let the row slide away if it really left the list (a refused
+    // delete keeps it, and a dismissed row must not stay in the tree).
+    return !CustomerDataStore.instance.notifications.any((x) => x.id == n.id);
+  }
   @override
   void initState() {
     super.initState();
@@ -76,7 +112,15 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
 
   Widget _buildScaffold(BuildContext context) {
     final store = CustomerDataStore.instance;
-    final notifications = store.notifications;
+    final t = AppLocalizations.of(context);
+    final groups = _groups(t);
+    final notifications = applyListQuery<NotificationItem>(
+      store.notifications,
+      _query,
+      text: (n) => '${n.title} ${n.body} ${n.category.label}',
+      sorts: _sorts(t),
+      groups: groups,
+    );
     final unreadCount = store.unreadNotificationCount;
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -103,7 +147,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
         child: DataStateView(
           isLoading: store.isLoading,
           error: store.error,
-          isEmpty: notifications.isEmpty,
+          isEmpty: store.notifications.isEmpty,
           onRetry: () => store.retry(),
           emptyIcon: Icons.notifications_none_rounded,
           emptyTitle: 'No notifications yet.',
@@ -114,11 +158,61 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
             child: ListView.separated(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
-          itemCount: notifications.length,
+          // Row 0: saved-data notice, search, sort & filter, active chips.
+          itemCount: notifications.length + 1 + (notifications.isEmpty ? 1 : 0),
           separatorBuilder: (context, index) => const SizedBox(height: 10),
           itemBuilder: (context, i) {
-            final n = notifications[i];
-            return InkWell(
+            if (i == 0) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (store.deviceCopyShownAt != null) ...[
+                    LastUpdatedBanner(savedAt: store.deviceCopyShownAt),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
+                  AppSearchBar(
+                    hint: t.searchHint,
+                    initialValue: _query.search,
+                    onChanged: (text) => setState(() => _query = _query.copyWith(search: text)),
+                    trailing: SortFilterButton(
+                      active: _query.hasFilters || _query.sortId != _initial.sortId,
+                      onPressed: () async {
+                        final next = await SortFilterSheet.show<NotificationItem>(
+                          context,
+                          query: _query,
+                          sorts: _sorts(t),
+                          groups: groups,
+                        );
+                        if (next != null && mounted) setState(() => _query = next);
+                      },
+                    ),
+                  ),
+                  ActiveFilterChips<NotificationItem>(
+                    query: _query,
+                    groups: groups,
+                    onChanged: (q) => setState(() => _query = q),
+                  ),
+                ],
+              );
+            }
+            if (notifications.isEmpty) {
+              return NoResultsView(query: _query, onClear: () => setState(() => _query = _initial), compact: true);
+            }
+            final n = notifications[i - 1];
+            return Dismissible(
+              key: ValueKey('notification-${n.id}'),
+              direction: DismissDirection.endToStart,
+              confirmDismiss: (_) => _confirmDelete(n),
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppColors.errorBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
+              ),
+              child: InkWell(
               onTap: () => _open(n),
               borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
               child: Container(
@@ -160,6 +254,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                       ),
                   ],
                 ),
+              ),
               ),
             );
           },

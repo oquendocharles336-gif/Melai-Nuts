@@ -18,16 +18,23 @@
 | Who can read/write each Supabase table / call each function | Postgres grants + RLS + `SECURITY DEFINER` functions | `supabase/schema.sql` then `supabase/migrations/*.sql` |
 | Prices, totals, stock, points, refund amounts | Server-side SQL functions/triggers | `place_order`, `request_refund`, triggers |
 | Screens shown for a role | `RouteGuard` (UX / defence-in-depth only) | `lib/app/route_guard.dart` |
-| Rate limiting / brute force | Firebase Auth throttling + App Check (sign-in); database limits on voucher codes and order bursts | Firebase Console; `migrations/20261019000000_rate_limits.sql` |
+| Rate limiting / brute force | Firebase Auth throttling + App Check (sign-in); on-device brakes for sign-in, sign-up and e-mail codes; database limits on voucher codes (10/15 min), order bursts (5/10 min), refund requests (3/30 min), new addresses (20/hour); admin website throttles every write (default 60/min per user) and login | Firebase Console; `migrations/20261019000000_rate_limits.sql`, `migrations/20261025010000_more_rate_limits.sql`; `admin/app/Http/Middleware/ThrottleWrites.php` |
+| Bad input (length, format, phone, price) | App validators (UX) **and** database CHECK constraints + phone-normalizing triggers (authoritative) **and** Laravel FormRequests | `lib/core/utils/validation_utils.dart`; `migrations/20261025000000_input_check_constraints.sql`; `admin/app/Http/Requests/*` |
+| Least privilege (grants) | `anon` read-only on the public catalog; no writes; internal helpers and pgcrypto not callable from the app | `migrations/20261025020000_grants_hardening.sql` (audited by `supabase/tests/panel_compliance_test.sql`) |
+| Terms / Privacy acceptance | Append-only `legal_acceptances` table written only by `accept_legal_terms()` | `migrations/20261025040000_legal_acceptance.sql` |
 
 A modified app can bypass anything in Dart. It cannot bypass Firestore rules or Postgres grants/RLS.
 
 ## Owner checklist — exposed keys (do this first)
 
-Until 2026-10-18 the *example* files `env/firebase.example.json`, `env/supabase.example.json` and
-`android/app/google-services.json.example` (plus a copy in `android/app/src/`) contained the
-project's **real** Firebase API keys (web, Android, iOS) and the Supabase anon key, and they are in
-Git history. They are placeholders now. Treat the old values as public:
+Until 2026-10-11 the *example* file `env/firebase.example.json` and a duplicate
+`android/app/src/google-services.json.example` contained the project's **real** Firebase API keys
+(web, Android, iOS), the project id and the sender id. Both are fixed: `env/firebase.example.json`
+now holds only `YOUR_…` placeholders and the duplicate under `android/app/src/` was deleted (the
+only template is `android/app/google-services.json.example`). The old keys are **still in Git
+history**, so changing the files is not enough. CI now fails on any key-shaped value anywhere in
+the repository (`scripts/check_no_fixture_data.py`: `AIza…` keys, JWTs, `sk_live_`/`rk_live_`,
+`sb_secret_`, a filled-in `SERVICE_ROLE_KEY`, private-key blocks). Treat the old values as public:
 
 - [ ] **Firebase keys — restrict** (Google Cloud Console > APIs & Services > Credentials), for each key:
   - [ ] Android key: *Application restrictions* = Android apps, package **`ph.melainuts.app`** + the
@@ -333,3 +340,47 @@ in `.gitignore`) and restrict the keys in the Google Cloud console.
   The prototype's Firestore `products`/`inventory`/`orders`/`deliveries`/`refunds` rules were
   removed (those collections are now denied to everyone); they are archived, with their
   known defects, in `docs/firestore-dormant-collections.md`.
+
+## Panel compliance hardening (2026-10-11)
+
+What changed for the security criterion (details in `docs/PANEL_COMPLIANCE_REPORT.md`):
+
+- **Exposed keys**: placeholders only in `env/firebase.example.json` and
+  `android/app/google-services.json.example`; the duplicate `android/app/src/google-services.json.example`
+  was deleted; CI scans the whole repository for key-shaped values. **Owner action:** restrict and
+  rotate the old Firebase keys (checklist at the top of this file).
+- **Release builds**: Android `release` is not debuggable, cleartext HTTP is off
+  (`usesCleartextTraffic="false"`; only the debug manifest allows it for local emulators); every
+  Android permission is justified in a comment in `AndroidManifest.xml`; iOS usage strings say why.
+- **Logs**: `debugPrint` of errors happens in debug builds only (`kDebugMode`); release builds print
+  nothing that could contain a phone number, address or token. Crash reports carry the Firebase UID
+  only. Phones are masked on profile screens (`maskPhone`).
+- **Errors shown to people**: always `AppErrors.from(...)` wording (never SQL, stack traces or raw
+  exception text); a widget that fails to build shows a calm translated box in release builds
+  (`lib/core/widgets/friendly_error_widget.dart`); startup failure shows a plain message (details in
+  debug builds only).
+- **Local data**: the customer's on-device SQLite copy (`customer_records`, `response_cache`,
+  `customer_pending_writes`) holds server rows only — no passwords, tokens or keys (a unit test checks
+  the column names). It is namespaced by Firebase UID and wiped on sign-out / account switch. The app
+  stores no auth tokens itself (Firebase Auth keeps its own session in the platform keystore), so
+  `flutter_secure_storage` is not needed.
+- **Admin website**: owner/admin accounts must use 2-step verification
+  (`MELAI_REQUIRE_ADMIN_2FA`, default on), every write is throttled (`MELAI_WRITE_LIMIT_PER_MINUTE`),
+  sessions expire after 30 minutes idle and on browser close, cookies are `Secure`/`HttpOnly`/`SameSite`
+  (`.env.example`), and an expired CSRF token sends the user back to log in with a message instead of
+  a 419 page.
+- **Passwords** (app and admin): 8–64 characters, upper + lower + digit + symbol, not a common
+  password (leet-speak variants included), not containing the person's name or e-mail.
+
+### Still the owner's job
+
+- [ ] Restrict / rotate the old Firebase keys (above).
+- [ ] Run the new migrations `supabase/migrations/20261025*.sql` (or `supabase/repair/20261010_resync_live_database.sql`)
+      on the live project, then `bash scripts/run-sql-tests.sh` against a copy.
+- [ ] Admin website: `php artisan migrate` (adds `terms_version` / `terms_accepted_at` to `users`), set
+      `SESSION_SECURE_COOKIE=true` and the other session values from `.env.example` on the server, and
+      enrol every owner/admin in 2-step verification before deploying (they are asked on next login).
+- [ ] Have the Terms and Privacy Policy reviewed (sections marked for owner review in
+      `lib/core/config/legal_config.dart`); when the text changes, bump `termsVersion` / `privacyVersion`
+      there and `melai.legal.terms_version` in `admin/config/melai.php` — everyone is asked to accept again.
+

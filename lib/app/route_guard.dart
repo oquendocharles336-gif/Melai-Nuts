@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../core/services/auth_service.dart';
+import '../core/services/legal_service.dart';
 import '../core/services/staff_session_store.dart';
 import '../core/theme/app_colors.dart';
 import '../data/models/user_role.dart';
@@ -64,6 +65,7 @@ class _RouteGuardState extends State<RouteGuard> {
   bool _allowed = false;
   bool _redirecting = false;
   bool _hasBuilt = false;
+  bool _legalChecked = false;
 
   /// Set when this screen was opened by a staff member: the Firebase UID the
   /// screen is bound to. It never changes for the life of the guard, so if the
@@ -174,10 +176,21 @@ class _RouteGuardState extends State<RouteGuard> {
     if (_hasBuilt) setState(() {});
   }
 
+  /// Once a signed-in person may see the screen: make sure they accepted the
+  /// current Terms and Privacy Policy (asks again after a version change).
+  void _checkLegalOnce() {
+    if (_legalChecked || AuthService.instance.currentFirebaseUser == null) return;
+    _legalChecked = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) LegalService.instance.ensureAccepted(context);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     _hasBuilt = true;
     if (_allowed && !_redirecting) {
+      _checkLegalOnce();
       final staffUid = _staffUid;
       if (staffUid != null) {
         return ListenableBuilder(

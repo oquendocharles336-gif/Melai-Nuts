@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Requests\MarkPaidRequest;
 use App\Http\Controllers\Controller;
 use App\Services\ActivityLogger;
 use App\Services\OrderQueryService;
@@ -79,7 +80,7 @@ class PaymentController extends Controller
     }
 
     /** Only admin, only for cash (counter / on delivery), and only once the cash has actually been collected. */
-    public function markPaid(Request $request, string $orderId)
+    public function markPaid(MarkPaidRequest $request, string $orderId)
     {
         $order = $this->orders()->find($orderId);
         abort_if(! $order, 404);

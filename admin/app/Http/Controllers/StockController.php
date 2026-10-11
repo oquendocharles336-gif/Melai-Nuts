@@ -7,7 +7,7 @@ use App\Services\AdminActions;
 use App\Services\Platform;
 use App\Services\Supabase\SupabaseRepository;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use App\Http\Requests\ReceiveStockRequest;
 
 /**
  * "Receive stock" on the Stock page: a new batch through the app's own staff_receive_batch
@@ -15,16 +15,10 @@ use Illuminate\Http\Request;
  */
 class StockController extends Controller
 {
-    public function receive(Request $request, AdminActions $actions, SupabaseRepository $repo, Platform $platform): JsonResponse
+    public function receive(ReceiveStockRequest $request, AdminActions $actions, SupabaseRepository $repo, Platform $platform): JsonResponse
     {
         abort_unless($platform->isSupabase(), 503, 'This action needs the Melai Nuts app database.');
-        $v = $request->validate([
-            'branch' => ['required', 'string'],
-            'variant_id' => ['required', 'uuid'],
-            'quantity' => ['required', 'integer', 'min:1', 'max:100000'],
-            'batch_code' => ['required', 'string', 'max:40'],
-            'expiration_date' => ['required', 'date_format:Y-m-d', 'after:today'],
-        ]);
+        $v = $request->validated(); // ReceiveStockRequest: same rules as the app's Receive Stock screen
         abort_unless(collect($platform->branches())->pluck('id')->contains($v['branch']), 422, 'Choose one of your branches.');
 
         $actions->receiveBatch($v['branch'], $v['variant_id'], trim($v['batch_code']), (int) $v['quantity'], $v['expiration_date']);

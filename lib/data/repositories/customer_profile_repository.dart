@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
 import '../models/customer_profile.dart';
 
@@ -80,8 +83,17 @@ class CustomerProfileRepository {
         .from('customer_addresses')
         .select()
         .eq('firebase_uid', firebaseUid)
-        .order('is_default', ascending: false);
-    return List<Map<String, dynamic>>.from(raw).map(CustomerAddress.fromRow).toList();
+        .order('is_default', ascending: false)
+        .limit(100); // the database allows at most 20 per hour; 100 is a safety cap
+    final rows = List<Map<String, dynamic>>.from(raw);
+    unawaited(CustomerLocalDb.instance.replaceAll(firebaseUid, LocalKind.addresses, rows));
+    return rows.map(CustomerAddress.fromRow).toList();
+  }
+
+  /// The last copy of the customer's saved addresses kept on this device.
+  Future<List<CustomerAddress>> localAddresses(String firebaseUid) async {
+    final page = await CustomerLocalDb.instance.query(firebaseUid, LocalKind.addresses, sort: LocalSort.serverOrder);
+    return page.rows.map(CustomerAddress.fromRow).toList();
   }
 
   Future<CustomerAddress> addAddress({

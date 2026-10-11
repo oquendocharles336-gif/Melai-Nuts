@@ -16,6 +16,7 @@ import '../../data/repositories/refunds_repository.dart';
 import '../utils/app_error.dart';
 import 'checkout_attempt_store.dart';
 import 'connectivity_service.dart';
+import 'customer_local_db.dart';
 import 'local_cache_service.dart';
 import 'offline_read_cache_client.dart';
 import 'pending_writes_service.dart';
@@ -64,7 +65,8 @@ class CustomerDataStore extends ChangeNotifier {
 
   /// True while loading and nothing has been loaded yet — screens should show
   /// their loading state (not an empty state) in this case.
-  bool get isInitialLoading => _loading && !hasLoaded;
+  /// The on-device copy shown by the local-first prefill counts as content.
+  bool get isInitialLoading => _loading && !hasLoaded && deviceCopyShownAt == null;
 
   AppError? _error;
 
@@ -227,6 +229,12 @@ class CustomerDataStore extends ChangeNotifier {
     // synchronous notify there would throw "setState() called during build".
     scheduleMicrotask(notifyListeners);
     final serveMark = CacheStatus.instance.serveCounter;
+    // Local-first: on the first load for this customer, show the copy saved
+    // in the on-device database straight away (labelled "Last updated ...")
+    // while the live fetch below runs.
+    if (_uid != firebaseUid && orders.isEmpty && notifications.isEmpty) {
+      await _prefillFromDevice(firebaseUid, generation);
+    }
     var failures = 0;
     AppError? firstFailure;
 
@@ -338,6 +346,7 @@ class CustomerDataStore extends ChangeNotifier {
       if (failures == 0) {
         _uid = firebaseUid;
         _error = null;
+        deviceCopyShownAt = null;
         _startRealtime(firebaseUid);
         if (CacheStatus.instance.serveCounter == serveMark) lastSyncedAt = DateTime.now();
       } else {
@@ -353,6 +362,42 @@ class CustomerDataStore extends ChangeNotifier {
         _loading = false;
         notifyListeners();
       }
+    }
+  }
+
+  /// When the records on screen came from the on-device database rather
+  /// than a live fetch this session (null once a live load succeeds).
+  DateTime? deviceCopyShownAt;
+
+  Future<void> _prefillFromDevice(String uid, int generation) async {
+    try {
+      final results = await Future.wait<List<Object>>([
+        OrdersRepository.instance.localOrders(uid),
+        LoyaltyRepository.instance.localTransactions(uid),
+        NotificationsRepository.instance.localAll(uid),
+        RefundsRepository.instance.localAll(uid),
+        CustomerProfileRepository.instance.localAddresses(uid),
+      ]);
+      if (generation != _generation || results.every((r) => r.isEmpty)) return;
+      orders
+        ..clear()
+        ..addAll(results[0].cast<Order>());
+      loyaltyTransactions
+        ..clear()
+        ..addAll(results[1].cast<LoyaltyPointTransaction>());
+      notifications
+        ..clear()
+        ..addAll(_withPendingNotificationChanges(uid, results[2].cast<NotificationItem>()));
+      refunds
+        ..clear()
+        ..addAll(results[3].cast<RefundRequest>());
+      if (addresses.isEmpty) addresses = results[4].cast<CustomerAddress>();
+      final saved = await CustomerLocalDb.instance.query(uid, LocalKind.orders, limit: 1);
+      deviceCopyShownAt = saved.savedAt ?? DateTime.now();
+      notifyListeners();
+    } catch (caughtError, caughtStack) {
+      // The device copy is a convenience; the live load still runs.
+      AppErrors.report(caughtError, caughtStack, 'customer_data_store:prefill');
     }
   }
 
@@ -651,6 +696,7 @@ class CustomerDataStore extends ChangeNotifier {
     profile = null;
     addresses = [];
     lastSyncedAt = null;
+    deviceCopyShownAt = null;
     orders.clear();
     loyaltyTransactions.clear();
     rewards.clear();

@@ -10,6 +10,7 @@ import '../../notifications/screens/notification_settings_screen.dart';
 import 'security_screen.dart';
 import 'branch_settings_screen.dart';
 import 'logout_confirmation_screen.dart';
+import '../../../app/routes.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -115,6 +116,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: AppLocalizations.of(context).language,
                   subtitle: AppLocalizations.of(context).languageSubtitle,
                   onTap: _pickLanguage,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _Section(
+              children: [
+                _Tile(
+                  icon: Icons.admin_panel_settings_outlined,
+                  title: AppLocalizations.of(context).permissionsTitle,
+                  subtitle: AppLocalizations.of(context).permissionsSubtitle,
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.appPermissions),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(AppLocalizations.of(context).legalSection, style: AppTextStyles.labelSm),
+            const SizedBox(height: AppSpacing.xs),
+            _Section(
+              children: [
+                _Tile(
+                  icon: Icons.description_outlined,
+                  title: AppLocalizations.of(context).legalTermsTitle,
+                  subtitle: AppLocalizations.of(context).legalTermsSubtitle,
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.legalTerms),
+                ),
+                const Divider(height: 1),
+                _Tile(
+                  icon: Icons.privacy_tip_outlined,
+                  title: AppLocalizations.of(context).legalPrivacyTitle,
+                  subtitle: AppLocalizations.of(context).legalPrivacySubtitle,
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.legalPrivacy),
                 ),
               ],
             ),

@@ -27,7 +27,7 @@ class FirebaseAuthTest extends TestCase
     private function reg(array $o = []): array
     {
         return array_merge(['name' => 'Juan Dela Cruz', 'email' => 'juan@example.com',
-            'password' => 'Str0ng!Pass', 'password_confirmation' => 'Str0ng!Pass'], $o);
+            'password' => 'Str0ng!Pass', 'password_confirmation' => 'Str0ng!Pass', 'terms' => '1'], $o);
     }
 
     public function test_registration_creates_the_firebase_account_and_a_login_without_access_or_rights(): void

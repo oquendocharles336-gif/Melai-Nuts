@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Exceptions\BackendActionException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\SaveBranchRequest;
+use App\Http\Requests\UpdateBusinessSettingsRequest;
 use App\Services\ActivityLogger;
 use App\Services\Supabase\SupabaseRepository;
 use Illuminate\Http\Request;
@@ -46,20 +48,10 @@ class BusinessSettingsController extends Controller
         return view('admin.business.index', ['settings' => $settings, 'loadError' => $error, 'liveData' => true]);
     }
 
-    public function update(Request $request)
+    public function update(UpdateBusinessSettingsRequest $request)
     {
         abort_unless($request->user()->isAdmin(), 403);
-        $data = $request->validate([
-            'restock_threshold_default' => ['nullable', 'integer', 'min:0', 'max:100000'],
-            'stock_low_percent' => ['nullable', 'numeric', 'gt:0', 'lt:100'],
-            'stock_plenty_percent' => ['nullable', 'numeric', 'gt:0', 'max:100'],
-            'sales_low_percent' => ['nullable', 'numeric', 'gt:0', 'max:1000'],
-            'sales_high_percent' => ['nullable', 'numeric', 'gt:0', 'max:1000'],
-            'default_daily_sales_target' => ['nullable', 'numeric', 'gt:0', 'max:100000000'],
-            'healthy_margin_percent' => ['nullable', 'numeric', 'gt:0', 'lt:100'],
-            'expiry_alert_days' => ['nullable', 'integer', 'min:1', 'max:365'],
-            'low_stock_badge_qty' => ['nullable', 'integer', 'min:1', 'max:1000'],
-        ]);
+        $data = $request->validated(); // UpdateBusinessSettingsRequest
         if (isset($data['stock_low_percent'], $data['stock_plenty_percent']) && $data['stock_low_percent'] >= $data['stock_plenty_percent']) {
             return back()->withInput()->withErrors(['stock_low_percent' => '"Low" must be below "Plenty".']);
         }
@@ -86,17 +78,10 @@ class BusinessSettingsController extends Controller
         return redirect()->route('admin.business.index')->with('status', 'Business settings saved. The app and this website use them right away.');
     }
 
-    public function saveBranch(Request $request, ?string $branch = null)
+    public function saveBranch(SaveBranchRequest $request, ?string $branch = null)
     {
         abort_unless($request->user()->isAdmin(), 403);
-        $d = $request->validate([
-            'name' => ['required', 'string', 'max:80'],
-            'address' => ['nullable', 'string', 'max:300'],
-            'contact_phone' => ['nullable', 'string', 'max:40'],
-            'operating_hours' => ['nullable', 'string', 'max:200'],
-            'delivery_fee' => ['required', 'numeric', 'min:0', 'max:100000'],
-            'daily_sales_target' => ['nullable', 'numeric', 'gt:0', 'max:100000000'],
-        ], ['delivery_fee.required' => 'Enter the delivery fee (0 if delivery is free).']);
+        $d = $request->validated(); // SaveBranchRequest
         $warehouse = $request->boolean('is_warehouse');
         // A warehouse only holds stock: it never takes deliveries, pickups or POS sales.
         $d['supports_delivery'] = ! $warehouse && $request->boolean('supports_delivery');

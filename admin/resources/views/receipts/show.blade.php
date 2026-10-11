@@ -98,7 +98,7 @@
     <div style="display:flex;gap:.6rem;flex-wrap:wrap">
         <button class="btn-outline" style="padding:.5rem 1.2rem" type="submit" name="action" value="save">Save draft</button>
         <button class="btn-solid" style="padding:.5rem 1.2rem" type="submit" name="action" value="approve"
-                onclick="return confirm('Add these items to stock at the selected branch? This cannot be undone (use an inventory adjustment to correct mistakes).')">Approve &amp; receive stock</button>
+                data-confirm="Add these items to stock at the selected branch? This cannot be undone (use an inventory adjustment to correct mistakes)." data-confirm-title="Approve and receive stock?" data-confirm-label="Approve &amp; receive" data-confirm-safe>Approve &amp; receive stock</button>
     </div>
 </form>
 
@@ -118,7 +118,7 @@
     </tr>
 </template>
 
-<form method="POST" action="{{ route('receipts.cancel', $r['id']) }}" class="card" style="max-width:none;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center" onsubmit="return confirm('Cancel this draft?')">
+<form method="POST" action="{{ route('receipts.cancel', $r['id']) }}" class="card" style="max-width:none;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center" data-confirm="Cancel this draft receipt? Nothing is added to stock." data-confirm-title="Cancel this draft?" data-confirm-label="Cancel draft">
     @csrf
     <span class="muted">Wrong scan or duplicate?</span>
     <input class="light-input" name="reason" required minlength="3" maxlength="200" placeholder="Reason" style="max-width:18rem">

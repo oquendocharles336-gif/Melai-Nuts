@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -14,6 +16,8 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/geo_utils.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
 import '../../../core/widgets/delivery_map.dart';
 import '../../../core/widgets/location_picker.dart';
 import '../../../core/widgets/melai_app_bar.dart';
@@ -91,7 +95,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (mounted) setState(() => _paymentSettings = settings);
     } catch (e) {
       // Unreadable switch = online payment stays off; the built-in text is shown.
-      debugPrint('payment_settings could not be read: $e');
+      if (kDebugMode) debugPrint('payment_settings could not be read: $e');
     }
   }
 
@@ -165,7 +169,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
       return;
     }
-    if (!_formKey.currentState!.validate()) {
+    if (_placingOrder) return; // no double submit
+    if (!FormUtils.validateAndFocus(_formKey)) {
       return;
     }
     // Fail fast and honestly: don't let the person sit through a doomed
@@ -265,9 +270,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       String? deliveryAddressId = _deliveryAddressId;
       if (isDelivery) {
         final enteredAddress = _addressController.text.trim();
-        final enteredPhone = _contactController.text.trim();
+        // One stored phone format (E.164) — compare normalized numbers.
+        final enteredPhone = ValidationUtils.normalizePhone(_contactController.text);
         final matching = CustomerDataStore.instance.addresses.where(
-          (address) => address.fullAddress.trim() == enteredAddress && address.phone.trim() == enteredPhone,
+          (address) =>
+              address.fullAddress.trim() == enteredAddress &&
+              ValidationUtils.normalizePhone(address.phone) == enteredPhone,
         );
         if (matching.isNotEmpty) {
           final saved = matching.first;
@@ -639,7 +647,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _addressController,
-                decoration: const InputDecoration(hintText: 'House/unit no., street, barangay, city'),
+                decoration: const InputDecoration(
+                  labelText: 'Delivery address',
+                  hintText: 'House/unit no., street, barangay, city',
+                ),
+                keyboardType: TextInputType.streetAddress,
+                autofillHints: const [AutofillHints.fullStreetAddress],
+                textCapitalization: TextCapitalization.words,
+                maxLength: InputLimits.address,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
                 maxLines: 2,
                 onChanged: (_) => _deliveryAddressId = null,
                 validator: (v) => ValidationUtils.validateAddress(v),
@@ -648,7 +664,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               TextFormField(
                 controller: _contactController,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(hintText: '09XXXXXXXXX'),
+                autofillHints: const [AutofillHints.telephoneNumber],
+                inputFormatters: InputRules.phone(),
+                decoration: const InputDecoration(
+                  labelText: 'Contact number for the rider',
+                  hintText: '0917 123 4567',
+                ),
                 onChanged: (_) => _deliveryAddressId = null,
                 validator: (v) => ValidationUtils.validatePhone(v),
               ),
@@ -708,12 +729,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SizedBox(height: AppSpacing.lg),
             Text('Special Instructions (Pasalubong / Packing)', style: AppTextStyles.titleMd),
             const SizedBox(height: 8),
-            TextField(
+            TextFormField(
               controller: _notesController,
               decoration: const InputDecoration(
                 hintText: 'Optional note: add extra paper bag for pasalubong gift...',
               ),
-              maxLines: 2,
+              textCapitalization: TextCapitalization.sentences,
+              maxLength: InputLimits.note,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
+              minLines: 1,
+              maxLines: 3,
+              validator: (v) => ValidationUtils.validateText(v, fieldName: 'Special instructions'),
             ),
             const SizedBox(height: AppSpacing.lg),
             Container(

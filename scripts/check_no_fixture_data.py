@@ -8,7 +8,10 @@ Fails (exit 1) when code that ships contains:
     not counted; fixture names and strings below are counted everywhere),
   * known fixture or old-seed strings (fixture people, the old demo catalog, branch
     addresses, demo orders, demo credentials, personal e-mails, the Firebase project id),
-  * real-looking secrets in example/env files (Firebase API keys, JWTs).
+  * real-looking secrets (Firebase/Google API keys, JWTs, Stripe/HitPay-style live keys,
+    Supabase secret keys, a filled-in service_role key). Secrets are checked in EVERY
+    text file of the repository (tests and docs included), not only shipping code,
+    because a key committed anywhere is public.
 
 Shipping code = lib/, admin/app, admin/config, admin/routes, admin/resources, admin/database,
 admin/public/js, supabase/schema.sql, supabase/migrations, supabase/functions, functions/ (not
@@ -59,7 +62,20 @@ KNOWN_STRINGS = [
     # invented sample people in input hints
     "Elena Santos", "Juan dela Cruz", "elena@example.com",
 ]
-SECRETS = re.compile(r"(AIza[0-9A-Za-z_\-]{30,}|eyJhbGciOi[0-9A-Za-z_\-]{10,}\.[0-9A-Za-z_\-]{10,})")
+SECRETS = re.compile(
+    r"(AIza[0-9A-Za-z_\-]{35}"                                    # Google / Firebase API key
+    r"|eyJ[0-9A-Za-z_\-]{8,}\.eyJ[0-9A-Za-z_\-]{8,}\.[0-9A-Za-z_\-]{8,}"  # any JWT (anon or service_role)
+    r"|eyJhbGciOi[0-9A-Za-z_\-]{10,}\.[0-9A-Za-z_\-]{10,}"         # JWT header + payload
+    r"|\b[rs]k_live_[0-9A-Za-z]{8,}"                              # live secret / restricted keys
+    r"|\bsb_secret_[0-9A-Za-z_\-]{8,}"                            # Supabase secret API key
+    r"|\bservice_role[_A-Za-z]*\s*[=:]\s*[\"']?(?:eyJ|sb_secret_)[0-9A-Za-z_\-.]{8,}"  # filled service_role key
+    r"|SERVICE_ROLE_KEY\s*[=:]\s*[\"']?[0-9A-Za-z_\-.]{20,}"       # SUPABASE_SERVICE_ROLE_KEY=<value>
+    r"|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)")
+# The secrets rule runs over the whole repository except these generated / third-party folders.
+SECRET_SKIP_DIRS = {".git", "node_modules", "vendor", "build", ".dart_tool", "storage", "Pods", ".gradle",
+                    "generated", "ephemeral"}
+SECRET_SKIP_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".ttf", ".otf", ".woff", ".woff2",
+                    ".jar", ".zip", ".pdf", ".so", ".dll", ".exe", ".lock"}
 
 
 COMMENT_START = ("//", "--", "#", "*", "/*", "{{--", "<!--")
@@ -108,6 +124,34 @@ def files():
                     yield rel
 
 
+def all_files():
+    """Every text file in the repository, for the secrets rule."""
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SECRET_SKIP_DIRS]
+        for f in filenames:
+            if os.path.splitext(f)[1].lower() in SECRET_SKIP_EXTS:
+                continue
+            yield os.path.relpath(os.path.join(dirpath, f), ROOT).replace(os.sep, "/")
+
+
+def secret_problems(allow) -> list[str]:
+    out = []
+    for rel in all_files():
+        try:
+            text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            m = SECRETS.search(line)
+            if not m:
+                continue
+            if any(fnmatch.fnmatch(rel, g) and r.search(line) for g, r, _ in allow):
+                continue
+            shown = m.group(0)[:8] + "…"  # never echo the whole secret into CI logs
+            out.append(f"{rel}:{n}: a real-looking key/token ({shown}) — remove it, then rotate it")
+    return out
+
+
 def main() -> int:
     allow = load_allowlist()
     problems = []
@@ -125,13 +169,12 @@ def main() -> int:
             for s in KNOWN_STRINGS:
                 if s.lower() in line.lower():
                     hits.append(f"fixture/seed string '{s}'")
-            if m := SECRETS.search(line):
-                hits.append("a real-looking key/token")
             if not hits:
                 continue
             if any(fnmatch.fnmatch(rel, g) and r.search(line) for g, r, _ in allow):
                 continue
             problems.append(f"{rel}:{n}: {', '.join(hits)}\n    {line.strip()[:160]}")
+    problems += secret_problems(allow)
     if problems:
         print("Hardcoded / fixture data found in shipping code (move it to tests, a database setting or an env file):\n")
         print("\n".join(problems))

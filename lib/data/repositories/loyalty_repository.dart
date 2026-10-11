@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
+import '../../core/widgets/list_tools.dart';
 import '../models/loyalty.dart';
 
 /// Reads the customer's real points balance/history and redeems rewards.
@@ -34,17 +39,59 @@ class LoyaltyRepository {
     return EarnRate.fromRpc(result);
   }
 
+  static const String _txColumns = 'id,firebase_uid,type,points,description,order_id,created_at,source';
+
+  /// Newest transactions kept in memory; the history screen pages ([fetchTransactionsPage]).
+  static const int recentLimit = 100;
+
   Future<List<LoyaltyPointTransaction>> fetchTransactions(String firebaseUid) async {
     final raw = await _client
         .from('loyalty_transactions')
-        .select()
+        .select(_txColumns)
         .eq('firebase_uid', firebaseUid)
-        .order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(raw).map(LoyaltyPointTransaction.fromRow).toList();
+        .order('created_at', ascending: false)
+        .limit(recentLimit);
+    final rows = List<Map<String, dynamic>>.from(raw);
+    unawaited(CustomerLocalDb.instance.replaceAll(firebaseUid, LocalKind.loyalty, rows));
+    return rows.map(LoyaltyPointTransaction.fromRow).toList();
+  }
+
+  Future<List<LoyaltyPointTransaction>> localTransactions(String firebaseUid) async {
+    final page = await CustomerLocalDb.instance.query(firebaseUid, LocalKind.loyalty, sort: LocalSort.newest);
+    return page.rows.map(LoyaltyPointTransaction.fromRow).toList();
+  }
+
+  /// One page: search by reference (order ID / description), earned-redeemed
+  /// filter, sort by date or points — done by the server — and the total.
+  Future<PageResult<LoyaltyPointTransaction>> fetchTransactionsPage(
+      String firebaseUid, ListQuery query, int offset, int limit) {
+    return AppErrors.guard(() async {
+      var q = _client.from('loyalty_transactions').select(_txColumns).eq('firebase_uid', firebaseUid);
+      final term = query.search.replaceAll(RegExp(r'[^\p{L}\p{N} \-]', unicode: true), '').trim();
+      if (term.isNotEmpty) q = q.or('order_id.ilike.%$term%,description.ilike.%$term%');
+      final kind = query.filters['kind'];
+      if (kind == 'earned') q = q.eq('type', 'earn');
+      if (kind == 'redeemed') q = q.eq('type', 'redeem');
+      final byPoints = query.sortId == 'points';
+      final ascending = query.sortId == 'oldest';
+      final res = await q
+          .order(byPoints ? 'points' : 'created_at', ascending: ascending)
+          .order('id', ascending: ascending)
+          .range(offset, offset + limit - 1)
+          .count(CountOption.exact);
+      final rows = List<Map<String, dynamic>>.from(res.data);
+      unawaited(CustomerLocalDb.instance.upsert(firebaseUid, LocalKind.loyalty, rows));
+      return PageResult(rows.map(LoyaltyPointTransaction.fromRow).toList(), res.count);
+    });
   }
 
   Future<List<RewardItem>> fetchRewards() async {
-    final raw = await _client.from('rewards').select().eq('is_active', true).order('points_required');
+    final raw = await _client
+        .from('rewards')
+        .select('id,title,description,points_required,stock,badge_label,icon_name,color_hex,is_active')
+        .eq('is_active', true)
+        .order('points_required')
+        .limit(200);
     return List<Map<String, dynamic>>.from(raw).map(RewardItem.fromRow).toList();
   }
 

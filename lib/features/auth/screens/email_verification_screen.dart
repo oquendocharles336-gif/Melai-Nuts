@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/validation_utils.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/email_verification_service.dart';
@@ -32,6 +35,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   static const int _resendSeconds = 60;
 
   final _codeController = TextEditingController();
+  final _codeFormKey = GlobalKey<FormState>();
   final bool _usesCode = EmailVerificationService.instance.usesCode;
 
   Timer? _timer;
@@ -98,6 +102,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   Future<void> _verify() async {
     if (_verifying) return;
+    // Code mode: exactly 6 digits, shown under the field.
+    if (_usesCode && !FormUtils.validateAndFocus(_codeFormKey)) return;
     setState(() => _verifying = true);
     try {
       final user = await AuthService.instance.completeCustomerRegistration(
@@ -172,13 +178,21 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
               if (_usesCode) ...[
-                AppTextField(
-                  label: 'Verification code',
-                  controller: _codeController,
-                  prefixIcon: Icons.pin_outlined,
-                  keyboardType: TextInputType.number,
-                  hint: '123456',
-                  onChanged: (_) => setState(() {}),
+                Form(
+                  key: _codeFormKey,
+                  child: AppTextField(
+                    label: 'Verification code',
+                    controller: _codeController,
+                    prefixIcon: Icons.pin_outlined,
+                    keyboardType: TextInputType.number,
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    inputFormatters: InputRules.verificationCode(),
+                    textInputAction: TextInputAction.done,
+                    hint: '6-digit code',
+                    validator: ValidationUtils.validateVerificationCode,
+                    onFieldSubmitted: (_) => _verify(),
+                    onChanged: (_) => setState(() {}),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 const SizedBox(height: 12),

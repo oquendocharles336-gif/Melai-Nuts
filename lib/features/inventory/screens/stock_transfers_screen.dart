@@ -1,6 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -95,14 +100,35 @@ class _TransferCard extends StatefulWidget {
 class _TransferCardState extends State<_TransferCard> {
   bool _busy = false;
 
+  static const _confirmText = {
+    'ship': ('Ship this transfer?', 'The stock leaves this branch now.', 'Ship', false),
+    'reject': ('Decline this request?', 'The other branch will see that the request was declined.', 'Decline', true),
+    'cancel': ('Cancel this request?', 'The transfer request will be cancelled.', 'Cancel Request', true),
+    'receive': ('Mark as received?', 'The stock is added to this branch now.', 'Received', false),
+  };
+
   Future<void> _act(String action, String doneMessage) async {
+    if (_busy) return;
+    final c = _confirmText[action];
+    if (c != null) {
+      final ok = await ConfirmDialog.show(
+        context,
+        title: c.$1,
+        message: '${widget.transfer.quantity} pack(s): ${c.$2}',
+        confirmLabel: c.$3,
+        cancelLabel: 'Back',
+        destructive: c.$4,
+      );
+      if (!ok || !mounted) return;
+    }
     setState(() => _busy = true);
     try {
       await StaffRepository.instance.respondTransfer(widget.transfer.id, action);
       if (!mounted) return;
       widget.store.refreshLive();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(doneMessage)));
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'stock_transfers_screen:$action');
       if (mounted) AppErrors.showSnack(context, e);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -226,9 +252,19 @@ class _RequestSheetState extends State<_RequestSheet> {
   }
 
   Future<void> _submit() async {
-    if (_saving || !_formKey.currentState!.validate()) return;
+    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
     final toBranch = widget.store.activeBranchId;
     if (toBranch == null) return;
+    final from = kBranches.where((b) => b.id == _fromBranchId).map((b) => b.name).firstOrNull ?? 'the other branch';
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Send this transfer request?',
+      message: 'Request ${_qty.text.trim()} pack(s) from $from to ${widget.store.activeBranchName}.',
+      confirmLabel: 'Send',
+      destructive: false,
+      icon: Icons.local_shipping_outlined,
+    );
+    if (!ok || !mounted) return;
     setState(() => _saving = true);
     try {
       await StaffRepository.instance.requestTransfer(
@@ -236,7 +272,7 @@ class _RequestSheetState extends State<_RequestSheet> {
         toBranchId: toBranch,
         variantId: _variantId!,
         quantity: int.parse(_qty.text.trim()),
-        note: _note.text,
+        note: _note.text.trim(),
         // One key per distinct request: a retry after a timeout reuses it, so
         // the server creates one transfer even if the first try landed.
         idempotencyKey: _requestKey.keyFor(
@@ -247,7 +283,8 @@ class _RequestSheetState extends State<_RequestSheet> {
       widget.store.refreshLive();
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transfer requested.')));
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'stock_transfers_screen:request');
       if (!mounted) return;
       setState(() => _saving = false);
       AppErrors.showSnack(context, e);
@@ -294,17 +331,18 @@ class _RequestSheetState extends State<_RequestSheet> {
               TextFormField(
                 controller: _qty,
                 keyboardType: TextInputType.number,
+                inputFormatters: InputRules.integer(),
                 decoration: const InputDecoration(labelText: 'Quantity (packs)'),
-                validator: (v) {
-                  final n = int.tryParse((v ?? '').trim());
-                  return (n == null || n <= 0) ? 'Enter a quantity greater than 0' : null;
-                },
+                validator: (v) => ValidationUtils.validateQuantity(v, fieldName: 'Transfer quantity', min: 1, max: 99999),
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _note,
-                maxLength: 300,
+                maxLength: InputLimits.note,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Note (optional)'),
+                validator: (v) => ValidationUtils.validateText(v, fieldName: 'Note'),
               ),
               const SizedBox(height: 8),
               PrimaryButton(label: 'Send Request', icon: Icons.send_rounded, loading: _saving, onPressed: _submit),

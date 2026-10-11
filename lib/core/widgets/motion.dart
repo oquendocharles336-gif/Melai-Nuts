@@ -58,6 +58,9 @@ class _FadeSlideInState extends State<FadeSlideIn> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    // "Reduce motion" / "Remove animations" in the system accessibility
+    // settings: show the content straight away.
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) return widget.child;
     return AnimatedBuilder(
       animation: _curve,
       child: widget.child,

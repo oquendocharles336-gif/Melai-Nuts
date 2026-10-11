@@ -85,8 +85,9 @@ class _ProductCategoriesScreenState extends State<ProductCategoriesScreen> {
               padding: const EdgeInsets.all(AppSpacing.md),
               itemCount: categories.length,
               gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
+                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                // 2 columns on phones, more on tablets / web.
+                maxCrossAxisExtent: 260,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
                 childAspectRatio: 1.3,

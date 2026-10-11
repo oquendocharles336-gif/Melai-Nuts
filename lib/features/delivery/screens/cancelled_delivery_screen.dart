@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/validation_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
@@ -23,8 +27,18 @@ class CancelledDeliveryScreen extends StatefulWidget {
 }
 
 class _CancelledDeliveryScreenState extends State<CancelledDeliveryScreen> {
+  final _formKey = GlobalKey<FormState>();
   String _reason = 'Customer not available';
   final _noteController = TextEditingController();
+
+  /// Details: required (5–300 characters) when the reason is "Other",
+  /// otherwise optional; never emoji-only.
+  String? _validateNote(String? v) => _reason == 'Other'
+      ? ValidationUtils.validateReason(v,
+          fieldName: 'Details', minLength: InputLimits.shortReasonMin, maxLength: InputLimits.shortReason)
+      : ValidationUtils.validateText(v,
+          fieldName: 'Details', minLength: (v ?? '').trim().isEmpty ? 0 : InputLimits.shortReasonMin,
+          maxLength: InputLimits.shortReason);
   bool _submitting = false;
 
   static const _reasons = [
@@ -42,18 +56,16 @@ class _CancelledDeliveryScreenState extends State<CancelledDeliveryScreen> {
   }
 
   Future<void> _confirmCancel() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel this stop?'),
-        content: Text('${widget.stop.customerName} will be marked as cancelled for this route.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Back')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Confirm Cancel')),
-        ],
-      ),
+    if (_submitting || !FormUtils.validateAndFocus(_formKey)) return;
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Cancel this stop?',
+      message: 'The delivery to ${widget.stop.customerName} (${widget.stop.orderId}) will be marked as cancelled for this route.',
+      confirmLabel: 'Cancel Stop',
+      cancelLabel: 'Back',
+      icon: Icons.cancel_outlined,
     );
-    if (confirmed != true) return;
+    if (!confirmed || !mounted) return;
 
     setState(() => _submitting = true);
     final reason = _noteController.text.trim().isEmpty ? _reason : '$_reason — ${_noteController.text.trim()}';
@@ -82,7 +94,8 @@ class _CancelledDeliveryScreenState extends State<CancelledDeliveryScreen> {
       } else {
         Navigator.of(context).pushReplacementNamed(AppRoutes.deliveryCompleted, arguments: widget.delivery);
       }
-    } catch (e) {
+    } catch (e, st) {
+      AppErrors.report(e, st, 'cancelled_delivery_screen:confirm');
       if (!mounted) return;
       setState(() => _submitting = false);
       AppErrors.showSnack(context, e);
@@ -95,7 +108,9 @@ class _CancelledDeliveryScreenState extends State<CancelledDeliveryScreen> {
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'Cancel Stop', showBack: true),
       body: SafeArea(
-        child: ListView(
+        child: Form(
+          key: _formKey,
+          child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -120,15 +135,27 @@ class _CancelledDeliveryScreenState extends State<CancelledDeliveryScreen> {
                   ChoiceChip(
                     label: Text(r),
                     selected: _reason == r,
-                    onSelected: (_) => setState(() => _reason = r),
+                    onSelected: (_) {
+                      setState(() => _reason = r);
+                      _formKey.currentState?.validate();
+                    },
                     selectedColor: AppColors.error.withValues(alpha: 0.15),
                   ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            Text('Additional Notes (optional)', style: AppTextStyles.labelLg),
+            Text(_reason == 'Other' ? 'Details (required)' : 'Details (optional)', style: AppTextStyles.labelLg),
             const SizedBox(height: 6),
-            TextField(controller: _noteController, maxLines: 2, decoration: const InputDecoration(hintText: 'Add more detail...')),
+            TextFormField(
+              controller: _noteController,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: InputLimits.shortReason,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(hintText: 'Add more detail (at least 5 characters)...'),
+              validator: _validateNote,
+            ),
             const SizedBox(height: AppSpacing.lg),
             Container(
               padding: const EdgeInsets.all(12),
@@ -148,6 +175,7 @@ class _CancelledDeliveryScreenState extends State<CancelledDeliveryScreen> {
               onPressed: _submitting ? null : _confirmCancel,
             ),
           ],
+        ),
         ),
       ),
     );

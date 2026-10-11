@@ -14862,3 +14862,891 @@ revoke all on function public.enqueue_owner_daily_digest(date) from public, anon
 grant execute on function public.enqueue_owner_daily_digest(date) to service_role;
 
 commit;
+
+
+-- >>>>>>>>>> 20261025000000_input_check_constraints.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261025000000: server-side input rules (CHECK constraints)
+-- =============================================================================
+-- Run after 20261024000000_owner_reports.sql. Idempotent, one transaction.
+--
+-- WHY
+--   The app (lib/core/utils/validation_utils.dart) and the admin website
+--   (admin/app/Http/Requests/Rules.php) validate every field, but a modified
+--   client can skip that. These CHECK constraints are the same rules, enforced by
+--   the database for every writer. Limits match InputLimits in the app; see
+--   docs/FORM_FIELDS.md.
+--
+-- HOW (safe on a live database)
+--   The database limits are the outer bounds (e.g. an address line of 1–200
+--   characters); the app and website are stricter where it helps the person
+--   (e.g. at least 10 characters for a delivery address).
+--   Every constraint is added NOT VALID: new and changed rows are checked, rows
+--   that already exist are not re-checked (so a legacy value never blocks this
+--   migration). Run `alter table ... validate constraint ...` later, after
+--   cleaning old data, to also cover existing rows.
+--
+-- PHONES
+--   One stored format: E.164 (+639171234567). A trigger normalises Philippine
+--   mobile numbers typed as 0917 123 4567 / 639171234567 / 9171234567 on every
+--   table that stores a person's mobile number. Other values (landlines,
+--   foreign numbers) are kept as typed but must use phone characters only.
+-- =============================================================================
+begin;
+
+-- Adds a CHECK constraint once (NOT VALID). Kept after the migration: later
+-- migrations may use it too.
+create or replace function public._add_check_once(p_table regclass, p_name text, p_expr text)
+returns void
+language plpgsql
+as $$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = p_table and conname = p_name) then
+    execute format('alter table %s add constraint %I check (%s) not valid', p_table, p_name, p_expr);
+  end if;
+end;
+$$;
+revoke all on function public._add_check_once(regclass, text, text) from public, anon, authenticated;
+
+-- Phone characters only (digits, +, spaces, dashes, dots, brackets), max 20.
+create or replace function public._phone_chars_ok(p text)
+returns boolean
+language sql
+immutable
+as $$ select p is null or p = '' or (char_length(p) <= 20 and p ~ '^[0-9+() .-]+$') $$;
+grant execute on function public._phone_chars_ok(text) to anon, authenticated;
+
+-- 09171234567 / 0917 123 4567 / 639171234567 / 9171234567 -> +639171234567;
+-- anything else is returned trimmed and unchanged. Same rule as PhoneUtils.
+create or replace function public.normalize_ph_mobile(p text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when p is null then null
+    when regexp_replace(p, '[\s().-]', '', 'g') ~ '^(\+63|63|0)?9[0-9]{9}$'
+      then '+63' || right(regexp_replace(p, '[\s().-]', '', 'g'), 10)
+    else btrim(p)
+  end
+$$;
+grant execute on function public.normalize_ph_mobile(text) to anon, authenticated;
+
+create or replace function public._trg_normalize_phone()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_col text := tg_argv[0];
+  v_val text;
+begin
+  v_val := (to_jsonb(new) ->> v_col);
+  if v_val is not null then
+    new := jsonb_populate_record(new, jsonb_build_object(v_col, public.normalize_ph_mobile(v_val)));
+  end if;
+  return new;
+end;
+$$;
+
+do $$
+declare
+  r record;
+begin
+  for r in select * from (values
+      ('customer_profiles', 'phone'),
+      ('customer_addresses', 'phone'),
+      ('orders', 'contact_phone'),
+      ('staff_members', 'phone'),
+      ('drivers', 'phone'),
+      ('suppliers', 'phone')) as t(tbl, col)
+  loop
+    if exists (select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = r.tbl and column_name = r.col) then
+      execute format('drop trigger if exists %I on public.%I', r.tbl || '_normalize_phone', r.tbl);
+      execute format(
+        'create trigger %I before insert or update of %I on public.%I for each row execute function public._trg_normalize_phone(%L)',
+        r.tbl || '_normalize_phone', r.col, r.tbl, r.col);
+      perform public._add_check_once(format('public.%I', r.tbl)::regclass, r.tbl || '_phone_format',
+        format('public._phone_chars_ok(%I)', r.col));
+    end if;
+  end loop;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- Catalog
+-- -----------------------------------------------------------------------------
+select public._add_check_once('public.products', 'products_name_length',
+  'char_length(btrim(name)) between 2 and 120');
+select public._add_check_once('public.products', 'products_description_length',
+  'description is null or char_length(description) <= 2000');
+select public._add_check_once('public.products', 'products_price_positive', 'price > 0');
+select public._add_check_once('public.products', 'products_sku_format',
+  $c$sku is null or sku = '' or (char_length(sku) <= 64 and sku !~ '^\s|\s$')$c$);
+select public._add_check_once('public.product_categories', 'product_categories_label_length',
+  'char_length(btrim(label)) between 2 and 60');
+select public._add_check_once('public.product_variants', 'product_variants_label_length',
+  'char_length(btrim(label)) between 1 and 40');
+select public._add_check_once('public.product_variants', 'product_variants_price_positive', 'price > 0');
+select public._add_check_once('public.product_variants', 'product_variants_sku_format',
+  $c$sku is null or sku = '' or (char_length(sku) <= 64 and sku !~ '\s')$c$);
+select public._add_check_once('public.product_variants', 'product_variants_badge_length',
+  'badge is null or char_length(badge) <= 30');
+
+-- -----------------------------------------------------------------------------
+-- Customers
+-- -----------------------------------------------------------------------------
+select public._add_check_once('public.customer_profiles', 'customer_profiles_full_name_length',
+  'char_length(full_name) <= 120');
+select public._add_check_once('public.customer_profiles', 'customer_profiles_email_format',
+  $c$email = '' or (char_length(email) <= 254 and email ~ '^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$')$c$);
+select public._add_check_once('public.customer_addresses', 'customer_addresses_label_length',
+  'char_length(btrim(label)) between 1 and 40');
+select public._add_check_once('public.customer_addresses', 'customer_addresses_recipient_length',
+  'char_length(btrim(recipient_name)) between 2 and 120');
+select public._add_check_once('public.customer_addresses', 'customer_addresses_line1_length',
+  'char_length(btrim(line1)) between 1 and 200');
+select public._add_check_once('public.customer_addresses', 'customer_addresses_city_length',
+  'char_length(btrim(city)) between 1 and 80 and char_length(province) <= 80');
+select public._add_check_once('public.customer_addresses', 'customer_addresses_postal_code',
+  $c$postal_code = '' or postal_code ~ '^[0-9]{4}$'$c$);
+
+-- -----------------------------------------------------------------------------
+-- Orders, refunds, stock
+-- -----------------------------------------------------------------------------
+select public._add_check_once('public.orders', 'orders_customer_notes_length',
+  'customer_notes is null or char_length(customer_notes) <= 500');
+select public._add_check_once('public.orders', 'orders_address_length',
+  'delivery_address_text is null or char_length(delivery_address_text) <= 300');
+select public._add_check_once('public.order_items', 'order_items_quantity_positive', 'quantity > 0');
+select public._add_check_once('public.order_items', 'order_items_unit_price_nonnegative', 'unit_price >= 0');
+select public._add_check_once('public.refund_requests', 'refund_requests_reason_length',
+  'char_length(btrim(reason)) between 1 and 200');
+select public._add_check_once('public.refund_requests', 'refund_requests_notes_length',
+  'notes is null or char_length(notes) <= 1000');
+select public._add_check_once('public.refund_items', 'refund_items_quantity_positive', 'quantity > 0');
+select public._add_check_once('public.stock_movements', 'stock_movements_reason_length',
+  'reason is null or char_length(reason) <= 300');
+select public._add_check_once('public.stock_transfers', 'stock_transfers_note_length',
+  'note is null or char_length(note) <= 300');
+select public._add_check_once('public.stock_transfers', 'stock_transfers_quantity_max', 'quantity <= 99999');
+select public._add_check_once('public.inventory_batches', 'inventory_batches_quantity_max',
+  'quantity <= 999999 and initial_quantity <= 999999');
+select public._add_check_once('public.delivery_stops', 'delivery_stops_issue_reason_length',
+  'issue_reason is null or char_length(issue_reason) <= 400');
+select public._add_check_once('public.delivery_stops', 'delivery_stops_proof_note_length',
+  'proof_note is null or char_length(proof_note) <= 300');
+select public._add_check_once('public.vouchers', 'vouchers_code_format',
+  $c$code ~ '^[A-Za-z0-9_-]{1,30}$'$c$);
+
+-- -----------------------------------------------------------------------------
+-- People and places
+-- -----------------------------------------------------------------------------
+select public._add_check_once('public.staff_members', 'staff_members_full_name_length',
+  'char_length(full_name) <= 120');
+select public._add_check_once('public.branches', 'branches_name_length',
+  'char_length(btrim(name)) between 2 and 120');
+select public._add_check_once('public.branches', 'branches_text_lengths',
+  'char_length(coalesce(address, '''')) <= 300 and char_length(coalesce(operating_hours, '''')) <= 120 '
+  'and char_length(coalesce(contact_phone, '''')) <= 40');
+select public._add_check_once('public.suppliers', 'suppliers_text_lengths',
+  'char_length(coalesce(contact_person, '''')) <= 120 and char_length(coalesce(address, '''')) <= 300 '
+  'and char_length(coalesce(email, '''')) <= 254 and char_length(coalesce(tin, '''')) <= 20');
+select public._add_check_once('public.suppliers', 'suppliers_email_format',
+  $c$email is null or email = '' or email ~ '^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$'$c$);
+
+commit;
+
+
+-- >>>>>>>>>> 20261025001000_phone_lookup_normalized.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261025001000: phone lookups work with any typed format
+-- =============================================================================
+-- Run after 20261025000000_input_check_constraints.sql. Idempotent, one transaction.
+--
+-- Phones are now stored as E.164 (+639171234567). A cashier still types the
+-- number the way the customer says it (0917 123 4567), so the POS lookup
+-- compares both sides in the normalised form. Same behaviour as before for
+-- cards, labels and e-mail; still exact matches only (no browsing).
+-- =============================================================================
+begin;
+
+create index if not exists customer_profiles_phone_norm_idx
+  on public.customer_profiles (public.normalize_ph_mobile(phone))
+  where phone is not null and phone <> '';
+
+create or replace function public.staff_lookup_customer(p_query text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := trim(coalesce(p_query, ''));
+  v_norm text := public._normalize_card_uid(v_q);
+  v_phone text := public.normalize_ph_mobile(v_q);
+  c public.loyalty_cards;
+begin
+  perform public._require_staff();
+  if length(v_q) < 4 then raise exception 'Enter at least 4 characters to look up a customer.'; end if;
+
+  if v_norm is not null then
+    select * into c from public.loyalty_cards where card_uid_hash = public._card_uid_hash(v_norm);
+    if c.id is not null and c.status = 'blocked' then
+      raise exception 'Loyalty card % is blocked and cannot be used. Look the customer up by e-mail instead.', c.card_label;
+    elsif c.id is not null and c.status = 'replaced' then
+      raise exception 'Loyalty card % was replaced by a newer card and can no longer be used.', c.card_label;
+    end if;
+  end if;
+
+  return (
+    select coalesce(jsonb_agg(t.j), '[]'::jsonb)
+    from (
+      select jsonb_build_object(
+        'firebase_uid', cp.firebase_uid,
+        'full_name', cp.full_name,
+        'points_balance', coalesce(la.points_balance, 0)) as j
+      from public.customer_profiles cp
+      left join public.loyalty_accounts la on la.firebase_uid = cp.firebase_uid
+      where cp.firebase_uid <> 'walk-in'
+        and (cp.rfid_card_number = v_q
+             or upper(cp.rfid_card_number) = upper(v_q)
+             or (cp.phone <> '' and public.normalize_ph_mobile(cp.phone) = v_phone)
+             or lower(cp.email) = lower(v_q)
+             or (c.id is not null and c.status = 'active' and cp.firebase_uid = c.firebase_uid))
+      limit 5
+    ) t
+  );
+end;
+$$;
+revoke all on function public.staff_lookup_customer(text) from public, anon;
+grant execute on function public.staff_lookup_customer(text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261025010000_more_rate_limits.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261025010000: more rate limits (refunds, addresses, cards)
+-- =============================================================================
+-- Run after 20261025001000_phone_lookup_normalized.sql. Idempotent, one transaction.
+--
+-- 20261019000000_rate_limits.sql limits voucher guessing and order bursts. This adds the
+-- other customer actions that write to the database and could be abused by a modified
+-- client using the public key and a real Firebase sign-in:
+--   * refund requests      at most 3 per account per 30 minutes
+--   * saved addresses      at most 20 new addresses per account per hour
+-- Same scope as before: only requests through the Data API (the app) are limited;
+-- SQL run by the owner / admin portal is not. Tests force the limits on with
+--   select set_config('melai.force_rate_limits', 'on', true);
+--
+-- WHAT IS LIMITED ELSEWHERE (not in Postgres)
+--   sign-in attempts, password-reset e-mails, SMS codes, registration: Firebase Auth's
+--   own server-side throttling (too-many-requests) + App Check, plus the app's
+--   on-device brakes (AuthService._FailureBrake, 60 s resend cooldowns). The 6-digit
+--   e-mail code API must rate-limit send/verify itself (SECURITY.md, "Your API MUST").
+--   The admin website limits every POST/PUT/DELETE (App\Http\Middleware\ThrottleWrites)
+--   and locks a login after 5 failures (LoginRequest).
+-- =============================================================================
+begin;
+
+create or replace function public._rate_limits()
+returns jsonb
+language sql
+immutable
+as $$
+  select jsonb_build_object(
+    'voucher_max', 10, 'voucher_window_minutes', 15, 'voucher_valid_hours', 24,
+    'order_max', 5, 'order_window_minutes', 10,
+    'refund_max', 3, 'refund_window_minutes', 30,
+    'address_max', 20, 'address_window_minutes', 60)
+$$;
+
+-- Generic per-account counter on a table's own rows: raises when the caller already
+-- created p_max rows in the last p_minutes.
+create or replace function public._rate_limit_rows(
+  p_kind text, p_count int, p_max int, p_minutes int, p_message text)
+returns void
+language plpgsql
+as $$
+begin
+  if p_count >= p_max then
+    raise exception '%', p_message using errcode = 'P0001', hint = 'rate_limited:' || p_kind;
+  end if;
+end;
+$$;
+
+create or replace function public._trg_refund_requests_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_lim jsonb := public._rate_limits();
+  v_recent int;
+begin
+  if not public._rate_limit_applies() or v_uid is null or new.firebase_uid is distinct from v_uid then
+    return new;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('melai:rl:refund:' || v_uid));
+  select count(*) into v_recent from public.refund_requests
+   where firebase_uid = v_uid
+     and created_at > now() - make_interval(mins => (v_lim ->> 'refund_window_minutes')::int);
+  perform public._rate_limit_rows('refund', v_recent, (v_lim ->> 'refund_max')::int,
+    (v_lim ->> 'refund_window_minutes')::int,
+    'Too many refund requests in a short time. Please wait 30 minutes and try again.');
+  return new;
+end;
+$$;
+revoke all on function public._trg_refund_requests_rate_limit() from public, anon, authenticated;
+drop trigger if exists refund_requests_rate_limit on public.refund_requests;
+create trigger refund_requests_rate_limit before insert on public.refund_requests
+  for each row execute function public._trg_refund_requests_rate_limit();
+
+create or replace function public._trg_customer_addresses_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_lim jsonb := public._rate_limits();
+  v_recent int;
+begin
+  if not public._rate_limit_applies() or v_uid is null or new.firebase_uid is distinct from v_uid then
+    return new;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('melai:rl:address:' || v_uid));
+  select count(*) into v_recent from public.customer_addresses
+   where firebase_uid = v_uid
+     and created_at > now() - make_interval(mins => (v_lim ->> 'address_window_minutes')::int);
+  perform public._rate_limit_rows('address', v_recent, (v_lim ->> 'address_max')::int,
+    (v_lim ->> 'address_window_minutes')::int,
+    'Too many new addresses in a short time. Please try again later.');
+  return new;
+end;
+$$;
+revoke all on function public._trg_customer_addresses_rate_limit() from public, anon, authenticated;
+drop trigger if exists customer_addresses_rate_limit on public.customer_addresses;
+create trigger customer_addresses_rate_limit before insert on public.customer_addresses
+  for each row execute function public._trg_customer_addresses_rate_limit();
+
+commit;
+
+
+-- >>>>>>>>>> 20261025020000_grants_hardening.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261025020000: least-privilege grants (audit result)
+-- =============================================================================
+-- Run after 20261025010000_more_rate_limits.sql. Idempotent, one transaction.
+--
+-- AUDIT (2026-10-11, checked by supabase/tests/security_audit_test.sql on every CI run)
+--   * anon (signed out): SELECT only, and only on the public catalog tables
+--     (branches, branch_inventory, products, product_variants, product_categories,
+--     promotions, rewards, payment_settings). No INSERT / UPDATE / DELETE anywhere.
+--   * authenticated: SELECT on its own rows through RLS; writes only where the app
+--     writes directly (customer_addresses, notification_preferences, notifications
+--     delete / mark-read, staff_notifications delete, profile name/phone columns).
+--     Everything else goes through SECURITY DEFINER functions that check the caller.
+--   * Every public table has Row Level Security enabled.
+--
+-- CHANGES
+--   1. pgcrypto's functions were executable by anon and authenticated because the
+--      extension lives in the public schema on a plain Postgres. The app never calls
+--      them directly (only SECURITY DEFINER functions do, as the owner), so EXECUTE is
+--      revoked. gen_random_uuid / gen_random_bytes stay: column defaults use them.
+--   2. Defence in depth: anon loses any INSERT / UPDATE / DELETE / TRUNCATE that a
+--      future migration might add by mistake, on every existing table.
+--   3. Internal helper functions (name starting with "_") are not executable by anon /
+--      authenticated, except the CHECK-constraint helper _phone_chars_ok.
+-- =============================================================================
+begin;
+
+do $$
+declare
+  f record;
+begin
+  for f in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
+      left join pg_extension e on e.oid = d.refobjid
+     where n.nspname = 'public'
+       and e.extname = 'pgcrypto'
+       and p.proname not in ('gen_random_uuid', 'gen_random_bytes')
+  loop
+    execute format('revoke execute on function %s from public, anon, authenticated', f.sig);
+  end loop;
+
+  for f in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname like '\_%'
+       and p.proname <> '_phone_chars_ok'
+       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+  loop
+    execute format('revoke execute on function %s from public, anon, authenticated', f.sig);
+  end loop;
+end;
+$$;
+
+revoke insert, update, delete, truncate, references, trigger on all tables in schema public from anon;
+revoke truncate, references, trigger on all tables in schema public from authenticated;
+
+-- Tables created later are not exposed unless a migration grants them explicitly.
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from anon, authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261025030000_pagination.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261025030000: real pagination and bounded list sizes
+-- =============================================================================
+-- Run after 20261025020000_grants_hardening.sql. Idempotent, one transaction.
+--
+-- WHAT
+--   1. Indexes for the app's paginated lists (newest first, keyset by created_at, id):
+--      a customer's orders, notifications, loyalty transactions and refunds; a branch's
+--      orders; staff notifications.
+--   2. owner_all_users(search, limit, offset): the customers list is paged in the
+--      database (limit max 200 per page, offset) with the total that matched; a phone
+--      search finds numbers typed as 0917… even though they are stored as +63917….
+--   3. admin_portal_orders_page(...): one page of orders with search, status / payment
+--      filters and sorting done in SQL, plus the total, so the website can paginate
+--      without loading a 90-day window (max 100 rows per call).
+--   4. Every list function has a hard maximum (a client cannot ask for 1,000,000 rows):
+--      get_popular_products is capped at 50.
+-- =============================================================================
+begin;
+
+-- 1. Indexes ----------------------------------------------------------------------------
+create index if not exists orders_customer_page_idx on public.orders (firebase_uid, created_at desc, id desc);
+create index if not exists orders_branch_page_idx on public.orders (branch_id, created_at desc, id desc);
+create index if not exists notifications_customer_page_idx on public.notifications (firebase_uid, created_at desc, id desc);
+create index if not exists loyalty_transactions_page_idx on public.loyalty_transactions (firebase_uid, created_at desc, id desc);
+create index if not exists refund_requests_customer_page_idx on public.refund_requests (firebase_uid, created_at desc, id desc);
+create index if not exists refund_requests_order_idx on public.refund_requests (order_id);
+create index if not exists payments_order_idx on public.payments (order_id);
+create index if not exists order_items_order_idx on public.order_items (order_id);
+create index if not exists products_name_lower_idx on public.products (lower(name));
+create index if not exists customer_profiles_created_idx on public.customer_profiles (created_at desc, firebase_uid);
+
+-- 2. owner_all_users with offset --------------------------------------------------------
+drop function if exists public.owner_all_users(text, int);
+
+create or replace function public.owner_all_users(
+  p_search text default null,
+  p_limit int default 50,
+  p_offset int default 0
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := nullif(lower(trim(coalesce(p_search, ''))), '');
+  -- 0917… typed by a person, +63917… stored: search both forms.
+  v_q_phone text := case when nullif(lower(trim(coalesce(p_search, ''))), '') ~ '^0?9[0-9]*$'
+                         then '+63' || regexp_replace(lower(trim(p_search)), '^0', '') end;
+  v_limit int := least(greatest(coalesce(p_limit, 50), 1), 2000);
+  v_offset int := least(greatest(coalesce(p_offset, 0), 0), 1000000);
+begin
+  perform public._require_owner();
+
+  return jsonb_build_object(
+    'staff', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'firebase_uid', s.firebase_uid, 'full_name', s.full_name, 'email', s.email,
+               'role', s.role, 'branch_id', s.branch_id, 'branch_name', b.name,
+               'is_active', s.is_active, 'account_status', s.account_status,
+               'can_manage_inventory', s.can_manage_inventory, 'can_review_refunds', s.can_review_refunds,
+               'created_at', s.created_at)
+             order by s.role desc, s.full_name, s.firebase_uid), '[]'::jsonb)
+      from public.staff_members s
+      left join public.branches b on b.id = s.branch_id
+    ),
+    'drivers', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'firebase_uid', d.firebase_uid, 'full_name', d.full_name, 'email', d.email, 'phone', d.phone,
+               'branch_id', d.branch_id, 'branch_name', b.name, 'vehicle', d.vehicle,
+               'account_status', d.account_status, 'is_available', d.is_available, 'created_at', d.created_at,
+               'active_runs', (select count(*) from public.deliveries x
+                               where x.driver_uid = d.firebase_uid and x.status not in ('completed', 'cancelled')))
+             order by d.full_name, d.firebase_uid), '[]'::jsonb)
+      from public.drivers d
+      left join public.branches b on b.id = d.branch_id
+    ),
+    'customers', (
+      select coalesce(jsonb_agg(to_jsonb(c) order by c.created_at desc, c.firebase_uid), '[]'::jsonb)
+      from (
+        select cp.firebase_uid,
+               coalesce(nullif(cp.full_name, ''), 'Customer') as full_name,
+               cp.email, nullif(cp.phone, '') as phone, cp.rfid_card_number as card_number,
+               cp.default_branch_id as branch_id, b.name as branch_name, cp.created_at,
+               coalesce(o.orders, 0) as orders, coalesce(o.paid_total, 0) as paid_total, o.last_order_at,
+               la.points_balance as points_balance
+        from public.customer_profiles cp
+        left join public.branches b on b.id = cp.default_branch_id
+        left join public.loyalty_accounts la on la.firebase_uid = cp.firebase_uid
+        left join lateral (
+          select count(*) filter (where ord.status <> 'cancelled') as orders,
+                 sum(ord.total) filter (where exists (select 1 from public.payments p
+                                                      where p.order_id = ord.id and p.status in ('success', 'refunded'))) as paid_total,
+                 max(ord.created_at) as last_order_at
+          from public.orders ord
+          where ord.firebase_uid = cp.firebase_uid
+        ) o on true
+        where cp.firebase_uid <> 'walk-in'
+          and (v_q is null
+               or lower(cp.full_name) like '%' || v_q || '%'
+               or lower(cp.email) like '%' || v_q || '%'
+               or lower(cp.phone) like '%' || v_q || '%'
+               or (v_q_phone is not null and cp.phone like v_q_phone || '%')
+               or lower(coalesce(cp.rfid_card_number, '')) like '%' || v_q || '%')
+        order by cp.created_at desc, cp.firebase_uid
+        limit v_limit offset v_offset
+      ) c
+    ),
+    'customers_total', (
+      select count(*)
+      from public.customer_profiles cp
+      where cp.firebase_uid <> 'walk-in'
+        and (v_q is null
+             or lower(cp.full_name) like '%' || v_q || '%'
+             or lower(cp.email) like '%' || v_q || '%'
+             or lower(cp.phone) like '%' || v_q || '%'
+             or (v_q_phone is not null and cp.phone like v_q_phone || '%')
+             or lower(coalesce(cp.rfid_card_number, '')) like '%' || v_q || '%')
+    ),
+    'limit', v_limit,
+    'offset', v_offset
+  );
+end;
+$$;
+revoke all on function public.owner_all_users(text, int, int) from public, anon;
+grant execute on function public.owner_all_users(text, int, int) to authenticated;
+
+-- 3. One page of orders for the website ------------------------------------------------
+create or replace function public.admin_portal_orders_page(
+  p_from timestamptz,
+  p_to timestamptz,
+  p_branch_id uuid default null,
+  p_search text default null,
+  p_status text default null,
+  p_payment_method text default null,
+  p_sort text default 'created_at',
+  p_dir text default 'desc',
+  p_limit int default 25,
+  p_offset int default 0
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_branches uuid[];
+  v_refunds boolean;
+  v_q text := nullif(lower(trim(coalesce(p_search, ''))), '');
+  v_limit int := least(greatest(coalesce(p_limit, 25), 1), 100);
+  v_offset int := least(greatest(coalesce(p_offset, 0), 0), 1000000);
+  v_sort text := case when p_sort in ('created_at', 'total', 'id', 'status') then p_sort else 'created_at' end;
+  v_desc boolean := lower(coalesce(p_dir, 'desc')) <> 'asc';
+  v_total bigint;
+  v_rows jsonb;
+begin
+  perform public._require_staff();
+  if p_from is null or p_to is null or p_to < p_from then
+    raise exception 'Choose a valid date range.';
+  end if;
+  if p_to - p_from > interval '400 days' then
+    raise exception 'Date range is too long (maximum 400 days).';
+  end if;
+  v_branches := public.staff_authorized_branch_ids();
+  if p_branch_id is not null then
+    if not (p_branch_id = any (v_branches)) then
+      raise exception 'You can only work in your assigned branch.';
+    end if;
+    v_branches := array[p_branch_id];
+  end if;
+  v_refunds := public.staff_has_permission('refunds');
+
+  select count(*) into v_total
+    from public.orders o
+    left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+   where o.branch_id = any (v_branches)
+     and o.created_at >= p_from and o.created_at <= p_to
+     and (p_status is null or o.status = p_status)
+     and (p_payment_method is null or o.payment_method = p_payment_method)
+     and (v_q is null
+          or lower(o.id) like '%' || v_q || '%'
+          or lower(coalesce(cp.full_name, '')) like '%' || v_q || '%'
+          or lower(coalesce(o.branch_name, '')) like '%' || v_q || '%');
+
+  select coalesce(jsonb_agg(x.j order by x.rn), '[]'::jsonb) into v_rows
+  from (
+    select pg.rn,
+      jsonb_build_object(
+        'id', o.id, 'created_at', o.created_at, 'updated_at', o.updated_at, 'status', o.status,
+        'branch_id', o.branch_id, 'branch_name', o.branch_name, 'is_delivery', o.is_delivery,
+        'subtotal', o.subtotal, 'discount', o.discount, 'delivery_fee', o.delivery_fee, 'total', o.total,
+        'payment_label', o.payment_method, 'points_earned', o.points_earned,
+        'customer_uid', case when o.firebase_uid = 'walk-in' then null else o.firebase_uid end,
+        'customer_name', case when o.firebase_uid = 'walk-in' then 'Walk-in' else nullif(cp.full_name, '') end,
+        'is_pos', exists (select 1 from public.pos_sales ps where ps.order_id = o.id),
+        'items', (select coalesce(jsonb_agg(jsonb_build_object(
+                    'product_name', i.product_name, 'variant_label', i.variant_label,
+                    'quantity', i.quantity, 'unit_price', i.unit_price)), '[]'::jsonb)
+                  from public.order_items i where i.order_id = o.id),
+        'payment', (select jsonb_build_object('id', pay.id, 'method', pay.method, 'status', pay.status,
+                                              'reference_number', pay.reference_number, 'amount', pay.amount,
+                                              'updated_at', pay.updated_at)
+                    from public.payments pay where pay.order_id = o.id
+                    order by pay.created_at desc limit 1),
+        'refund_summary', public._order_refund_json(o.id),
+        'refund', case when v_refunds then (
+                    select jsonb_build_object('id', r.id, 'status', r.status, 'amount', r.amount,
+                                              'reason', r.reason, 'notes', r.notes,
+                                              'payment_method', r.payment_method,
+                                              'created_at', r.created_at, 'updated_at', r.updated_at)
+                    from public.refund_requests r where r.order_id = o.id
+                    order by r.created_at desc limit 1) end
+      ) as j
+    from (
+      select o2.id, row_number() over (
+               order by
+                 case when v_sort = 'created_at' and v_desc then o2.created_at end desc nulls last,
+                 case when v_sort = 'created_at' and not v_desc then o2.created_at end asc nulls last,
+                 case when v_sort = 'total' and v_desc then o2.total end desc nulls last,
+                 case when v_sort = 'total' and not v_desc then o2.total end asc nulls last,
+                 case when v_sort = 'status' and v_desc then o2.status end desc nulls last,
+                 case when v_sort = 'status' and not v_desc then o2.status end asc nulls last,
+                 case when v_desc then o2.id end desc,
+                 case when not v_desc then o2.id end asc) as rn
+        from public.orders o2
+        left join public.customer_profiles cp2 on cp2.firebase_uid = o2.firebase_uid
+       where o2.branch_id = any (v_branches)
+         and o2.created_at >= p_from and o2.created_at <= p_to
+         and (p_status is null or o2.status = p_status)
+         and (p_payment_method is null or o2.payment_method = p_payment_method)
+         and (v_q is null
+              or lower(o2.id) like '%' || v_q || '%'
+              or lower(coalesce(cp2.full_name, '')) like '%' || v_q || '%'
+              or lower(coalesce(o2.branch_name, '')) like '%' || v_q || '%')
+       order by rn
+       limit v_limit offset v_offset
+    ) pg
+    join public.orders o on o.id = pg.id
+    left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+  ) x;
+
+  return jsonb_build_object('rows', v_rows, 'total', v_total, 'limit', v_limit, 'offset', v_offset,
+                            'sort', v_sort, 'dir', case when v_desc then 'desc' else 'asc' end);
+end;
+$$;
+revoke all on function public.admin_portal_orders_page(timestamptz, timestamptz, uuid, text, text, text, text, text, int, int) from public, anon;
+grant execute on function public.admin_portal_orders_page(timestamptz, timestamptz, uuid, text, text, text, text, text, int, int) to authenticated;
+
+-- 4. Hard caps -------------------------------------------------------------------------
+create or replace function public.get_popular_products(p_limit integer default 8)
+returns table(product_id uuid, total_quantity bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.id as product_id, sum(l.units - l.refunded_units)::bigint as total_quantity
+  from public._sales_line_facts(null, null, null) l
+  join public.products p on p.id = l.product_id or (l.product_id is null and p.name = l.product_name)
+  where p.is_active
+  group by p.id
+  having sum(l.units - l.refunded_units) > 0
+  order by total_quantity desc
+  limit least(greatest(coalesce(p_limit, 8), 0), 50)
+$$;
+
+commit;
+
+
+-- >>>>>>>>>> 20261025040000_legal_acceptance.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261025040000: Terms / Privacy Policy acceptance
+-- =============================================================================
+-- Run after 20261025030000_pagination.sql. Idempotent, one transaction.
+--
+-- WHAT
+--   * public.legal_acceptances: append-only record of who accepted which version
+--     of the Terms and Conditions / Privacy Policy, and when (plus the separate,
+--     optional "send me order updates" choice). Readable only by its owner;
+--     nobody can edit or delete a row through the API.
+--   * terms_version, privacy_version, terms_accepted_at on every profile table
+--     (customer_profiles, staff_members, drivers) — the latest acceptance.
+--   * accept_legal_terms(terms, privacy, order_updates): records the caller's
+--     acceptance (uid from the verified token; the client cannot accept for
+--     someone else). Works before the customer profile exists (sign-up), and a
+--     profile created later is stamped from the record by a trigger.
+--   * my_legal_acceptance(): the caller's latest accepted versions; the app asks
+--     again when they differ from the versions it ships (LegalConfig).
+-- =============================================================================
+begin;
+
+create table if not exists public.legal_acceptances (
+  id bigint generated always as identity primary key,
+  firebase_uid text not null check (length(firebase_uid) between 1 and 128),
+  document text not null check (document in ('terms', 'privacy', 'order_updates')),
+  version text not null check (length(version) between 1 and 40),
+  accepted_at timestamptz not null default now(),
+  unique (firebase_uid, document, version)
+);
+create index if not exists legal_acceptances_uid_idx
+  on public.legal_acceptances (firebase_uid, document, accepted_at desc);
+
+alter table public.legal_acceptances enable row level security;
+revoke all on public.legal_acceptances from anon, authenticated;
+grant select on public.legal_acceptances to authenticated;
+drop policy if exists "own legal acceptances" on public.legal_acceptances;
+create policy "own legal acceptances" on public.legal_acceptances for select to authenticated
+  using (firebase_uid = (select public.current_firebase_uid()));
+
+-- Append-only, also for SECURITY DEFINER code and the table owner's own tools.
+create or replace function public._trg_legal_acceptances_append_only()
+returns trigger language plpgsql as $$
+begin
+  raise exception 'legal acceptances are append-only';
+end;
+$$;
+drop trigger if exists legal_acceptances_append_only on public.legal_acceptances;
+create trigger legal_acceptances_append_only before update or delete on public.legal_acceptances
+  for each row execute function public._trg_legal_acceptances_append_only();
+
+alter table public.customer_profiles add column if not exists terms_version text;
+alter table public.customer_profiles add column if not exists privacy_version text;
+alter table public.customer_profiles add column if not exists terms_accepted_at timestamptz;
+alter table public.staff_members     add column if not exists terms_version text;
+alter table public.staff_members     add column if not exists privacy_version text;
+alter table public.staff_members     add column if not exists terms_accepted_at timestamptz;
+alter table public.drivers           add column if not exists terms_version text;
+alter table public.drivers           add column if not exists privacy_version text;
+alter table public.drivers           add column if not exists terms_accepted_at timestamptz;
+
+create or replace function public.accept_legal_terms(
+  p_terms_version text,
+  p_privacy_version text,
+  p_order_updates boolean default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_terms text := nullif(trim(coalesce(p_terms_version, '')), '');
+  v_privacy text := nullif(trim(coalesce(p_privacy_version, '')), '');
+begin
+  if v_uid is null then raise exception 'Please sign in first.'; end if;
+  if v_terms is null or v_privacy is null or length(v_terms) > 40 or length(v_privacy) > 40 then
+    raise exception 'Invalid terms version.';
+  end if;
+
+  insert into public.legal_acceptances (firebase_uid, document, version)
+    values (v_uid, 'terms', v_terms), (v_uid, 'privacy', v_privacy)
+    on conflict (firebase_uid, document, version) do nothing;
+  if p_order_updates is not null then
+    insert into public.legal_acceptances (firebase_uid, document, version)
+      values (v_uid, 'order_updates', case when p_order_updates then 'yes' else 'no' end)
+      on conflict (firebase_uid, document, version) do nothing;
+    -- The optional choice also sets the notification preference (the app sends
+    -- it from the first signed-in screen, when the customer profile exists).
+    if exists (select 1 from public.customer_profiles where firebase_uid = v_uid) then
+      insert into public.notification_preferences (firebase_uid, order_updates, delivery_updates)
+        values (v_uid, p_order_updates, p_order_updates)
+        on conflict (firebase_uid) do update
+          set order_updates = excluded.order_updates, delivery_updates = excluded.delivery_updates;
+    end if;
+  end if;
+
+  update public.customer_profiles set terms_version = v_terms, privacy_version = v_privacy, terms_accepted_at = now()
+   where firebase_uid = v_uid;
+  update public.staff_members set terms_version = v_terms, privacy_version = v_privacy, terms_accepted_at = now()
+   where firebase_uid = v_uid;
+  update public.drivers set terms_version = v_terms, privacy_version = v_privacy, terms_accepted_at = now()
+   where firebase_uid = v_uid;
+
+  return jsonb_build_object('terms_version', v_terms, 'privacy_version', v_privacy);
+end;
+$$;
+revoke all on function public.accept_legal_terms(text, text, boolean) from public, anon;
+grant execute on function public.accept_legal_terms(text, text, boolean) to authenticated;
+
+create or replace function public.my_legal_acceptance()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'terms_version', (select version from public.legal_acceptances
+                       where firebase_uid = public.current_firebase_uid() and document = 'terms'
+                       order by accepted_at desc, id desc limit 1),
+    'privacy_version', (select version from public.legal_acceptances
+                         where firebase_uid = public.current_firebase_uid() and document = 'privacy'
+                         order by accepted_at desc, id desc limit 1),
+    'accepted_at', (select max(accepted_at) from public.legal_acceptances
+                     where firebase_uid = public.current_firebase_uid() and document = 'terms'))
+$$;
+revoke all on function public.my_legal_acceptance() from public, anon;
+grant execute on function public.my_legal_acceptance() to authenticated;
+
+-- A customer profile created after the acceptance (sign-up: consent is given
+-- before the e-mail is verified and the profile exists) is stamped from the record.
+create or replace function public._trg_profile_stamp_legal()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_terms text;
+  v_privacy text;
+  v_at timestamptz;
+  v_updates text;
+begin
+  select version, accepted_at into v_terms, v_at from public.legal_acceptances
+   where firebase_uid = new.firebase_uid and document = 'terms' order by accepted_at desc, id desc limit 1;
+  select version into v_privacy from public.legal_acceptances
+   where firebase_uid = new.firebase_uid and document = 'privacy' order by accepted_at desc, id desc limit 1;
+  if v_terms is not null then
+    new.terms_version := v_terms;
+    new.privacy_version := v_privacy;
+    new.terms_accepted_at := v_at;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._trg_profile_stamp_legal() from public, anon, authenticated;
+
+drop trigger if exists customer_profiles_stamp_legal on public.customer_profiles;
+create trigger customer_profiles_stamp_legal before insert on public.customer_profiles
+  for each row execute function public._trg_profile_stamp_legal();
+drop trigger if exists staff_members_stamp_legal on public.staff_members;
+create trigger staff_members_stamp_legal before insert on public.staff_members
+  for each row execute function public._trg_profile_stamp_legal();
+drop trigger if exists drivers_stamp_legal on public.drivers;
+create trigger drivers_stamp_legal before insert on public.drivers
+  for each row execute function public._trg_profile_stamp_legal();
+
+commit;

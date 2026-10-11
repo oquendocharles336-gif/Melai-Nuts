@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AdjustLoyaltyPointsRequest;
+use App\Http\Requests\UpdateLoyaltySettingsRequest;
 use App\Services\Supabase\SupabaseLoyalty;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -32,19 +33,11 @@ class LoyaltyController extends Controller
         return view('admin.loyalty.show', ['member' => $m, 'liveData' => true, 'requestKey' => Str::random(32)]);
     }
 
-    public function updateSettings(Request $request)
+    public function updateSettings(UpdateLoyaltySettingsRequest $request)
     {
         abort_unless($request->user()->isAdmin(), 403);
 
-        $data = $request->validate([
-            'earn_pesos_per_point' => ['required', 'numeric', 'min:1', 'max:100000'],
-            'points_per_peso' => ['required', 'numeric', 'gt:0', 'max:10000'],
-            'max_discount_percent' => ['required', 'numeric', 'gt:0', 'max:100'],
-        ], [
-            'earn_pesos_per_point.min' => 'Earn rate must be at least PHP 1 per point.',
-            'points_per_peso.gt' => 'Redeem rate must be more than 0 points per peso.',
-            'max_discount_percent.max' => 'Maximum discount cannot be more than 100%.',
-        ]);
+        $data = $request->validated(); // UpdateLoyaltySettingsRequest
         $this->live->updateSettings($data, $request->user());
 
         return back()->with('status', 'Loyalty settings updated. New orders in the app use them right away.');

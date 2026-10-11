@@ -28,3 +28,17 @@ bool isToday(DateTime t) {
   final now = DateTime.now();
   return t.year == now.year && t.month == now.month && t.day == now.day;
 }
+
+/// A phone number shown where the full number is not needed, e.g.
+/// "+639171234567" or "09171234567" -> "0917 *** 4567". Short or unknown
+/// formats show only the last 2 digits. Empty stays empty.
+String maskPhone(String? phone) {
+  final digits = (phone ?? '').replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) return '';
+  final local = digits.startsWith('63') && digits.length == 12 ? '0${digits.substring(2)}' : digits;
+  if (local.length >= 10) {
+    return '${local.substring(0, 4)} *** ${local.substring(local.length - 4)}';
+  }
+  if (local.length <= 2) return local;
+  return '${'*' * (local.length - 2).clamp(0, 20).toInt()}${local.substring(local.length - 2)}';
+}

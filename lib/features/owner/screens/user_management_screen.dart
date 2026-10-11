@@ -4,6 +4,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../core/utils/form_utils.dart';
+import '../../../core/utils/input_rules.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/catalog_store.dart';
@@ -61,6 +64,20 @@ class _UserManagementBodyState extends State<UserManagementBody> {
   String _searchQuery = '';
 
   Future<void> _toggleActive(AppUser user) async {
+    // Deactivate / reactivate always asks first and names the account.
+    final deactivating = user.isActive;
+    final ok = await ConfirmDialog.show(
+      context,
+      title: deactivating ? 'Deactivate ${user.name}?' : 'Reactivate ${user.name}?',
+      message: deactivating
+          ? '${user.name} (${user.role.label}, ${user.email}) will lose access to the database right away '
+              'and can no longer sign in. Their records and history are kept, and you can reactivate them later.'
+          : '${user.name} (${user.role.label}, ${user.email}) will be able to sign in again.',
+      confirmLabel: deactivating ? 'Deactivate' : 'Reactivate',
+      destructive: deactivating,
+      icon: deactivating ? Icons.person_off_outlined : Icons.person_outline_rounded,
+    );
+    if (!ok || !mounted) return;
     try {
       await AuthService.instance.setAccountActive(user.uid, !user.isActive);
       if (!mounted) return;
@@ -93,9 +110,11 @@ class _UserManagementBodyState extends State<UserManagementBody> {
               Expanded(
                 child: TextField(
                   onChanged: (v) => setState(() => _searchQuery = v),
+                  maxLength: InputLimits.search,
                   decoration: const InputDecoration(
-                    hintText: 'Search users by name or role...',
+                    hintText: 'Search users by name, email or role...',
                     prefixIcon: Icon(Icons.search_rounded),
+                    counterText: '',
                   ),
                 ),
               ),
@@ -196,10 +215,8 @@ class _UserManagementBodyState extends State<UserManagementBody> {
                           children: [
                             Text(
                               user.isActive ? 'Active' : 'Deactivated',
-                              style: TextStyle(
+                              style: AppTextStyles.labelMd.copyWith(
                                 color: user.isActive ? AppColors.success : AppColors.textSecondary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
                               ),
                             ),
                             Text(user.email, style: AppTextStyles.bodySm),
@@ -207,6 +224,7 @@ class _UserManagementBodyState extends State<UserManagementBody> {
                         ),
                         const SizedBox(width: 4),
                         PopupMenuButton<void>(
+                          tooltip: 'Actions for ${user.name}',
                           icon: const Icon(Icons.more_vert_rounded, size: 18),
                           onSelected: (_) => _toggleActive(user),
                           itemBuilder: (context) => [
@@ -264,7 +282,18 @@ class _AddUserSheetState extends State<_AddUserSheet> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_submitting || !FormUtils.validateAndFocus(_formKey)) return;
+    // Giving someone a role is a privileged change: confirm it.
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Create ${_role.label} account?',
+      message: '${_nameController.text.trim()} (${_emailController.text.trim()}) will get '
+          '${_role == UserRole.owner ? 'full owner access to every branch' : '${_role.label} access${_branch == null ? '' : ' at $_branch'}'}.',
+      confirmLabel: 'Create',
+      destructive: _role == UserRole.owner,
+      icon: Icons.person_add_alt_1_rounded,
+    );
+    if (!ok || !mounted) return;
     setState(() => _submitting = true);
     try {
       final user = await AuthService.instance.createManagedAccount(
@@ -272,7 +301,7 @@ class _AddUserSheetState extends State<_AddUserSheet> {
         email: _emailController.text,
         password: _passwordController.text,
         role: _role,
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text,
+        phone: _phoneController.text.trim().isEmpty ? null : ValidationUtils.normalizePhone(_phoneController.text),
         branch: _needsBranch ? _branch : null,
       );
       if (!mounted) return;
@@ -347,6 +376,10 @@ class _AddUserSheetState extends State<_AddUserSheet> {
                   label: 'Full Name',
                   controller: _nameController,
                   prefixIcon: Icons.person_outline_rounded,
+                  keyboardType: TextInputType.name,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.next,
+                  maxLength: InputLimits.name,
                   validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
                 ),
                 const SizedBox(height: 14),
@@ -355,6 +388,8 @@ class _AddUserSheetState extends State<_AddUserSheet> {
                   controller: _emailController,
                   prefixIcon: Icons.email_outlined,
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  maxLength: InputLimits.email,
                   validator: ValidationUtils.validateEmail,
                 ),
                 const SizedBox(height: 14),
@@ -363,9 +398,10 @@ class _AddUserSheetState extends State<_AddUserSheet> {
                   controller: _phoneController,
                   prefixIcon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
-                  validator: (v) => v == null || v.trim().isEmpty
-                      ? null
-                      : ValidationUtils.validatePhone(v),
+                  inputFormatters: InputRules.phone(),
+                  textInputAction: TextInputAction.next,
+                  hint: '0917 123 4567',
+                  validator: ValidationUtils.validateOptionalPhone,
                 ),
                 const SizedBox(height: 14),
                 AppTextField(
@@ -374,7 +410,12 @@ class _AddUserSheetState extends State<_AddUserSheet> {
                   prefixIcon: Icons.lock_outline_rounded,
                   obscure: true,
                   helperText: 'Share this with them — they can change it after signing in.',
-                  validator: ValidationUtils.validatePassword,
+                  maxLength: InputLimits.passwordMax,
+                  validator: (v) => ValidationUtils.validatePassword(
+                    v,
+                    email: _emailController.text,
+                    name: _nameController.text,
+                  ),
                 ),
                 if (_needsBranch) ...[
                   const SizedBox(height: 14),
@@ -390,7 +431,7 @@ class _AddUserSheetState extends State<_AddUserSheet> {
                           children: [
                             Expanded(
                               child: Text(
-                                repo.error != null ? 'Could not load branches: ${repo.error!.message}' : 'No branches found.',
+                                repo.error != null ? 'Could not load branches. ${repo.error!.message}' : 'No branches found.',
                                 style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
                               ),
                             ),
