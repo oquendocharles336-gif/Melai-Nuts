@@ -122,7 +122,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         runSpacing: 8,
                         children: [
                           // Real branch names, only once they have loaded (nothing is shown otherwise).
-                          for (final b in kBranches.map((b) => b.name))
+                          for (final b in kBranches.where((b) => b.servesCustomers).map((b) => b.name))
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                               decoration: BoxDecoration(

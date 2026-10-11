@@ -116,4 +116,25 @@ class BusinessSettingsTest extends TestCase
         $this->assertNotContains('owner_update_business_settings', $this->db->calledFunctions());
         $this->assertNotContains('owner_save_branch', $this->db->calledFunctions());
     }
+
+    public function test_a_branch_marked_as_warehouse_sells_nothing(): void
+    {
+        $this->useFakeSupabase();
+        $owner = $this->linkedLogin('uid-owner');
+
+        $this->signedIn($owner)->put('/admin/branches/b-lb', ['name' => 'Los Baños Branch', 'delivery_fee' => '0',
+            'supports_delivery' => '1', 'supports_pickup' => '1', 'is_active' => '1', 'is_warehouse' => '1'])->assertRedirect();
+        $lb = collect($this->db->branches)->firstWhere('id', 'b-lb');
+        $this->assertTrue($lb['is_warehouse']);
+        $this->assertFalse($lb['supports_delivery']);
+        $this->assertFalse($lb['supports_pickup']);
+        $this->assertContains('owner_set_branch_warehouse', $this->db->calledFunctions('uid-owner'));
+
+        // Back to a shop: the warehouse flag is cleared first, then pickup can be offered again.
+        $this->signedIn($owner)->put('/admin/branches/b-lb', ['name' => 'Los Baños Branch', 'delivery_fee' => '0',
+            'supports_pickup' => '1', 'is_active' => '1'])->assertRedirect();
+        $lb = collect($this->db->branches)->firstWhere('id', 'b-lb');
+        $this->assertFalse($lb['is_warehouse']);
+        $this->assertTrue($lb['supports_pickup']);
+    }
 }

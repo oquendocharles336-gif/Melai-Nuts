@@ -95,12 +95,21 @@ class BusinessSettingsController extends Controller
             'delivery_fee' => ['required', 'numeric', 'min:0', 'max:100000'],
             'daily_sales_target' => ['nullable', 'numeric', 'gt:0', 'max:100000000'],
         ], ['delivery_fee.required' => 'Enter the delivery fee (0 if delivery is free).']);
-        $d['supports_delivery'] = $request->boolean('supports_delivery');
-        $d['supports_pickup'] = $request->boolean('supports_pickup');
+        $warehouse = $request->boolean('is_warehouse');
+        // A warehouse only holds stock: it never takes deliveries, pickups or POS sales.
+        $d['supports_delivery'] = ! $warehouse && $request->boolean('supports_delivery');
+        $d['supports_pickup'] = ! $warehouse && $request->boolean('supports_pickup');
         $d['is_active'] = $request->boolean('is_active');
+        $wasWarehouse = $branch !== null && (bool) (collect($this->repo->businessSettings()['branches'] ?? [])->firstWhere('id', $branch)['is_warehouse'] ?? false);
 
         try {
+            if ($branch !== null && $wasWarehouse && ! $warehouse) {
+                $this->repo->setBranchWarehouse($branch, false); // back to a shop first, then its options
+            }
             $id = $this->repo->saveBranch($branch, $d);
+            if ($warehouse && ! $wasWarehouse) {
+                $this->repo->setBranchWarehouse($id, true);
+            }
         } catch (BackendActionException $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }

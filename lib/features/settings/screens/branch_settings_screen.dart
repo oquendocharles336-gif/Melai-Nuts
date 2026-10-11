@@ -112,7 +112,7 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
             return DataStateView(
               isLoading: repo.isLoading,
               error: repo.error,
-              isEmpty: kBranches.isEmpty,
+              isEmpty: !kBranches.any((b) => b.servesCustomers),
               onRetry: () => repo.loadBranches(),
               emptyIcon: Icons.storefront_outlined,
               emptyTitle: 'No branches are available right now.',
@@ -134,7 +134,8 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
                           style: AppTextStyles.bodySm,
                         ),
                         const SizedBox(height: AppSpacing.md),
-                        for (final branch in kBranches) ...[
+                        // Warehouses only hold stock: customers never pick them.
+                        for (final branch in kBranches.where((b) => b.servesCustomers)) ...[
                           _BranchCard(
                             branch: branch,
                             selected: _pendingBranchId == branch.id,

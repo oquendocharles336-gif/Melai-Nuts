@@ -197,7 +197,8 @@ begin
                'operating_hours', b.operating_hours, 'is_active', b.is_active,
                'supports_delivery', b.supports_delivery, 'supports_pickup', b.supports_pickup,
                'delivery_fee', b.delivery_fee, 'daily_sales_target', b.daily_sales_target,
-               'latitude', to_jsonb(b) -> 'latitude', 'longitude', to_jsonb(b) -> 'longitude')
+               'latitude', to_jsonb(b) -> 'latitude', 'longitude', to_jsonb(b) -> 'longitude',
+               'is_warehouse', coalesce((to_jsonb(b) ->> 'is_warehouse')::boolean, false))
              order by b.name)
       from public.branches b
       where v_staff.role = 'owner' or b.id = v_staff.branch_id), '[]'::jsonb)
@@ -342,8 +343,11 @@ begin
     'branch', v_id::text, jsonb_build_object('before', v_before,
       'after', (select to_jsonb(b) from public.branches b where b.id = v_id)));
   return jsonb_build_object('id', v_id);
-exception when unique_violation then
-  raise exception 'Another branch already has the name %.', v_name;
+exception
+  when unique_violation then
+    raise exception 'Another branch already has the name %.', v_name;
+  when check_violation then
+    raise exception 'A warehouse cannot take deliveries or pickups (or a value is out of range).';
 end;
 $$;
 revoke all on function public.owner_save_branch(uuid, text, text, text, text, numeric, numeric, boolean, boolean, boolean) from public, anon;

@@ -85,6 +85,7 @@
             <label style="align-self:flex-end"><input type="checkbox" name="supports_delivery" value="1" @checked($b['supports_delivery'] ?? false)> Delivery</label>
             <label style="align-self:flex-end"><input type="checkbox" name="supports_pickup" value="1" @checked($b['supports_pickup'] ?? true)> Pickup</label>
             <label style="align-self:flex-end"><input type="checkbox" name="is_active" value="1" @checked($b['is_active'] ?? true)> Open</label>
+            <label style="align-self:flex-end" title="Stock only: receives goods and sends them to the shops with transfers; customers never see it"><input type="checkbox" name="is_warehouse" value="1" @checked($b['is_warehouse'] ?? false)> Warehouse</label>
             <button class="btn-solid" type="submit" style="align-self:flex-end">{{ $b ? 'Save branch' : 'Add branch' }}</button>
         </form>
     </x-card>

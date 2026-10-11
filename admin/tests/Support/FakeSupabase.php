@@ -210,10 +210,12 @@ class FakeSupabase extends SupabaseGateway
             'admin_portal_loyalty_settings' => $this->settings['loyalty']['earn_pesos_per_point'] === null ? null : $this->settings['loyalty'],
             'get_business_settings' => $this->settings + ['branches' => array_values(array_map(fn ($b) => $b + [
                 'address' => null, 'contact_phone' => null, 'operating_hours' => null, 'is_active' => true, 'supports_delivery' => false,
-                'supports_pickup' => true, 'delivery_fee' => 0, 'daily_sales_target' => null], array_filter($this->branches, fn ($b) => in_array($b['id'], $allowed, true))))],
+                'supports_pickup' => true, 'delivery_fee' => 0, 'daily_sales_target' => null, 'is_warehouse' => false], array_filter($this->branches, fn ($b) => in_array($b['id'], $allowed, true))))],
             'owner_update_business_settings' => $me['role'] === 'owner' ? $this->updateSettings(json_decode((string) $bindings[0], true) ?: [], $allowed)
                 : throw new BackendActionException('Only an active owner can do this.'),
             'owner_save_branch' => $me['role'] === 'owner' ? $this->saveBranch($bindings) : throw new BackendActionException('Only an active owner can do this.'),
+            'owner_set_branch_warehouse' => $me['role'] === 'owner' ? $this->setWarehouse((string) $bindings[0], $bindings[1] === 'true')
+                : throw new BackendActionException('Only an active owner can do this.'),
             'admin_portal_staff_directory' => $me['role'] === 'owner'
                 ? array_values(array_map(fn ($s) => $s + ['branch_name' => $this->branchName($s['branch_id']), 'is_active' => $s['account_status'] === 'active'], $this->staff))
                 : throw new BackendActionException('Only an active owner can do this.'),
@@ -234,6 +236,20 @@ class FakeSupabase extends SupabaseGateway
         return $this->call('uid-owner', 'select public.get_business_settings()::text as r');
     }
 
+    private function setWarehouse(string $id, bool $on): array
+    {
+        foreach ($this->branches as $i => $b) {
+            if ($b['id'] === $id) {
+                $this->branches[$i]['is_warehouse'] = $on;
+                if ($on) {
+                    $this->branches[$i]['supports_delivery'] = $this->branches[$i]['supports_pickup'] = false;
+                }
+            }
+        }
+
+        return ['id' => $id, 'is_warehouse' => $on];
+    }
+
     private function saveBranch(array $b): array
     {
         [$id, $name, $address, $phone, $hours, $fee, $target, $delivery, $pickup, $active] = $b;
@@ -249,7 +265,7 @@ class FakeSupabase extends SupabaseGateway
         } else {
             foreach ($this->branches as $i => $existing) {
                 if ($existing['id'] === $id) {
-                    $this->branches[$i] = ['id' => $id] + $row;
+                    $this->branches[$i] = ['id' => $id] + $row + ['is_warehouse' => $existing['is_warehouse'] ?? false];
                 }
             }
         }

@@ -202,6 +202,13 @@ class SupabaseRepository
         return (string) ($r['id'] ?? $id);
     }
 
+    /** Marks a branch as a warehouse (stock only, no sales) or back as a shop. Owner only. */
+    public function setBranchWarehouse(string $branchId, bool $isWarehouse): void
+    {
+        $this->forget();
+        $this->call('select public.owner_set_branch_warehouse(?::uuid, ?::boolean)::text as r', [$branchId, $isWarehouse ? 'true' : 'false']);
+    }
+
     public function loyaltySettings(): array
     {
         return $this->call('select public.admin_portal_loyalty_settings()::text as r') ?? [];

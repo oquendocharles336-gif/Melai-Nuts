@@ -18,6 +18,13 @@ class Branch {
   final bool supportsPickup;
   final double deliveryFee;
 
+  /// A warehouse only holds stock (migration 20261022000000): it never takes
+  /// orders and is hidden from customers; staff transfer stock from it.
+  final bool isWarehouse;
+
+  /// Branches a customer can pick: open for pickup or delivery, not a warehouse.
+  bool get servesCustomers => !isWarehouse && (supportsPickup || supportsDelivery);
+
   /// Map position of the branch (`branches.latitude/longitude`); null until
   /// the owner sets it. Used to center the customer's map picker and to warn
   /// about pins far away from the branch.
@@ -32,6 +39,7 @@ class Branch {
     required this.supportsDelivery,
     required this.supportsPickup,
     required this.deliveryFee,
+    this.isWarehouse = false,
     this.contactPhone,
     this.operatingHours,
     this.latitude,
@@ -49,6 +57,7 @@ class Branch {
       supportsDelivery: (row['supports_delivery'] as bool?) ?? true,
       supportsPickup: (row['supports_pickup'] as bool?) ?? true,
       deliveryFee: (row['delivery_fee'] as num?)?.toDouble() ?? 0,
+      isWarehouse: (row['is_warehouse'] as bool?) ?? false,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
     );
