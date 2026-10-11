@@ -1,0 +1,465 @@
+Changed files per commit (git log --name-status, oldest first). Baseline = the uploaded zip.
+
+=== 6c52f03 Add scripts/run-sql-tests.sh
+
+A	scripts/run-sql-tests.sh
+=== f8ced93 Phase 0: business settings migration, no seeded loyalty values, cleanup script tests, fresh-install check
+
+M	scripts/run-sql-tests.sh
+M	supabase/migrations/20261001020000_seed_loyalty_cart_settings.sql
+A	supabase/migrations/20261018000000_business_settings.sql
+M	supabase/repair/20261013_cleanup_seeded_demo_records.sql
+M	supabase/tests/admin_portal_test.sql
+M	supabase/tests/analytics_forecast_test.sql
+A	supabase/tests/business_settings_test.sql
+A	supabase/tests/cleanup_seeded_demo_records_test.sh
+M	supabase/tests/concurrency_test.sh
+M	supabase/tests/customer_rls_security_test.sql
+M	supabase/tests/delivery_pins_test.sql
+M	supabase/tests/driver_module_test.sql
+A	supabase/tests/fresh_install_check.sql
+M	supabase/tests/hitpay_refunds_test.sql
+M	supabase/tests/loyalty_cards_test.sql
+M	supabase/tests/online_payment_switch_test.sql
+M	supabase/tests/order_integrity_test.sql
+M	supabase/tests/pos_shift_void_return_test.sql
+M	supabase/tests/purchase_receipts_test.sql
+M	supabase/tests/receiving_cards_refund_concurrency_test.sh
+M	supabase/tests/refunds_analytics_test.sql
+M	supabase/tests/staff_cross_branch_test.sql
+M	supabase/tests/staff_foundation_test.sql
+M	supabase/tests/staff_identity_test.sql
+=== c38671c Phase 0: owner Business settings page, DB-driven targets/ratios, no hardcoded identities/keys, fixture-data guard
+
+M	INTEGRATION.md
+M	README.md
+M	admin/.env.example
+M	admin/app/Console/Commands/ChangeAdminEmailCommand.php
+M	admin/app/Console/Commands/FirebaseCheckCommand.php
+M	admin/app/Console/Commands/LinkStaffCommand.php
+A	admin/app/Http/Controllers/Admin/BusinessSettingsController.php
+M	admin/app/Http/Controllers/StockController.php
+M	admin/app/Http/Middleware/EnsureSupabase.php
+M	admin/app/Services/DashboardService.php
+M	admin/app/Services/Data/SupabaseDataSource.php
+M	admin/app/Services/Firebase/FirebaseConfig.php
+M	admin/app/Services/Platform.php
+M	admin/app/Services/SharedReads.php
+M	admin/app/Services/Supabase/SupabaseRepository.php
+M	admin/app/Support/SalesCalculator.php
+M	admin/config/melai.php
+M	admin/database/seeders/AdminSeeder.php
+M	admin/resources/js/ui.js
+A	admin/resources/views/admin/business/index.blade.php
+M	admin/resources/views/admin/loyalty/index.blade.php
+M	admin/resources/views/auth/login.blade.php
+M	admin/resources/views/components/progress-bar.blade.php
+M	admin/resources/views/dashboard.blade.php
+M	admin/resources/views/layouts/_page.blade.php
+M	admin/resources/views/layouts/panel.blade.php
+M	admin/resources/views/ops/inventory.blade.php
+M	admin/resources/views/section.blade.php
+M	admin/resources/views/settings.blade.php
+M	admin/routes/web.php
+A	admin/tests/Feature/BusinessSettingsTest.php
+M	admin/tests/Feature/ChangeAdminEmailTest.php
+M	admin/tests/Feature/SupabaseIntegrationTest.php
+M	admin/tests/Support/FakeFirebase.php
+M	admin/tests/Support/FakeSupabase.php
+M	admin/tests/Support/MockPlatform.php
+M	android/app/google-services.json.example
+D	android/app/src/google-services.json.example
+M	docs/FIX_ANON_ROLE.md
+M	env/firebase.example.json
+M	env/supabase.example.json
+M	lib/features/auth/screens/forgot_password_screen.dart
+M	lib/features/auth/screens/register_screen.dart
+D	lib/features/auth/widgets/role_badge_card.dart
+M	lib/features/delivery/screens/create_delivery_screen.dart
+M	lib/firebase_options.dart
+A	scripts/check_no_fixture_data.py
+A	scripts/hardcoded-data-allowlist.txt
+A	scripts/test_check_no_fixture_data.py
+M	supabase/functions/README.md
+M	supabase/functions/grant-role-claim/index.ts
+=== c45cffc Phase 0 (app): no invented earn rate, restock level, margin line, fallback labels or region names; online payment hidden with DB message
+
+M	lib/app/routes.dart
+M	lib/core/config/payment_config.dart
+M	lib/core/constants/app_constants.dart
+M	lib/core/services/customer_data_store.dart
+M	lib/data/models/customer_profile.dart
+M	lib/data/models/delivery.dart
+M	lib/data/models/inventory_batch.dart
+M	lib/data/models/inventory_item.dart
+A	lib/data/repositories/business_settings_repository.dart
+M	lib/data/repositories/delivery_repository.dart
+M	lib/data/repositories/loyalty_repository.dart
+A	lib/data/repositories/payment_settings_repository.dart
+M	lib/data/repositories/staff_repository.dart
+M	lib/features/auth/screens/customer_access_screen.dart
+M	lib/features/auth/screens/forgot_password_screen.dart
+M	lib/features/auth/screens/login_screen.dart
+M	lib/features/auth/screens/password_reset_success_screen.dart
+M	lib/features/auth/screens/register_screen.dart
+M	lib/features/auth/screens/reset_password_screen.dart
+M	lib/features/auth/screens/splash_screen.dart
+M	lib/features/customer/screens/cart_screen.dart
+M	lib/features/customer/screens/checkout_screen.dart
+M	lib/features/customer/screens/customer_home_screen.dart
+M	lib/features/customer/screens/customer_profile_screen.dart
+M	lib/features/customer/screens/loyalty_dashboard_screen.dart
+M	lib/features/customer/screens/order_history_screen.dart
+M	lib/features/customer/screens/order_tracking_screen.dart
+M	lib/features/customer/screens/product_catalog_screen.dart
+M	lib/features/customer/screens/rfid_tap_screen.dart
+M	lib/features/delivery/screens/driver_portal_screen.dart
+M	lib/features/delivery/screens/live_delivery_map_screen.dart
+M	lib/features/inventory/screens/batch_details_screen.dart
+M	lib/features/inventory/screens/inventory_dashboard_screen.dart
+M	lib/features/inventory/screens/inventory_list_screen.dart
+M	lib/features/inventory/screens/inventory_product_details_screen.dart
+M	lib/features/inventory/screens/low_stock_screen.dart
+M	lib/features/inventory/screens/receive_batch_screen.dart
+M	lib/features/inventory/widgets/stock_status_badge.dart
+M	lib/features/owner/screens/owner_portal_screen.dart
+M	lib/features/payments/screens/payment_screen.dart
+M	lib/features/products/screens/add_product_screen.dart
+M	lib/features/products/screens/edit_product_screen.dart
+M	lib/features/products/screens/product_management_screen.dart
+M	lib/features/products/screens/product_pricing_screen.dart
+M	lib/features/products/screens/product_variants_screen.dart
+A	lib/features/products/widgets/margin_indicator.dart
+M	lib/features/settings/screens/settings_screen.dart
+M	lib/features/staff/screens/staff_portal_screen.dart
+M	lib/features/staff/screens/staff_refunds_screen.dart
+M	lib/features/staff/screens/staff_transactions_screen.dart
+A	test/business_settings_test.dart
+A	test/earn_rate_test.dart
+M	test/payment_config_test.dart
+=== ba6e917 Online payment off: hitpay-create-payment fails closed with the DB message; testable handler + Deno tests
+
+M	supabase/functions/README.md
+A	supabase/functions/hitpay-create-payment/handler.ts
+A	supabase/functions/hitpay-create-payment/handler_test.ts
+M	supabase/functions/hitpay-create-payment/index.ts
+=== dc6c25c Phase 0: audit table, empty-database admin tests, payment docs
+
+M	DUMMY_DATA_AUDIT.md
+M	INTEGRATION.md
+M	README.md
+M	admin/resources/views/admin/payments/index.blade.php
+A	admin/tests/Feature/EmptyDatabaseTest.php
+M	admin/tests/Support/FakeSupabase.php
+=== 9a9ef3f Generate resync file from migrations; check it in the SQL runner
+
+A	scripts/build-resync.sh
+M	scripts/run-sql-tests.sh
+M	supabase/repair/20261010_resync_live_database.sql
+=== eb52005 Phase 1: real app id + release signing + R8, App Check, DB rate limits, CI workflow, release/App Check docs, key checklist
+
+A	.github/workflows/ci.yml
+M	SECURITY.md
+M	android/app/build.gradle.kts
+A	android/app/proguard-rules.pro
+M	android/app/src/main/AndroidManifest.xml
+R077	android/app/src/main/java/com/example/melai_nuts/MainActivity.java	android/app/src/main/java/ph/melainuts/app/MainActivity.java
+A	android/key.properties.example
+A	docs/APP_CHECK.md
+A	docs/RELEASE.md
+M	ios/Runner.xcodeproj/project.pbxproj
+A	lib/core/services/app_check_service.dart
+M	lib/core/services/geocoding_service.dart
+M	lib/core/widgets/delivery_map.dart
+M	lib/data/repositories/cart_repository.dart
+M	lib/features/customer/cart_controller.dart
+M	lib/main.dart
+M	linux/CMakeLists.txt
+M	macos/Runner.xcodeproj/project.pbxproj
+M	macos/Runner/Configs/AppInfo.xcconfig
+M	pubspec.yaml
+A	supabase/migrations/20261019000000_rate_limits.sql
+M	supabase/repair/20261010_resync_live_database.sql
+A	supabase/tests/rate_limits_test.sql
+M	windows/runner/Runner.rc
+=== 0aa2ff8 Phase 1: production runbook (cleanup run order, no staging yet)
+
+A	docs/PRODUCTION_RUNBOOK.md
+=== 321243d Phase 2: typed error handling for all 96 catch(_) via AppErrors.report + Crashlytics
+
+M	android/app/build.gradle.kts
+M	android/settings.gradle.kts
+M	lib/app/route_guard.dart
+M	lib/app/routes.dart
+M	lib/core/config/supabase_config.dart
+M	lib/core/services/auth_service.dart
+M	lib/core/services/branch_controller.dart
+M	lib/core/services/checkout_attempt_store.dart
+M	lib/core/services/connectivity_service.dart
+A	lib/core/services/crash_reporter.dart
+M	lib/core/services/customer_data_store.dart
+M	lib/core/services/data_sync_service.dart
+M	lib/core/services/device_location.dart
+M	lib/core/services/driver_location_tracker.dart
+M	lib/core/services/email_verification_service.dart
+M	lib/core/services/geocoding_service.dart
+M	lib/core/services/local_cache_service.dart
+M	lib/core/services/offline_read_cache_client.dart
+M	lib/core/services/pending_writes_service.dart
+M	lib/core/services/staff_session_store.dart
+M	lib/core/services/staff_store.dart
+M	lib/core/services/supabase_token.dart
+M	lib/core/services/sync_service.dart
+M	lib/core/theme/app_text_styles.dart
+M	lib/core/utils/app_error.dart
+M	lib/data/repositories/orders_repository.dart
+M	lib/data/repositories/products_repository.dart
+M	lib/data/repositories/refunds_repository.dart
+M	lib/data/repositories/staff_profile_repository.dart
+M	lib/features/auth/screens/customer_access_screen.dart
+M	lib/features/auth/screens/email_verification_screen.dart
+M	lib/features/auth/screens/forgot_password_screen.dart
+M	lib/features/auth/screens/login_screen.dart
+M	lib/features/auth/screens/phone_login_screen.dart
+M	lib/features/auth/screens/register_screen.dart
+M	lib/features/auth/screens/reset_password_screen.dart
+M	lib/features/auth/screens/splash_screen.dart
+M	lib/features/customer/cart_controller.dart
+M	lib/features/customer/screens/checkout_screen.dart
+M	lib/features/customer/screens/order_tracking_screen.dart
+M	lib/features/customer/screens/product_details_screen.dart
+M	lib/features/customer/screens/search_results_screen.dart
+M	lib/features/delivery/screens/create_delivery_screen.dart
+M	lib/features/delivery/screens/delivery_manifest_screen.dart
+M	lib/features/delivery/screens/driver_portal_screen.dart
+M	lib/features/owner/screens/user_management_screen.dart
+M	lib/features/payments/screens/online_payment_screen.dart
+M	lib/features/refunds/screens/refund_processing_screen.dart
+M	lib/features/settings/screens/logout_confirmation_screen.dart
+M	lib/features/staff/screens/staff_transactions_screen.dart
+M	lib/features/staff/widgets/staff_session_blocked_view.dart
+M	lib/main.dart
+M	pubspec.yaml
+A	test/app_error_report_test.dart
+=== 1ef8cc6 Phase 2: route-guard matrix tests, empty-state/notice/margin widget tests, public notice widget
+
+M	lib/app/route_guard.dart
+M	lib/app/routes.dart
+M	lib/features/customer/screens/checkout_screen.dart
+A	lib/features/customer/widgets/online_payment_unavailable_notice.dart
+A	test/empty_states_test.dart
+A	test/route_access_test.dart
+=== 397f8f3 Phase 2: Laravel race tests (parallel loyalty adjustment, deductions, cash refund approval)
+
+M	admin/tests/Feature/SupabaseIntegrationTest.php
+=== 5702e17 Phase 3: offline POS queue (replay with idempotency key, pending/failed UI, retry/discard), camera barcode scanning with manual fallback
+
+M	ios/Runner/Info.plist
+M	lib/core/services/customer_data_store.dart
+M	lib/core/services/staff_session_store.dart
+M	lib/core/services/staff_store.dart
+M	lib/core/services/sync_service.dart
+A	lib/features/staff/barcode/barcode_scan_screen.dart
+A	lib/features/staff/barcode/sku_matcher.dart
+A	lib/features/staff/pos_sale_queue.dart
+M	lib/features/staff/screens/pos_flow_screens.dart
+M	lib/features/staff/screens/staff_portal_screen.dart
+A	lib/features/staff/widgets/pos_offline_widgets.dart
+M	lib/main.dart
+M	pubspec.yaml
+A	test/pos_sale_queue_test.dart
+A	test/sku_matcher_test.dart
+=== d188ca5 Phase 3: counter returns in the app (variant_id in staff_list_orders, return dialog, SQL test)
+
+M	lib/data/models/staff_models.dart
+M	lib/data/repositories/staff_repository.dart
+M	lib/features/staff/screens/staff_transactions_screen.dart
+A	supabase/migrations/20261020000000_staff_orders_variant_ids.sql
+M	supabase/repair/20261010_resync_live_database.sql
+A	supabase/tests/counter_returns_test.sql
+=== b75e2eb Phase 3: server-triggered push notifications (outbox triggers, expiry alerts setting, push-dispatch Edge Function, app token registration)
+
+M	.github/workflows/ci.yml
+M	admin/app/Http/Controllers/Admin/BusinessSettingsController.php
+M	admin/resources/views/admin/business/index.blade.php
+M	admin/tests/Feature/BusinessSettingsTest.php
+M	admin/tests/Support/FakeSupabase.php
+M	android/app/src/main/AndroidManifest.xml
+A	docs/PUSH_NOTIFICATIONS.md
+M	lib/core/services/auth_service.dart
+A	lib/core/services/push_service.dart
+M	lib/main.dart
+M	pubspec.yaml
+A	supabase/functions/push-dispatch/handler.ts
+A	supabase/functions/push-dispatch/handler_test.ts
+A	supabase/functions/push-dispatch/index.ts
+M	supabase/migrations/20261018000000_business_settings.sql
+A	supabase/migrations/20261021000000_push_notifications.sql
+M	supabase/repair/20261010_resync_live_database.sql
+A	supabase/tests/push_notifications_test.sql
+=== b0b1358 Phase 3: route-eta Edge Function (key server-side) + driver portal road ETA; foreground-service driver location with rationale
+
+M	.github/workflows/ci.yml
+M	android/app/src/main/AndroidManifest.xml
+A	docs/DRIVER_LOCATION.md
+M	ios/Runner/Info.plist
+M	lib/core/services/driver_location_tracker.dart
+A	lib/data/repositories/route_eta_repository.dart
+M	lib/features/delivery/screens/driver_portal_screen.dart
+A	supabase/functions/route-eta/handler.ts
+A	supabase/functions/route-eta/handler_test.ts
+A	supabase/functions/route-eta/index.ts
+A	test/road_eta_test.dart
+=== fde717e Phase 3: warehouse as a branch (no sales, hidden from customers, transfers), admin toggle, tests
+
+M	admin/app/Http/Controllers/Admin/BusinessSettingsController.php
+M	admin/app/Services/Supabase/SupabaseRepository.php
+M	admin/resources/views/admin/business/index.blade.php
+M	admin/tests/Feature/BusinessSettingsTest.php
+M	admin/tests/Support/FakeSupabase.php
+M	lib/data/models/branch.dart
+M	lib/features/auth/screens/splash_screen.dart
+M	lib/features/settings/screens/branch_settings_screen.dart
+M	supabase/migrations/20261018000000_business_settings.sql
+A	supabase/migrations/20261022000000_warehouse.sql
+M	supabase/repair/20261010_resync_live_database.sql
+A	supabase/tests/warehouse_test.sql
+A	test/branch_model_test.dart
+=== 165016f Phase 3: RFID reader test checklist; sketch fixes (buzzer pin, serial timeout, self-healing RC522); manual entry documented
+
+M	hardware/rfid-reader/README.md
+A	hardware/rfid-reader/TEST_CHECKLIST.md
+M	hardware/rfid-reader/melai_rfid_reader/melai_rfid_reader.ino
+=== 0526e00 Phase 4: WCAG AA colours (+test), 48dp tap targets in theme, tooltips/semantics on icon-only buttons
+
+M	lib/core/theme/app_colors.dart
+M	lib/core/theme/app_theme.dart
+M	lib/features/auth/screens/login_screen.dart
+M	lib/features/auth/screens/reset_password_screen.dart
+M	lib/features/customer/screens/customer_home_screen.dart
+M	lib/features/customer/screens/edit_profile_screen.dart
+M	lib/features/customer/screens/product_catalog_screen.dart
+M	lib/features/customer/screens/product_details_screen.dart
+M	lib/features/customer/widgets/cart_item.dart
+M	lib/features/delivery/screens/delivery_route_screen.dart
+M	lib/features/owner/screens/sales_overview_screen.dart
+M	lib/features/owner/screens/user_management_screen.dart
+M	lib/features/products/screens/add_product_screen.dart
+M	lib/features/products/screens/edit_product_screen.dart
+M	lib/features/products/screens/product_list_screen.dart
+M	lib/features/products/screens/product_variants_screen.dart
+M	lib/features/staff/screens/pos_flow_screens.dart
+M	lib/features/staff/screens/staff_portal_screen.dart
+A	test/accessibility_contrast_test.dart
+=== f01f50c Phase 4: gen-l10n English + Filipino, Settings → Language (device-saved), translated checkout/POS/scanner/returns/driver strings, tests
+
+M	.github/workflows/ci.yml
+M	.gitignore
+A	l10n.yaml
+M	lib/app/app.dart
+A	lib/core/services/locale_controller.dart
+M	lib/features/customer/screens/checkout_screen.dart
+M	lib/features/customer/screens/order_history_screen.dart
+M	lib/features/customer/screens/product_catalog_screen.dart
+M	lib/features/customer/widgets/online_payment_unavailable_notice.dart
+M	lib/features/delivery/screens/driver_portal_screen.dart
+M	lib/features/settings/screens/settings_screen.dart
+M	lib/features/staff/barcode/barcode_scan_screen.dart
+M	lib/features/staff/screens/staff_portal_screen.dart
+M	lib/features/staff/screens/staff_transactions_screen.dart
+M	lib/features/staff/widgets/pos_offline_widgets.dart
+A	lib/l10n/README.md
+A	lib/l10n/app_en.arb
+A	lib/l10n/app_fil.arb
+M	lib/main.dart
+M	pubspec.yaml
+M	test/empty_states_test.dart
+A	test/localization_test.dart
+=== 07244d7 Phase 4: customer features — favourites (DB), reorder by variant id, order-ready push messages, owner-set 'Only N left' (replaces hardcoded 10), tests
+
+M	admin/app/Http/Controllers/Admin/BusinessSettingsController.php
+M	admin/resources/views/admin/business/index.blade.php
+M	admin/tests/Feature/BusinessSettingsTest.php
+M	admin/tests/Support/FakeSupabase.php
+M	lib/core/services/auth_service.dart
+M	lib/data/models/order.dart
+M	lib/data/models/product.dart
+A	lib/data/repositories/favorites_repository.dart
+M	lib/data/repositories/products_repository.dart
+A	lib/data/repositories/storefront_settings_repository.dart
+M	lib/features/customer/screens/customer_profile_screen.dart
+A	lib/features/customer/screens/favorites_screen.dart
+M	lib/features/customer/screens/product_details_screen.dart
+M	lib/features/customer/screens/repeat_order_screen.dart
+A	lib/features/customer/widgets/favorite_button.dart
+M	lib/main.dart
+A	supabase/migrations/20261023000000_customer_features.sql
+M	supabase/repair/20261010_resync_live_database.sql
+A	supabase/tests/customer_features_test.sql
+A	test/customer_features_test.dart
+=== 668575c Phase 4: owner reports — profit by option (current cost, uncosted kept apart), inventory valuation, daily owner digest push, website page with CSV + print/PDF, tests
+
+A	admin/app/Http/Controllers/Admin/ProfitReportController.php
+M	admin/app/Services/Supabase/SupabaseRepository.php
+A	admin/resources/views/admin/profit/index.blade.php
+M	admin/resources/views/layouts/panel.blade.php
+M	admin/routes/web.php
+A	admin/tests/Feature/ProfitReportTest.php
+M	admin/tests/Feature/SupabaseIntegrationTest.php
+M	admin/tests/Support/FakeSupabase.php
+M	docs/PUSH_NOTIFICATIONS.md
+A	supabase/migrations/20261024000000_owner_reports.sql
+M	supabase/repair/20261010_resync_live_database.sql
+A	supabase/tests/owner_reports_test.sql
+=== 6d9dcbf Phase 5: security headers (CSP, nosniff, frame, HSTS over HTTPS, permissions), secure session cookie by default in production, self-hosted Tesseract.js (no CDN), tests
+
+M	admin/.env.example
+M	admin/.gitignore
+A	admin/app/Http/Middleware/SecurityHeaders.php
+M	admin/bootstrap/app.php
+M	admin/config/melai.php
+M	admin/config/session.php
+M	admin/package-lock.json
+M	admin/package.json
+M	admin/resources/views/receipts/create.blade.php
+A	admin/scripts/vendor-ocr.mjs
+A	admin/tests/Feature/SecurityHeadersTest.php
+=== 98ed03c Phase 5: optional TOTP two-step sign-in (encrypted secret, hashed one-time recovery codes, replay-safe, rate-limited) and password re-entry for refunds and points adjustments, tests
+
+A	admin/app/Http/Controllers/Auth/TwoFactorController.php
+A	admin/app/Http/Middleware/ConfirmRecentPassword.php
+A	admin/app/Http/Middleware/EnsureTwoFactorPassed.php
+M	admin/app/Models/User.php
+A	admin/app/Services/Auth/PasswordVerifier.php
+A	admin/app/Services/Auth/Totp.php
+M	admin/bootstrap/app.php
+M	admin/config/melai.php
+A	admin/database/migrations/2026_10_24_000001_add_two_factor_to_users_table.php
+M	admin/resources/views/admin/loyalty/show.blade.php
+M	admin/resources/views/admin/refunds/index.blade.php
+A	admin/resources/views/auth/two-factor-challenge.blade.php
+A	admin/resources/views/auth/two-factor.blade.php
+A	admin/resources/views/components/password-confirm.blade.php
+M	admin/resources/views/settings.blade.php
+M	admin/routes/web.php
+A	admin/tests/Feature/PasswordConfirmTest.php
+M	admin/tests/Feature/SupabaseIntegrationTest.php
+A	admin/tests/Feature/TwoFactorTest.php
+=== 8d7cfbe Phase 5: search, pagination and CSV export on Orders, Payments, Refunds and Activity logs (no extra database round trips; route budgets unchanged), tests
+
+M	admin/app/Http/Controllers/ActivityLogController.php
+M	admin/app/Http/Controllers/Admin/PaymentController.php
+M	admin/app/Http/Controllers/Admin/RefundController.php
+M	admin/app/Http/Controllers/OrdersController.php
+A	admin/app/Support/ListTools.php
+M	admin/resources/views/admin/logs.blade.php
+M	admin/resources/views/admin/payments/index.blade.php
+M	admin/resources/views/admin/refunds/index.blade.php
+M	admin/resources/views/orders/index.blade.php
+M	admin/routes/web.php
+A	admin/tests/Feature/ListPagesTest.php
+=== b935c64 Phase 5: production deployment guide with first-time setup checklist (docs/DEPLOYMENT.md); README link; INTEGRATION earn-rate note corrected
+
+M	INTEGRATION.md
+M	README.md
+A	docs/DEPLOYMENT.md

@@ -30,7 +30,26 @@ Ticked items were completed and tested in this round (see
 ## Done 2026-10-14
 - [x] Admin **All users** page (was Team & roles, `/admin/users`): website logins merged with every app account (owners, staff, drivers, customers) by Firebase UID; filter chips, search (name, e-mail, phone, card, branch), "Needs attention" for pending approvals / waiting access, customer orders + paid total + points. Owner-only `owner_all_users()` (migration `20261014000000_admin_portal_all_users.sql`, `supabase/tests/all_users_test.sql` 23/23); falls back to the older functions if the migration is not run yet
 
-## Next round
+## Done in the Phases 0–5 round (see `docs/PHASES_0-5_REPORT.md`)
+- [x] Phase 0: every hardcoded value / seed / account / constant audited (`DUMMY_DATA_AUDIT.md` §0) and moved to owner settings or removed; fixture guard in CI; fresh-database check
+- [x] Phase 1: app id `ph.melainuts.app`, release signing + R8, App Check (monitor mode) + database rate limits, CI, key-rotation checklist, staging/production run order, clean "online payment off" state
+- [x] Phase 2: typed errors + Crashlytics, more tests, Laravel race tests (refactor of oversized files **not done**: no Flutter compiler here)
+- [x] Phase 3: offline POS queue, barcode scanning, counter returns, server-triggered push, road ETA + driver foreground service, warehouse as a branch, RFID test checklist
+- [x] Phase 4: accessibility (contrast, 48 dp, tooltips), English + Filipino, favourites / reorder by id / order-ready pushes / "Only N left", owner digest, profit report, inventory valuation, CSV + print-to-PDF
+- [x] Phase 5: secure cookies, CSP and security headers, self-hosted OCR, optional TOTP two-step sign-in, password re-entry for refunds and points, search / pagination / CSV on Orders, Payments, Refunds, Activity logs, `docs/DEPLOYMENT.md`
+
+## Next round (after Phases 0–5)
+1. **Compile and run the Flutter app** (`flutter pub get`, `flutter analyze`, `flutter test --coverage`):
+   nothing Dart was compiled in this round; fix whatever the analyzer reports, then measure coverage
+   (target 60 %).
+2. **Refactor the oversized Flutter files** (Phase 2 item 10) once the compiler is available.
+3. On real phones: offline POS replay, barcode scan, push on Android 13+/iOS, driver location with the
+   screen off, App Check debug tokens, Filipino text reviewed by a native speaker.
+4. Create a staging project and run `docs/PRODUCTION_RUNBOOK.md` + `docs/DEPLOYMENT.md` there first.
+5. Move inline page scripts to files and switch to Alpine's CSP build, then drop `'unsafe-inline'` /
+   `'unsafe-eval'` from the website's CSP.
+
+## Older list
 1. **Compile and test the Flutter changes** — `flutter pub get`, `flutter analyze`,
    `flutter test` (includes the new `test/driver_models_test.dart`), then a device
    run of: owner creates a Delivery account → staff assign run → driver accepts,

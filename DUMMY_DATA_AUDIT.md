@@ -55,6 +55,7 @@ Git), or **kept** (a true technical constant; reason given).
 | 28 | Version label "v1.0.0" | `settings_screen.dart` | **Removed** (stale constant). |
 | 29 | Unused "Quick Demo Role Switcher" widget | `role_badge_card.dart` | **Deleted**. |
 | 30 | Empty states that did not say how to fix them | catalog, home, POS, inventory | Now name what is missing and how to add it. |
+| 31 | Customer "Low Stock" label at ≤ 10 units (found in Phase 4) | `Product.fromRow` in `lib/data/models/product.dart` | **→ DB setting** `business_settings.low_stock_badge_qty` (migration `20261023000000`, read with `get_storefront_settings()`): "Only N left" from the branch's real stock; Not set = never shown. |
 
 ### 0.4 Kept on purpose (true technical constants)
 

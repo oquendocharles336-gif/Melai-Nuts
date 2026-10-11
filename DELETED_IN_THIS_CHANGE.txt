@@ -1,8 +1,11 @@
 Delete these from your copy of the project (removed in this change; unzipping does not remove them):
-Melai-Nuts-master/admin/resources/views/ops/deliveries.blade.php
-Melai-Nuts-master/admin/resources/views/ops/driver-tracking.blade.php
+Melai-Nuts-master/lib/features/auth/widgets/role_badge_card.dart
+Melai-Nuts-master/android/app/src/google-services.json.example
+Melai-Nuts-master/android/app/src/main/java/com/example/melai_nuts/MainActivity.java   (moved to android/app/src/main/java/ph/melainuts/app/MainActivity.java)
 
-Then run, in admin/: composer dump-autoload, npm run build (ui.js / melai.css changed)
-and apply supabase/migrations/20261016000000_delivery_pins_app_only.sql.
-In the app: flutter pub get, flutter analyze, flutter test.
-Report: docs/DELIVERY_APP_ONLY_REPORT.md
+Then:
+* app: flutter pub get (generates lib/l10n/generated), flutter analyze, flutter test
+* admin/: composer install, npm ci && npm run build (copies OCR into public/vendor/tesseract), php artisan migrate
+* database: apply supabase/migrations/20261017000000 ... 20261024000000 in order (docs/DEPLOYMENT.md §1)
+* env/firebase.json needs the new keys listed in env/firebase.example.json
+Report: docs/PHASES_0-5_REPORT.md
