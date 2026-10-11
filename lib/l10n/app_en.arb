@@ -1,0 +1,93 @@
+{
+  "@@locale": "en",
+  "appTitle": "Melai Nuts Retailing",
+  "language": "Language",
+  "languageSubtitle": "English or Filipino",
+  "languageSystem": "Same as this phone",
+  "languageEnglish": "English",
+  "languageFilipino": "Filipino",
+  "tryAgain": "Try Again",
+  "cancel": "Cancel",
+  "close": "Close",
+  "save": "Save",
+  "notSet": "Not set",
+  "paymentMethod": "Payment Method",
+  "cashOnDelivery": "Cash on Delivery",
+  "cashOnDeliverySubtitle": "Pay the rider in cash when your order arrives",
+  "cashOnPickup": "Cash on Counter Pickup",
+  "cashOnPickupSubtitle": "Pay when picking up order",
+  "onlinePaymentUnavailableLabel": "Online payment unavailable. {message}",
+  "@onlinePaymentUnavailableLabel": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "noProductsYet": "No products yet.",
+  "noProductsInCategory": "No products in this category yet.",
+  "noProductsAtBranch": "This branch has nothing for sale yet. Try another branch, or check back after the shop adds its products.",
+  "noOrdersYet": "No orders yet",
+  "noOrdersYetMessage": "Your orders will show up here once you place one.",
+  "loadingProducts": "Loading products...",
+  "offlineSalesTitle": "Offline sales",
+  "offlineSalesWaiting": "{count} waiting to be sent",
+  "@offlineSalesWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "offlineSalesFailed": "{count} need attention",
+  "@offlineSalesFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "offlineSalesExplain": "Saved on this device. Each one is sent once, with its own key, so it can never be charged twice.",
+  "noConnectionTitle": "No connection",
+  "saveOfflineQuestion": "The sale was not recorded yet. Save it on this device? It is sent automatically when the connection returns and is never charged twice. Stock is checked by the server when it arrives.",
+  "saveOffline": "Save offline",
+  "notNow": "Not now",
+  "saleSavedOffline": "Sale saved on this device. It will be sent when the connection returns.",
+  "retry": "Retry",
+  "discard": "Discard",
+  "sendNow": "Send now",
+  "scanBarcode": "Scan barcode",
+  "scanHint": "Point the camera at the barcode on the pack.",
+  "typeCodeInstead": "Type the code instead",
+  "typeTheCode": "Type the code",
+  "add": "Add",
+  "noProductWithCode": "No product at this branch has the code \"{code}\". Search by name instead.",
+  "@noProductWithCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "returnItems": "Return Items",
+  "returnReason": "Reason",
+  "returnComputedBySystem": "The refund amount is computed by the system from the returned items.",
+  "returnRecorded": "Return recorded. Sellable items are back in stock.",
+  "shareLocationQuestion": "Share your location?",
+  "shareForThisRun": "Share for this run",
+  "nothingWaiting": "Nothing waiting.",
+  "waitingForConnection": "Waiting for the connection",
+  "refusedByServer": "Refused by the server",
+  "discardSaleQuestion": "Discard this sale?",
+  "discardSaleMessage": "It will not be recorded. Return the money to the customer if it was paid.",
+  "keep": "Keep",
+  "cameraViewLabel": "Camera view. Point it at the product barcode.",
+  "offlineSalesBanner": "Offline sales: {summary}",
+  "@offlineSalesBanner": {
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  }
+}

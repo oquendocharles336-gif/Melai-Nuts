@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/locale_controller.dart';
 import '../../../core/services/staff_store.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -17,8 +19,34 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Dark mode and language switches were removed: the app has no dark theme
-  // or translations, so those switches changed nothing.
+  // There is no dark theme, so no dark-mode switch. Language: English or Filipino
+  // (lib/l10n), saved on this device by LocaleController.
+
+  Future<void> _pickLanguage() async {
+    final t = AppLocalizations.of(context);
+    final current = LocaleController.instance.value?.languageCode;
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(t.language),
+        children: [
+          for (final entry in <String, String>{
+            '': t.languageSystem,
+            'en': t.languageEnglish,
+            'fil': t.languageFilipino,
+          }.entries)
+            RadioListTile<String>(
+              value: entry.key,
+              groupValue: current ?? '',
+              title: Text(entry.value),
+              onChanged: (v) => Navigator.of(ctx).pop(v),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await LocaleController.instance.select(picked.isEmpty ? null : picked);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +101,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _Section(
+              children: [
+                _Tile(
+                  icon: Icons.translate_rounded,
+                  title: AppLocalizations.of(context).language,
+                  subtitle: AppLocalizations.of(context).languageSubtitle,
+                  onTap: _pickLanguage,
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.lg),

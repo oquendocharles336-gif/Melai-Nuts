@@ -43,6 +43,8 @@ jobs:
           cache: true
       - run: flutter --version
       - run: flutter pub get
+      - name: generate translations (lib/l10n -> lib/l10n/generated)
+        run: flutter gen-l10n
       - name: flutter analyze (warnings fail the build)
         run: flutter analyze --no-fatal-infos --fatal-warnings
       - run: flutter test --coverage

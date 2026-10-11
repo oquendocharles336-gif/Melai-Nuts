@@ -16,6 +16,7 @@ import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/delivery_repository.dart';
 import '../../../data/repositories/staff_repository.dart';
 import '../../delivery/widgets/run_map_card.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Order / sale details with the actions staff may take.
 ///
@@ -201,7 +202,7 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
     final fingerprint = '${o.id}|${picked.reason}|${picked.quantities.entries.map((e) => '${e.key}:${e.value}').join(',')}';
     await _run(
       () => StaffRepository.instance.posReturn(o.id, picked.quantities, picked.reason, requestKey: _returnKey.keyFor(fingerprint)),
-      'Return recorded. Sellable items are back in stock.',
+      AppLocalizations.of(context).returnRecorded,
     );
   }
 
@@ -250,7 +251,7 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       add(OutlinedButton.icon(
         onPressed: _busy ? null : () => _return(o),
         icon: const Icon(Icons.assignment_return_outlined),
-        label: const Text('Return Items'),
+        label: Text(AppLocalizations.of(context).returnItems),
       ));
       add(TextButton.icon(
         onPressed: _busy ? null : () => _void(o),
@@ -594,10 +595,10 @@ class _ReturnDialogState extends State<_ReturnDialog> {
               TextFormField(
                 controller: _reason,
                 maxLength: 200,
-                decoration: const InputDecoration(labelText: 'Reason'),
+                decoration: InputDecoration(labelText: AppLocalizations.of(context).returnReason),
                 validator: (v) => (v ?? '').trim().length < 3 ? 'Please give a reason' : null,
               ),
-              Text('The refund amount is computed by the system from the returned items.', style: AppTextStyles.bodySm),
+              Text(AppLocalizations.of(context).returnComputedBySystem, style: AppTextStyles.bodySm),
             ],
           ),
         ),

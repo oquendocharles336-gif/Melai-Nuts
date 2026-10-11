@@ -18,6 +18,7 @@ import '../../../data/repositories/driver_repository.dart';
 import '../../../data/repositories/route_eta_repository.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
 import '../widgets/run_map_card.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Home screen for a registered delivery driver.
 ///
@@ -292,11 +293,11 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                     final agreed = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
-                        title: const Text('Share your location?'),
+                        title: Text(AppLocalizations.of(ctx).shareLocationQuestion),
                         content: const Text(DriverLocationTracker.backgroundRationale),
                         actions: [
-                          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Not now')),
-                          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Share for this run')),
+                          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(AppLocalizations.of(ctx).notNow)),
+                          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(AppLocalizations.of(ctx).shareForThisRun)),
                         ],
                       ),
                     );

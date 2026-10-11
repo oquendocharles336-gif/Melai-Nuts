@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Shown in place of the online-payment option while it is off.
 class OnlinePaymentUnavailableNotice extends StatelessWidget {
@@ -12,7 +13,7 @@ class OnlinePaymentUnavailableNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       container: true,
-      label: 'Online payment unavailable. $message',
+      label: AppLocalizations.of(context).onlinePaymentUnavailableLabel(message),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(

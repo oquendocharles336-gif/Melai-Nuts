@@ -9,6 +9,7 @@ import '../../../core/utils/app_error.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../data/models/sync_operation.dart';
 import '../pos_sale_queue.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Asks whether a sale that could not reach the server should be saved on this
 /// device and sent automatically later. Returns true when it was queued.
@@ -23,17 +24,15 @@ Future<bool> offerOfflineSave(
   double? cashReceived,
   String? customerUid,
 }) async {
+  final t = AppLocalizations.of(context);
   final save = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('No connection'),
-      content: const Text(
-        'The sale was not recorded yet. Save it on this device? It is sent automatically when the '
-        'connection returns and is never charged twice. Stock is checked by the server when it arrives.',
-      ),
+      title: Text(t.noConnectionTitle),
+      content: Text(t.saveOfflineQuestion),
       actions: [
-        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Not now')),
-        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Save offline')),
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(t.notNow)),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(t.saveOffline)),
       ],
     ),
   );
@@ -72,9 +71,10 @@ class PosQueueBanner extends StatelessWidget {
       builder: (context, _) {
         if (sync.pendingCount == 0 && sync.failedCount == 0) return const SizedBox.shrink();
         final failed = sync.failedCount > 0;
+        final t = AppLocalizations.of(context);
         final text = [
-          if (sync.pendingCount > 0) '${sync.pendingCount} waiting to be sent',
-          if (failed) '${sync.failedCount} need attention',
+          if (sync.pendingCount > 0) t.offlineSalesWaiting(sync.pendingCount),
+          if (failed) t.offlineSalesFailed(sync.failedCount),
         ].join(' · ');
         return Material(
           color: failed ? AppColors.errorBg : AppColors.warningBg,
@@ -93,7 +93,7 @@ class PosQueueBanner extends StatelessWidget {
                   Icon(failed ? Icons.error_outline_rounded : Icons.cloud_upload_outlined,
                       color: failed ? AppColors.error : AppColors.warning),
                   const SizedBox(width: 10),
-                  Expanded(child: Text('Offline sales: $text', style: AppTextStyles.labelMd)),
+                  Expanded(child: Text(t.offlineSalesBanner(text), style: AppTextStyles.labelMd)),
                   const Icon(Icons.chevron_right_rounded),
                 ],
               ),
@@ -136,29 +136,29 @@ class _QueueSheetState extends State<_QueueSheet> {
           if (!snap.hasData) {
             return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
           }
+          final t = AppLocalizations.of(context);
           final pending = snap.data![0];
           final failed = snap.data![1];
           return ListView(
             shrinkWrap: true,
             padding: const EdgeInsets.all(16),
             children: [
-              Text('Offline sales', style: AppTextStyles.headlineSm),
+              Text(t.offlineSalesTitle, style: AppTextStyles.headlineSm),
               const SizedBox(height: 4),
-              Text('Saved on this device. Each one is sent once, with its own key, so it can never be charged twice.',
-                  style: AppTextStyles.bodySm),
+              Text(t.offlineSalesExplain, style: AppTextStyles.bodySm),
               const SizedBox(height: 12),
-              if (pending.isEmpty && failed.isEmpty) Text('Nothing waiting.', style: AppTextStyles.bodyMd),
+              if (pending.isEmpty && failed.isEmpty) Text(t.nothingWaiting, style: AppTextStyles.bodyMd),
               for (final op in pending)
                 ListTile(
                   leading: const Icon(Icons.schedule_rounded),
                   title: Text(_summary(op)),
-                  subtitle: Text(op.lastError == null ? 'Waiting for the connection' : 'Waiting · ${op.lastError}'),
+                  subtitle: Text(op.lastError == null ? t.waitingForConnection : '${t.waitingForConnection} · ${op.lastError}'),
                 ),
               for (final op in failed)
                 ListTile(
                   leading: const Icon(Icons.error_outline_rounded, color: AppColors.error),
                   title: Text(_summary(op)),
-                  subtitle: Text(op.lastError ?? 'Refused by the server'),
+                  subtitle: Text(op.lastError ?? t.refusedByServer),
                   trailing: Wrap(
                     spacing: 4,
                     children: [
@@ -167,18 +167,18 @@ class _QueueSheetState extends State<_QueueSheet> {
                           await PosSaleQueue.instance.retry(op.localOperationId);
                           _reload();
                         },
-                        child: const Text('Retry'),
+                        child: Text(t.retry),
                       ),
                       TextButton(
                         onPressed: () async {
                           final ok = await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
-                              title: const Text('Discard this sale?'),
-                              content: const Text('It will not be recorded. Return the money to the customer if it was paid.'),
+                              title: Text(t.discardSaleQuestion),
+                              content: Text(t.discardSaleMessage),
                               actions: [
-                                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Keep')),
-                                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Discard')),
+                                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(t.keep)),
+                                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(t.discard)),
                               ],
                             ),
                           );
@@ -187,7 +187,7 @@ class _QueueSheetState extends State<_QueueSheet> {
                             _reload();
                           }
                         },
-                        child: const Text('Discard'),
+                        child: Text(t.discard),
                       ),
                     ],
                   ),
@@ -202,7 +202,7 @@ class _QueueSheetState extends State<_QueueSheet> {
                       }));
                     },
                     icon: const Icon(Icons.sync_rounded),
-                    label: const Text('Send now'),
+                    label: Text(t.sendNow),
                   ),
                 ),
             ],

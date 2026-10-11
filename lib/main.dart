@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'core/services/locale_controller.dart';
 import 'app/app.dart';
 import 'core/services/app_check_service.dart';
 import 'core/services/audit_service.dart';
@@ -88,6 +89,7 @@ Future<void> main() async {
   });
   unawaited(ConnectivityService.instance.start());
 
+  await LocaleController.instance.load();
   runApp(const MelaiNutsApp());
 }
 

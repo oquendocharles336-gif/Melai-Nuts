@@ -13,6 +13,7 @@ import '../widgets/order_status_badge.dart';
 import 'order_details_screen.dart';
 import 'order_tracking_screen.dart';
 import 'repeat_order_screen.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// "My Orders" tab — active order tracking banner + filterable list of
 /// past orders with View Details / Repeat Order actions (matches the
@@ -95,8 +96,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
               onRetry: () => store.retry(),
               errorScope: ErrorScope.order,
               emptyIcon: Icons.receipt_long_outlined,
-              emptyTitle: 'No orders yet',
-              emptyMessage: 'Your orders will show up here once you place one.',
+              emptyTitle: AppLocalizations.of(context).noOrdersYet,
+              emptyMessage: AppLocalizations.of(context).noOrdersYetMessage,
               loadingMessage: 'Loading your orders...',
               builder: (context) => ListView(
               physics: const AlwaysScrollableScrollPhysics(),

@@ -4,8 +4,13 @@ import 'package:melai_nuts/core/widgets/state_views.dart';
 import 'package:melai_nuts/data/repositories/business_settings_repository.dart';
 import 'package:melai_nuts/features/customer/widgets/online_payment_unavailable_notice.dart';
 import 'package:melai_nuts/features/products/widgets/margin_indicator.dart';
+import 'package:melai_nuts/l10n/generated/app_localizations.dart';
 
-Widget _app(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget _app(Widget child) => MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Scaffold(body: child),
+    );
 
 void main() {
   testWidgets('an empty list says what is missing and offers the fix', (tester) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../core/theme/app_text_styles.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Camera barcode scanner for the POS. Returns the scanned (or typed) code,
 /// or null. The code is matched to `product_variants.sku` by the caller.
@@ -37,10 +38,11 @@ class _BarcodeScanScreenState extends State<BarcodeScanScreen> {
 
   Future<void> _typeCode() async {
     final controller = TextEditingController();
+    final t = AppLocalizations.of(context);
     final code = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Type the code'),
+        title: Text(t.typeTheCode),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -49,8 +51,8 @@ class _BarcodeScanScreenState extends State<BarcodeScanScreen> {
           onSubmitted: (v) => Navigator.of(ctx).pop(v),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(controller.text), child: const Text('Add')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(t.cancel)),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(controller.text), child: Text(t.add)),
         ],
       ),
     );
@@ -60,13 +62,14 @@ class _BarcodeScanScreenState extends State<BarcodeScanScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan barcode')),
+      appBar: AppBar(title: Text(t.scanBarcode)),
       body: Column(
         children: [
           Expanded(
             child: Semantics(
-              label: 'Camera view. Point it at the product barcode.',
+              label: t.cameraViewLabel,
               child: MobileScanner(
                 controller: _controller,
                 onDetect: (capture) {
@@ -87,13 +90,13 @@ class _BarcodeScanScreenState extends State<BarcodeScanScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Point the camera at the barcode on the pack.', style: AppTextStyles.bodyMd, textAlign: TextAlign.center),
+                  Text(t.scanHint, style: AppTextStyles.bodyMd, textAlign: TextAlign.center),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
                     onPressed: _typeCode,
                     icon: const Icon(Icons.keyboard_alt_outlined),
-                    label: const Text('Type the code instead'),
+                    label: Text(t.typeCodeInstead),
                   ),
                 ],
               ),

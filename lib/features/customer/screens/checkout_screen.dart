@@ -30,6 +30,7 @@ import '../cart_controller.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
 import 'edit_profile_screen.dart';
 import 'order_confirmation_screen.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
 
@@ -671,7 +672,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             ],
             const SizedBox(height: AppSpacing.lg),
-            Text('Payment Method', style: AppTextStyles.titleMd),
+            Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
             const SizedBox(height: AppSpacing.sm),
             // Online payment (HitPay) is hidden while it is off; the notice text
             // comes from payment_settings.online_payment_disabled_message.
@@ -691,16 +692,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             if (_fulfillment == _FulfillmentMethod.delivery)
               _PaymentTile(
                 icon: Icons.delivery_dining_rounded,
-                title: 'Cash on Delivery',
-                subtitle: 'Pay the rider in cash when your order arrives',
+                title: AppLocalizations.of(context).cashOnDelivery,
+                subtitle: AppLocalizations.of(context).cashOnDeliverySubtitle,
                 selected: _payment == _PaymentMethod.cod,
                 onTap: () => setState(() => _payment = _PaymentMethod.cod),
               )
             else
               _PaymentTile(
                 icon: Icons.storefront_rounded,
-                title: 'Cash on Counter Pickup',
-                subtitle: 'Pay when picking up order',
+                title: AppLocalizations.of(context).cashOnPickup,
+                subtitle: AppLocalizations.of(context).cashOnPickupSubtitle,
                 selected: _payment == _PaymentMethod.cash,
                 onTap: () => setState(() => _payment = _PaymentMethod.cash),
               ),

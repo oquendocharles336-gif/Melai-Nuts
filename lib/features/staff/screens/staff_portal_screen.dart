@@ -20,6 +20,7 @@ import '../widgets/pos_offline_widgets.dart';
 import 'cash_drawer_screen.dart';
 import 'staff_dashboard_tab.dart';
 import 'staff_extra_screens.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Branch Staff Portal — Home (dashboard), Register (POS), Orders, Inventory
 /// (FEFO) and Profile (incl. Log Out). All data comes from the database via
@@ -260,7 +261,7 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
     }
     if (fromScanner) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No product at this branch has the code "${value.trim()}". Search by name instead.')),
+        SnackBar(content: Text(AppLocalizations.of(context).noProductWithCode(value.trim()))),
       );
     }
   }

@@ -14,6 +14,7 @@ import '../widgets/product_card.dart';
 import 'cart_screen.dart';
 import 'product_details_screen.dart';
 import 'search_results_screen.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// Main "Catalog" tab: category chips + sort row + full product grid
 /// (matches the prototype's Product Catalog screen).
@@ -234,10 +235,10 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                     errorScope: ErrorScope.catalog,
                     emptyIcon: Icons.inventory_2_outlined,
                     emptyTitle: _selectedCategory == null
-                        ? 'No products yet.'
-                        : 'No products in this category yet.',
-                    emptyMessage: 'This branch has nothing for sale yet. Try another branch, or check back after the shop adds its products.',
-                    loadingMessage: 'Loading products...',
+                        ? AppLocalizations.of(context).noProductsYet
+                        : AppLocalizations.of(context).noProductsInCategory,
+                    emptyMessage: AppLocalizations.of(context).noProductsAtBranch,
+                    loadingMessage: AppLocalizations.of(context).loadingProducts,
                     builder: (context) => RefreshIndicator(
                       onRefresh: _reload,
                       child: GridView.builder(
