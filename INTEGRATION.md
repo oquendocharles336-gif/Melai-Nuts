@@ -211,7 +211,7 @@ with the reason.
 
 | Area | Status | Notes |
 |---|---|---|
-| Orders & payments | ✅ Live | Payments page lists real orders; **Mark as paid** for cash calls `staff_confirm_payment` (customer notified). Online payments stay automatic via HitPay. |
+| Orders & payments | ✅ Live | Payments page lists real orders; **Mark as paid** for cash calls `staff_confirm_payment` (customer notified). Online payment is off (owner decision); past online payments stay as recorded. |
 | Refunds | ✅ Live | Cash: approve = completed in one step. Online: approve → refund in HitPay dashboard → **Mark refunded** with reference. Reject needs a reason, sent to the customer. Stock, points clawback and payment status are handled by the existing triggers. Amount comes from the customer's request (cannot be changed on the website). |
 | Loyalty | ✅ Live | Members/balances/history from the ledger; owners change earn rate, redeem rate and max discount (used by checkout immediately) and add/deduct points (appended to the ledger, customer notified, audited). |
 | Dashboard | ✅ Live | Owners: all branches by default + branch filter, every staff account (`owner_staff_overview`: role, branch, status, POS sales per cashier, shifts, open drawers, last activity), top branches and cashiers, today's figures; staff: own branch only. Net / gross paid sales, refunds, average order value, orders by status, paid sales by payment method, unpaid/failed payments, customers who ordered, low/out-of-stock counts — for today / this week / this month, all from the database; plus sales vs. target per branch, stock health, refunds, loyalty totals. Refreshes every minute; a failed refresh keeps the last real numbers and says so. |

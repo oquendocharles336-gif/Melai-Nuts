@@ -206,6 +206,8 @@ class FakeSupabase extends SupabaseGateway
                 : throw new BackendActionException('Only an active owner can do this.'),
             'admin_portal_loyalty_members' => array_values(array_map(fn ($c) => ['id' => $c['firebase_uid'], 'name' => $c['full_name'], 'email' => $c['email'],
                 'card_number' => $c['card_number'], 'balance' => $c['points_balance']], $this->matchingCustomers($bindings[0] ?? null))),
+            // No loyalty_cart_settings row until the owner saves rules (a new database has none).
+            'admin_portal_loyalty_settings' => $this->settings['loyalty']['earn_pesos_per_point'] === null ? null : $this->settings['loyalty'],
             'get_business_settings' => $this->settings + ['branches' => array_values(array_map(fn ($b) => $b + [
                 'address' => null, 'contact_phone' => null, 'operating_hours' => null, 'is_active' => true, 'supports_delivery' => false,
                 'supports_pickup' => true, 'delivery_fee' => 0, 'daily_sales_target' => null], array_filter($this->branches, fn ($b) => in_array($b['id'], $allowed, true))))],

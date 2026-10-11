@@ -13,7 +13,7 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
         <ul style="margin:0;padding-left:1.1rem">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
     </div>
 @endif
-<p class="muted">Live from the Melai Nuts app (last {{ config('melai.supabase.order_window_days') }} days). Online payments are confirmed automatically by HitPay; only cash can be marked paid here.</p>
+<p class="muted">Live from the Melai Nuts app (last {{ config('melai.supabase.order_window_days') }} days). Customers pay in cash (online payment is off by the owner's decision); only cash can be marked paid here. Past online payments were confirmed by HitPay.</p>
 
 <form method="GET" class="card filter-row">
     <select class="light-input" name="status" onchange="this.form.submit()">

@@ -303,34 +303,28 @@ coordinates once: `update branches set latitude = 14.2117, longitude = 121.1653 
 For heavy traffic, point `MapTiles.url` (`lib/core/widgets/delivery_map.dart`) at a paid or own tile
 server (OSM tile policy). Address search uses Nominatim (free, rate-limited); pins work without it.
 
-## Payments (COD + HitPay)
+## Payments (cash only — online payment is OFF by the owner's decision)
 
-> **Online payment is temporarily disabled.** Checkout shows "Online Payment (GCash, Maya, Card)"
-> greyed out as unavailable; customers pay Cash on Delivery or Cash on Counter Pickup. Nothing was
-> removed. The database refuses new online orders while `payment_settings.online_payment_enabled`
-> is false (migration `20261017000000_online_payment_switch.sql`), and `hitpay-create-payment`
-> refuses to open a payment page. To turn it back on: run
-> `update public.payment_settings set online_payment_enabled = true where id = 'default';` in the
-> SQL editor and build the app with `--dart-define=ONLINE_PAYMENT_ENABLED=true`
-> (`lib/core/config/payment_config.dart`), then redeploy `hitpay-create-payment`.
+Customers pay by **Cash on Delivery** (delivery orders; the rider collects, staff press
+"Confirm Cash Received") or **Cash on Counter Pickup** (pickup orders; staff confirm at the
+counter). In-store POS sales keep cash, and in-store GCash / card with a reference number.
 
-Checkout offers, depending on the fulfillment method:
+Online payment (HitPay: GCash, Maya, card) is **not offered**:
 
-- **Online Payment (GCash, Maya, Card)**: always available. The order is placed first, then the customer pays on HitPay's hosted checkout (PHP). The payment becomes `success` only when HitPay's signed webhook reaches the `hitpay-webhook` Edge Function; the app just shows the live status.
-- **Cash on Delivery**: delivery orders only. The customer pays the rider; staff press "Confirm Cash Received".
-- **Cash on Counter Pickup**: pickup orders only; staff confirm the cash at the counter.
+- checkout hides it and shows the database's `payment_settings.online_payment_disabled_message`;
+- the database refuses new online-paid orders, also from older app builds
+  (`payment_settings.online_payment_enabled = false`, migrations `20261017000000` and `20261018000000`);
+- `hitpay-create-payment` refuses before it reads an order or calls HitPay, and fails closed when the
+  switch cannot be read (`supabase/functions/hitpay-create-payment/handler_test.ts`);
+- the app is built with `ONLINE_PAYMENT_ENABLED=false` (the default; also in `env/firebase.example.json`).
 
-Setup: apply `supabase/migrations/20261007010000_cod_and_hitpay.sql`, then follow
-[`supabase/functions/README.md`](supabase/functions/README.md) to create the HitPay
-account, set the secrets (`HITPAY_API_KEY`, `HITPAY_SALT`, `HITPAY_ENV`,
-`HITPAY_REDIRECT_URL`) and deploy `hitpay-create-payment` and `hitpay-webhook`.
-No payment secrets are ever stored in the app.
+The HitPay code is kept dormant and intact. Re-enabling it later is an owner decision that needs
+BOTH switches (database + build flag) and the HitPay secrets described in
+[`supabase/functions/README.md`](supabase/functions/README.md).
 
-**Refunds:** an approved online refund is sent back to the customer's GCash / Maya / card
-with **Send via HitPay** (admin website → Refunds, or the staff app's refund card). Deploy
-`hitpay-refund` (`supabase functions deploy hitpay-refund --no-verify-jwt`) and, for the
-website, set `HITPAY_API_KEY` / `HITPAY_ENV` in `admin/.env`. Refunding from the HitPay
-dashboard and pressing "Mark refunded" still works.
+**Refunds:** cash refunds are handled by hand (approve, then complete with the cash returned).
+"Send via HitPay" (admin website → Refunds, or the staff app) exists only for refunding PAST
+online payments made before online payment was switched off.
 
 ## Phone login (Android)
 

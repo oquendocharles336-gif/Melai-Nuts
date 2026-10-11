@@ -1,4 +1,106 @@
-# Melai Nuts — dummy data audit (2026-10-10)
+# Melai Nuts — dummy / hardcoded data audit
+
+**Latest round: 2026-10-18 (Phase 0 — "no hardcoded data").** The earlier rounds (2026-10-10 and
+2026-10-13) are kept below unchanged for history.
+
+## 0. 2026-10-18: full inventory of hardcoded values and what was done
+
+Scope: `lib/`, `admin/` (app, config, resources, routes, database/seeders, public/js), `supabase/`
+(schema.sql, migrations, functions, repair), `functions/`, `hardware/`, `*.bat`, `env/`, Android
+example files and the docs. Decisions: **removed**, **→ DB setting** (owner edits it on the admin
+website, *Settings > Business settings* or *Loyalty*), **→ env** (per-install configuration, never in
+Git), or **kept** (a true technical constant; reason given).
+
+### 0.1 Business data and seeded records
+
+| # | Hardcoded item | Where | Decision |
+|---|---|---|---|
+| 1 | 5 seeded products, their prices / descriptions, 12 stock rows at 50 units, 3 rewards, promotion "Fresh Batch Every Friday", seeded branch address / phone / hours | live database (old `schema.sql` seed) | **Removed by reviewed SQL**: `supabase/repair/20261013_cleanup_seeded_demo_records.sql` (sections A–D, F; every section ROLLBACK until the owner commits; tested by `supabase/tests/cleanup_seeded_demo_records_test.sh`). The 2 seeded products that were sold stay visible and are flagged for price review. |
+| 2 | Demo orders ORD-1001…1004 | live database | **Flagged for the owner only** (section E, SELECT); never deleted by SQL — refund through the app/website if they were tests. |
+| 3 | Starter loyalty rules (1 pt = ₱1 off, max 50 % of an order) | `migrations/20261001020000_seed_loyalty_cart_settings.sql` | **Removed**: the migration is now structure-only (`select 1`). Existing databases keep their row. → **DB setting** (Loyalty page). |
+| 4 | Loyalty earn-rate fallback "1 point per ₱50" | `compute_points_earned()`, `get_loyalty_earn_rate()`, column default 50, `loyalty_repository.dart` (`?? 50`), `customer_data_store.dart` (`= 50`) | **→ DB setting**. No rate set = 0 points earned and "Earn rate not set yet" / "Not set" (migration `20261018000000`, `EarnRate` in the app). |
+| 5 | Restock threshold fallback 20 | `_default_restock_threshold()`, `staff_repository.dart` (`?? 20`), `InventoryBatch(restockThreshold = 20)` | **→ DB setting** `business_settings.restock_threshold_default`. Not set = no "low stock" warning (out-of-stock still flagged); screens say "Restock level not set". |
+| 6 | Stock-health ratios 0.4 / 0.8, sales rating ratios 0.7 / 1.0 | `admin/config/melai.php` | **→ DB setting**. Not set = "Not rated". |
+| 7 | Daily sales targets (`targets`, `DEFAULT_DAILY_TARGET`) | `admin/config/melai.php`, `.env.example` | **→ DB setting**: `branches.daily_sales_target` or `business_settings.default_daily_sales_target`. Not set = "No target set". |
+| 8 | "Healthy margin" lines 50 % and 55 % | `add_product_screen.dart`, `edit_product_screen.dart`, `product_pricing_screen.dart`, `product_variants_screen.dart` | **→ DB setting** `healthy_margin_percent` (`MarginIndicator` / `rateMargin`). Not set = margin shown without a rating. A variant without a cost price shows "COGS: not set" instead of ₱0.00 / 100 %. |
+| 9 | Delivery fee default 0 for new branches | `branches.delivery_fee default 0` | **Removed default**: a branch must be given its real fee (`owner_save_branch`, Business settings page). |
+| 10 | Branch address / phone / hours | seeded values | **→ DB** (branches table), editable on *Business settings > Branches* (`owner_save_branch`, audited). |
+| 11 | "Top up to 2× threshold" restock suggestion, pre-filled receive quantity | `inventory_item.dart`, `inventory_batch.dart`, `low_stock_screen.dart`, `receive_batch_screen.dart`, `batch_details_screen.dart` | **Removed** (invented rule). Screens show "N below level" (derived from real numbers); staff type the real received quantity. The demand-based suggestion remains the database's `staff_reorder_suggestions`. |
+| 12 | Online-payment "unavailable" text | trigger, app constant | **→ DB setting** `payment_settings.online_payment_disabled_message` (checkout, order trigger and `hitpay-create-payment` all show it). |
+
+### 0.2 Accounts, identities, keys
+
+| # | Hardcoded item | Where | Decision |
+|---|---|---|---|
+| 13 | Owner's personal e-mail | `README.md`, `INTEGRATION.md`, `ChangeAdminEmailCommand`, `LinkStaffCommand`, `ChangeAdminEmailTest`, `.env.example` | **Removed** → `owner@example.com` placeholder. The seeder refuses the placeholder outside tests, and refuses to run without `ADMIN_EMAIL` / `ADMIN_PASSWORD` (tests added). |
+| 14 | Firebase project ID | `FirebaseConfig.php` message, `.env.example`, `grant-role-claim` (default), `supabase/functions/README.md`, `docs/FIX_ANON_ROLE.md`, `INTEGRATION.md`, `README.md`, `lib/firebase_options.dart`, test fake | **→ env**: `FIREBASE_PROJECT_ID` (admin `.env`, Edge Function secret — now required, no default — and `env/firebase.json`). |
+| 15 | Firebase app IDs, sender ID, bucket, auth domain, iOS bundle ID | `lib/firebase_options.dart` | **→ env** (`env/firebase.json`, see `env/firebase.example.json`). The app refuses to start without them. |
+| 16 | **Real API keys and the Supabase anon key inside the *example* files** | `env/firebase.example.json`, `env/supabase.example.json`, `android/app/google-services.json.example` (+ a duplicate in `android/app/src/`) | **Removed** → placeholders; duplicate deleted. The keys were in Git: rotate/restrict them (see `SECURITY.md`, owner checklist). |
+| 17 | Default admin credential / fallback password | — | None left (checked: `config/melai.php`, `AdminSeeder`, `.env.example`). |
+| 18 | Support e-mail `support@melainuts.ph` (invented) | `forgot_password_screen.dart` | **Removed** ("Ask the store owner or your branch staff"). |
+| 19 | `.firebaserc` project ID | repo root | **Kept**: it is the Firebase CLI's own config file (not a secret, single place); everything else reads env. |
+
+### 0.3 UI-only invented values
+
+| # | Item | Where | Decision |
+|---|---|---|---|
+| 20 | Branch names / "Laguna" in text ("Calamba • Los Baños • Santa Cruz", "Laguna Provincial Hub", "Laguna Enterprise Overview", default province "Laguna", …) | splash, login, customer access, loyalty dashboard, forgot/reset password, owner portal, `AppConstants.hubLabel`, `customer_profile.dart` | **Removed** (branches come only from the `branches` table). |
+| 21 | Sample people in hints ("Elena Santos", "elena@example.com", "Juan dela Cruz", "Laguna Van #04", "09123456789") | register, create delivery | **Removed** → format hints ("Your full name", "you@example.com", "09XXXXXXXXX"). |
+| 22 | "Ready in 30 mins", "Verified Patron", "Step 1 of 2 • 50% Done" | checkout | **Removed** (not backed by data). |
+| 23 | "Includes 12% Philippine VAT" | cart | **Removed** (a tax claim the data does not support). |
+| 24 | "Healthy" stock badge without a threshold | `stock_status_badge.dart` | Now "In stock" (no rating claim). |
+| 25 | Fallback names "Customer", "Driver", "Rider", "Branch", "Run", "Melai Nuts" | 12 places in `lib/` | **Removed** → "—". |
+| 26 | Admin theme preview "₱24,180.00 ↑ 12.4%" | `settings.blade.php` | **Removed** (preview shows colours only). |
+| 27 | Login placeholder `admin@melainuts.com` | `login.blade.php` | → `you@example.com`. |
+| 28 | Version label "v1.0.0" | `settings_screen.dart` | **Removed** (stale constant). |
+| 29 | Unused "Quick Demo Role Switcher" widget | `role_badge_card.dart` | **Deleted**. |
+| 30 | Empty states that did not say how to fix them | catalog, home, POS, inventory | Now name what is missing and how to add it. |
+
+### 0.4 Kept on purpose (true technical constants)
+
+| Item | Where | Reason |
+|---|---|---|
+| `walk-in` customer profile | migrations, POS | Technical sentinel for anonymous counter sales; not a person. Allowed by `fresh_install_check.sql`. |
+| `payment_settings` row with online payment OFF | migration `20261017000000` | Owner decision; the only row a fresh database holds. |
+| Order code format `ORD-` + sequence from 1001 | `schema.sql` | Identifier format, not data. |
+| App name / tagline "Melai Nuts Retailing", "Local Goodness." | `AppConstants` | Branding. |
+| FEFO urgency tiers 15 / 45 days, expiring-batch window 30 days, reorder-analysis defaults (28-day lookback, 7-day lead time, 3 safety, 14 cover) | `inventory_batch.dart`, `SupabaseRepository` | Display / analysis parameters shown with their values on the page; candidates for Business settings later (not business data). |
+| Timeouts, cache sizes, page sizes, login rate limit 5/min, driver GPS distance filter 20 m | various | Technical tuning. |
+| `+63`, `09XXXXXXXXX`, PHP currency | phone utils, hints | Country / format rules. |
+| HitPay / OpenStreetMap / Nominatim / Google identity endpoints | services | Fixed public API endpoints. |
+| Test fixtures (`admin/tests/Support/*`, `test/support/*`, `supabase/tests/*`, `UserFactory`) | tests only | Never shipped; enforced by the guard below. |
+
+### 0.5 Guards and checks added
+
+* `scripts/check_no_fixture_data.py` (+ `scripts/test_check_no_fixture_data.py`): fails if fixture classes,
+  the words demo / dummy / sample / mock / fake / lorem (in code), known fixture or old-seed strings,
+  personal e-mail, the real project identifiers, or real-looking keys appear in shipping code or example
+  files. Allow-list with mandatory reasons: `scripts/hardcoded-data-allowlist.txt` (2 entries). Runs in CI.
+* `supabase/tests/fresh_install_check.sql`: a project built from `schema.sql` + every migration has **0**
+  branches, categories, products, variants, stock, batches, rewards, promotions, vouchers, orders,
+  payments, refunds, loyalty settings/accounts, business settings, staff, customers (except the
+  `walk-in` sentinel), deliveries and suppliers; online payment OFF; earn rate and restock threshold
+  "Not set".
+* `scripts/run-sql-tests.sh` also re-runs every migration on a database holding real values and
+  checks that none of them changed (branch details, loyalty rules, business settings, payment text).
+* `supabase/tests/business_settings_test.sql` (39 checks), `admin/tests/Feature/BusinessSettingsTest.php`,
+  `EmptyDatabaseTest.php`, `SupabaseIntegrationTest::test_business_settings_…`, Dart tests
+  `earn_rate_test.dart`, `business_settings_test.dart`, `payment_config_test.dart`.
+
+### 0.6 What remains
+
+* The live database still holds the seeded rows until the owner runs the clean-up (staging first —
+  see `docs/PRODUCTION_RUNBOOK.md`).
+* On an existing database the old built-in values (threshold 20, ratios, margin 50 %) are carried over
+  once into `business_settings` with `carried_over = true`; the admin page asks the owner to confirm them.
+* The Flutter app could not be compiled here (no Flutter SDK can be downloaded in this environment):
+  every changed Dart file was parsed with a Dart 3 grammar (tree-sitter-dart), not type-checked.
+
+---
+
+# Earlier rounds (history)
+
+## Melai Nuts — dummy data audit (2026-10-10)
 
 Scope: Flutter app (`lib/`, 218 Dart files), Laravel admin (`admin/`), Supabase SQL (`supabase/`),
 Edge Functions, Firebase Functions (`functions/`), scripts, and a **read-only** look at the live
