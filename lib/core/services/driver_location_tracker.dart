@@ -16,15 +16,62 @@ import '../utils/app_error.dart';
 ///    (run delivered, failed or cancelled), or when [stop] is called;
 ///  * nothing is stored on the phone.
 ///
-/// Background tracking (screen off / app closed) is not enabled: it needs a
-/// foreground service on Android and background modes on iOS, plus a store
-/// review justification. See docs/ROADMAP.md.
+/// Screen off / app in the background: on Android a FOREGROUND SERVICE keeps
+/// sharing, with a permanent "Sharing your delivery location" notification
+/// (no ACCESS_BACKGROUND_LOCATION needed: the service is started while the
+/// app is open); on iOS the location background mode shows the blue status-bar
+/// indicator. Both stop with the run. The driver sees a rationale first
+/// ([backgroundRationale], driver portal) — required for store review.
+/// See docs/DRIVER_LOCATION.md.
 class DriverLocationTracker extends ChangeNotifier {
   DriverLocationTracker._();
   static final DriverLocationTracker instance = DriverLocationTracker._();
 
   static const Duration minInterval = Duration(seconds: 15);
   static const int distanceFilterMeters = 20;
+
+  /// Shown to the driver before sharing starts (Play / App Store policy:
+  /// explain prominently why the position is used and when it stops).
+  static const String backgroundRationale =
+      'While this run is out, Melai Nuts shares your position with your branch and the customers on '
+      'this run — also when the screen is off or you use another app (a notification shows it is on). '
+      'It stops by itself when the run is delivered, failed or cancelled, and you can stop it any time '
+      'here. Your position is not stored on the phone, and the server deletes it when the run ends.';
+
+  /// Platform settings: a foreground service on Android, background updates
+  /// with the indicator on iOS.
+  static LocationSettings settingsFor(TargetPlatform platform, {bool isWeb = false}) {
+    if (isWeb) {
+      return const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: distanceFilterMeters);
+    }
+    switch (platform) {
+      case TargetPlatform.android:
+        return AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: distanceFilterMeters,
+          intervalDuration: minInterval,
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationTitle: 'Sharing your delivery location',
+            notificationText: 'Only for this run. It stops when the run ends.',
+            notificationChannelName: 'Delivery location',
+            enableWakeLock: true,
+            setOngoing: true,
+          ),
+        );
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        return AppleSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: distanceFilterMeters,
+          activityType: ActivityType.automotiveNavigation,
+          pauseLocationUpdatesAutomatically: true,
+          allowBackgroundLocationUpdates: true,
+          showBackgroundLocationIndicator: true,
+        );
+      default:
+        return const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: distanceFilterMeters);
+    }
+  }
 
   StreamSubscription<Position>? _sub;
   String? _deliveryId;
@@ -70,10 +117,7 @@ class DriverLocationTracker extends ChangeNotifier {
     _deliveryId = deliveryId;
     _lastSent = null;
     _sub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: distanceFilterMeters,
-      ),
+      locationSettings: settingsFor(defaultTargetPlatform, isWeb: kIsWeb),
     ).listen(_onPosition, onError: (Object e) {
       _problem = 'Your position could not be read. Sharing has stopped.';
       stop();

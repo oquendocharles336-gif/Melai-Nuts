@@ -15,6 +15,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/delivery.dart';
 import '../../../data/repositories/driver_repository.dart';
+import '../../../data/repositories/route_eta_repository.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
 import '../widgets/run_map_card.dart';
 
@@ -46,6 +47,23 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
 
   final _repo = DriverRepository.instance;
   final _tracker = DriverLocationTracker.instance;
+
+  /// Road distance / time of the run on screen (route-eta Edge Function), read
+  /// once per run and stop list.
+  Future<RoadEta?>? _eta;
+  String? _etaFor;
+
+  Future<RoadEta?> _etaOf(Delivery d) {
+    final key = '${d.id}|${d.stops.map((s) => '${s.latitude},${s.longitude}').join(';')}';
+    if (_etaFor != key || _eta == null) {
+      _etaFor = key;
+      _eta = RouteEtaRepository.instance.forRun(d).catchError((Object e, StackTrace st) {
+        AppErrors.report(e, st, 'driver_portal:road_eta');
+        return null;
+      });
+    }
+    return _eta!;
+  }
 
   @override
   void initState() {
@@ -271,6 +289,18 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                 value: sharing,
                 onChanged: (v) async {
                   if (v) {
+                    final agreed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Share your location?'),
+                        content: const Text(DriverLocationTracker.backgroundRationale),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Not now')),
+                          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Share for this run')),
+                        ],
+                      ),
+                    );
+                    if (agreed != true) return;
                     await _tracker.start(d.id);
                   } else {
                     await _tracker.stop();
@@ -294,12 +324,34 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
     final me = sharing ? _tracker.lastPosition : null;
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.sm),
-      child: RunMapCard(
-        delivery: d,
-        driver: me == null ? null : DeliveryMap.point(me.latitude, me.longitude),
-        driverLabel: 'You',
-        height: 220,
-        onStopTap: (s) => Navigator.of(context).pushNamed(AppRoutes.routeMap, arguments: {'delivery': d, 'stopId': s.id}),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RunMapCard(
+            delivery: d,
+            driver: me == null ? null : DeliveryMap.point(me.latitude, me.longitude),
+            driverLabel: 'You',
+            height: 220,
+            onStopTap: (s) => Navigator.of(context).pushNamed(AppRoutes.routeMap, arguments: {'delivery': d, 'stopId': s.id}),
+          ),
+          FutureBuilder<RoadEta?>(
+            future: _etaOf(d),
+            builder: (context, snap) {
+              final eta = snap.data;
+              if (eta == null) return const SizedBox.shrink(); // not configured / no pins: no road figure
+              return Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.route_rounded, size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(eta.label, style: AppTextStyles.bodySm)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

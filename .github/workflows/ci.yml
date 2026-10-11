@@ -140,4 +140,5 @@ jobs:
           deno-version: v2.x
       - run: deno check --no-remote supabase/functions/hitpay-create-payment/handler.ts
       - run: deno check --no-remote supabase/functions/push-dispatch/handler.ts
+      - run: deno check --no-remote supabase/functions/route-eta/handler.ts
       - run: deno test --no-remote supabase/functions/
