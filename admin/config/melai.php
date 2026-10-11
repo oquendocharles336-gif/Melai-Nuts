@@ -40,6 +40,8 @@ return [
     'security' => [
         'csp' => (bool) env('SECURITY_CSP', true),
         'hsts' => (bool) env('SECURITY_HSTS', true),
+        // Refunds and points adjustments ask for the password again after this many seconds.
+        'password_confirm_seconds' => (int) env('PASSWORD_CONFIRM_SECONDS', 300),
     ],
 
     'cache' => [

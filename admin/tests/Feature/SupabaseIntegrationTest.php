@@ -44,6 +44,10 @@ class SupabaseIntegrationTest extends TestCase
             $this->markTestSkipped('Set SUPABASE_TEST_ADMIN_URL and SUPABASE_TEST_PORTAL_URL (see tests/Supabase/prepare-test-db.sh).');
         }
 
+        // These tests are about the database; re-entering the password before refunds / points
+        // (ConfirmRecentPassword) is tested in PasswordConfirmTest.
+        $this->withSession([\App\Http\Middleware\ConfirmRecentPassword::SESSION_KEY => time()]);
+
         config([
             'melai.data_source' => 'supabase',
             'melai.dashboard.cache_seconds' => 0, // every request reads the database; the cache has its own test

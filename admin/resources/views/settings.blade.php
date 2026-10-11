@@ -47,7 +47,10 @@
             <div class="setting-row"><div><b>Sign-in</b><span>{{ $user->usesFirebase() ? 'Melai Nuts app account (Firebase)' : 'Website password' }}</span></div>
                 <x-badge :tone="filled($user->staff_uid) ? 'ok' : 'warn'">{{ filled($user->staff_uid) ? 'Linked to the app' : 'Not linked yet' }}</x-badge></div>
             @if ($user->last_login_at)<div class="setting-row"><div><b>Last sign-in</b><span>{{ $user->last_login_at->setTimezone(config('app.timezone'))->format('M j, Y g:i A') }}</span></div></div>@endif
-            <div style="margin-top:14px"><a class="btn sm" href="{{ route('password.request') }}">Reset password</a></div>
+            <div class="setting-row"><div><b>Two-step sign-in</b><span>{{ $user->hasTwoFactor() ? 'On: a code from your authenticator app is asked after the password' : 'Off (optional)' }}</span></div>
+                <x-badge :tone="$user->hasTwoFactor() ? 'ok' : 'info'">{{ $user->hasTwoFactor() ? 'On' : 'Off' }}</x-badge></div>
+            <div style="margin-top:14px"><a class="btn sm" href="{{ route('password.request') }}">Reset password</a>
+                <a class="btn sm" href="{{ route('two-factor.show') }}">{{ $user->hasTwoFactor() ? 'Manage two-step sign-in' : 'Set up two-step sign-in' }}</a></div>
         </x-card>
     </div>
 

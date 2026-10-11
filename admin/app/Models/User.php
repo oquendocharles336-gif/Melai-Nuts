@@ -21,7 +21,7 @@ class User extends Authenticatable
 
     // role / has_access / is_active / staff_uid / firebase_uid are NOT fillable on purpose (no mass-assignment tricks).
     protected $fillable = ['name', 'email', 'password'];
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'];
 
     protected function casts(): array
     {
@@ -33,7 +33,16 @@ class User extends Authenticatable
             'is_active' => 'boolean',
             'has_access' => 'boolean',
             'firebase_email_verified' => 'boolean',
+            'two_factor_secret' => 'encrypted',
+            'two_factor_recovery_codes' => 'encrypted:array',
+            'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    /** Two-step sign-in is on (the authenticator was confirmed). */
+    public function hasTwoFactor(): bool
+    {
+        return $this->two_factor_confirmed_at !== null && filled($this->two_factor_secret);
     }
 
     /** Signs in through Firebase (its local password is no longer accepted). */

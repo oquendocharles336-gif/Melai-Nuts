@@ -43,6 +43,7 @@
             <label>Reason</label>
             <input class="light-input" name="reason" value="{{ old('reason') }}" placeholder="Required">
         </div>
+        <x-password-confirm />
         <button class="btn-solid" type="submit">Save adjustment</button>
     </form>
 </div>

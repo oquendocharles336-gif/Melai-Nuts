@@ -36,6 +36,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'supabase'   => EnsureSupabase::class,     // shared-database pages; 404 for the tests' fake data source
             'shell'      => \App\Http\Middleware\ShellFirst::class, // heavy pages: instant shell, content fetched by the browser
             'bumps.cache' => \App\Http\Middleware\BumpCacheVersion::class, // any successful change invalidates cached data
+            'two.factor' => \App\Http\Middleware\EnsureTwoFactorPassed::class, // optional TOTP, once per session
+            'password.recent' => \App\Http\Middleware\ConfirmRecentPassword::class, // password again for money / points actions
         ]);
         $middleware->redirectGuestsTo(fn () => route('login'));    // guests -> login
         $middleware->redirectUsersTo(fn () => route('dashboard')); // logged-in -> dashboard

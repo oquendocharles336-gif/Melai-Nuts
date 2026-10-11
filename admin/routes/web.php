@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\Admin\BusinessSettingsController;
 use App\Http\Controllers\Admin\ProfitReportController;
+use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\Admin\LoyaltyController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RefundController;
@@ -30,8 +31,16 @@ Route::middleware('guest')->group(function () {
     Route::post('/forgot-password', [LoginController::class, 'forgot'])->name('password.email')->middleware('throttle:5,1');
 });
 
-Route::middleware(['auth', 'active', 'bumps.cache'])->group(function () {
+Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
+
+    // Optional two-step sign-in (TOTP). The challenge is the only page open before the code.
+    Route::get('/two-factor/challenge', [TwoFactorController::class, 'challenge'])->name('two-factor.challenge');
+    Route::post('/two-factor/challenge', [TwoFactorController::class, 'verify'])->name('two-factor.verify')->middleware('throttle:10,1');
+    Route::get('/two-factor', [TwoFactorController::class, 'show'])->name('two-factor.show');
+    Route::post('/two-factor', [TwoFactorController::class, 'start'])->name('two-factor.start')->middleware('throttle:10,1');
+    Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm'])->name('two-factor.confirm')->middleware('throttle:10,1');
+    Route::delete('/two-factor', [TwoFactorController::class, 'disable'])->name('two-factor.disable')->middleware('throttle:10,1');
 
     Route::get('/waiting', [RegisterController::class, 'waiting'])->name('waiting');
     Route::post('/waiting/verify-email', [RegisterController::class, 'resendVerification'])->name('waiting.verify-email')->middleware('throttle:3,1');
@@ -53,10 +62,10 @@ Route::middleware(['auth', 'active', 'bumps.cache'])->group(function () {
         Route::post('/payments/{orderId}/mark-paid', [PaymentController::class, 'markPaid'])->name('payments.mark-paid');
 
         Route::get('/refunds', [RefundController::class, 'index'])->name('refunds.index');
-        Route::post('/refunds/{orderId}/approve', [RefundController::class, 'approve'])->name('refunds.approve');
+        Route::post('/refunds/{orderId}/approve', [RefundController::class, 'approve'])->name('refunds.approve')->middleware('password.recent');
         Route::post('/refunds/{orderId}/reject', [RefundController::class, 'reject'])->name('refunds.reject');
-        Route::post('/refunds/{orderId}/complete', [RefundController::class, 'complete'])->name('refunds.complete'); // HitPay reference entered by hand
-        Route::post('/refunds/{orderId}/hitpay', [RefundController::class, 'sendHitpay'])->name('refunds.hitpay')->middleware('throttle:10,1');
+        Route::post('/refunds/{orderId}/complete', [RefundController::class, 'complete'])->name('refunds.complete')->middleware('password.recent'); // HitPay reference entered by hand
+        Route::post('/refunds/{orderId}/hitpay', [RefundController::class, 'sendHitpay'])->name('refunds.hitpay')->middleware(['throttle:10,1', 'password.recent']);
         Route::post('/refunds/{orderId}/hitpay/check', [RefundController::class, 'checkHitpay'])->name('refunds.hitpay.check');
         Route::post('/refunds/{orderId}/hitpay/abandon', [RefundController::class, 'abandonHitpay'])->name('refunds.hitpay.abandon');
 
@@ -71,7 +80,7 @@ Route::middleware(['auth', 'active', 'bumps.cache'])->group(function () {
         Route::put('/business-settings', [BusinessSettingsController::class, 'update'])->name('business.update')->middleware('throttle:20,1');
         Route::post('/branches', [BusinessSettingsController::class, 'saveBranch'])->name('branches.store')->middleware('throttle:20,1');
         Route::put('/branches/{branch}', [BusinessSettingsController::class, 'saveBranch'])->name('branches.update')->middleware('throttle:20,1');
-        Route::post('/loyalty/{member}/adjust', [LoyaltyController::class, 'adjust'])->name('loyalty.adjust');
+        Route::post('/loyalty/{member}/adjust', [LoyaltyController::class, 'adjust'])->name('loyalty.adjust')->middleware('password.recent');
     });
 
     // Admin-only actions on the shared catalog (Supabase mode)

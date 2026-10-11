@@ -56,6 +56,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
                     @if ($r['paymentMethod'] === $cashMethod)
                         <input type="hidden" name="note" value="Refunded in cash on delivery return.">
                     @endif
+                    <x-password-confirm />
                     <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Approve</button>
                 </form>
                 <button class="btn-outline" type="button" style="padding:.45rem 1rem" onclick="document.getElementById('reject-{{ $r['id'] }}').showModal()">Reject</button>
@@ -91,6 +92,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
                 @else
                     <form method="POST" action="{{ route('admin.refunds.hitpay', $r['id']) }}" style="margin-bottom:.5rem"
                           onsubmit="this.querySelector('button').disabled = true; return confirm('Send {{ $peso($r['refundAmount']) }} back to the customer through HitPay now?')">@csrf
+                        <x-password-confirm />
                         <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Send {{ $peso($r['refundAmount']) }} via HitPay</button></form>
                 @endif
                 <p class="muted" style="margin:.2rem 0">Or, if you refunded from the HitPay dashboard:</p>
@@ -98,6 +100,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
             <form method="POST" action="{{ route('admin.refunds.complete', $r['id']) }}" class="refund-actions" style="flex-wrap:wrap">
                 @csrf
                 <input class="light-input" name="reference" placeholder="HitPay refund reference" required minlength="4" maxlength="120" style="flex:1;min-width:10rem">
+                <x-password-confirm />
                 <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Mark refunded</button>
             </form>
             <button class="btn-outline" type="button" style="padding:.4rem .9rem;margin-top:.5rem" onclick="document.getElementById('reject-{{ $r['id'] }}').showModal()">Reject</button>
