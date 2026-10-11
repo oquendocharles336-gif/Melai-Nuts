@@ -33,6 +33,13 @@ class FakeSupabase extends SupabaseGateway
     /** uid => overview metrics merged into owner_staff_overview rows */
     public array $activity = [];
     /** business_settings row (get_business_settings shape, without branches); null values = Not set */
+    /** owner_profit_report / owner_inventory_valuation answers (tests set rows). */
+    public array $profit = ['cost_basis' => 'current cost of each product option', 'rows' => [],
+        'totals' => ['net_sales' => 0, 'cogs' => 0, 'profit' => 0, 'margin_percent' => null, 'options_without_cost' => 0, 'net_sales_without_cost' => 0]];
+
+    public array $valuation = ['cost_basis' => 'current cost of each product option', 'rows' => [],
+        'totals' => ['units' => 0, 'value' => 0, 'units_without_cost' => 0, 'options_without_cost' => 0], 'by_branch' => []];
+
     public array $settings = [
         'restock_threshold_default' => null, 'stock_low_ratio' => null, 'stock_plenty_ratio' => null,
         'sales_low_ratio' => null, 'sales_high_ratio' => null, 'default_daily_sales_target' => null,
@@ -208,6 +215,8 @@ class FakeSupabase extends SupabaseGateway
                 'card_number' => $c['card_number'], 'balance' => $c['points_balance']], $this->matchingCustomers($bindings[0] ?? null))),
             // No loyalty_cart_settings row until the owner saves rules (a new database has none).
             'admin_portal_loyalty_settings' => $this->settings['loyalty']['earn_pesos_per_point'] === null ? null : $this->settings['loyalty'],
+            'owner_profit_report' => $me['role'] === 'owner' ? $this->profit : throw new BackendActionException('Only an active owner can do this.'),
+            'owner_inventory_valuation' => $me['role'] === 'owner' ? $this->valuation : throw new BackendActionException('Only an active owner can do this.'),
             'get_business_settings' => $this->settings + ['branches' => array_values(array_map(fn ($b) => $b + [
                 'address' => null, 'contact_phone' => null, 'operating_hours' => null, 'is_active' => true, 'supports_delivery' => false,
                 'supports_pickup' => true, 'delivery_fee' => 0, 'daily_sales_target' => null, 'is_warehouse' => false], array_filter($this->branches, fn ($b) => in_array($b['id'], $allowed, true))))],

@@ -8,6 +8,8 @@
 | Order status changes, refund decisions, other customer notices | existing triggers → `public.notifications` | the customer |
 | New orders, low / out of stock, refunds to review | existing triggers → `public.staff_notifications` | branch staff |
 | Batches expiring within N days | `public.enqueue_expiring_batch_alerts()` (daily) → `staff_notifications` | branch staff with inventory permission |
+| Order ready for pickup / out for delivery / completed / cancelled | `notify_on_order_status()` (20261023000000) → `notifications` | the customer |
+| Daily summary: yesterday's net sales and orders, low / out of stock, expiring batches | `public.enqueue_owner_daily_digest()` (daily, 20261024000000) → `staff_notifications` | every active owner |
 
 Every new row in those two tables is copied into `public.push_outbox` (migration
 `20261021000000_push_notifications.sql`). The Edge Function `push-dispatch` sends the outbox through
@@ -41,6 +43,9 @@ $$);
 
 -- Expiring batches, every morning at 07:00 Manila time (23:00 UTC):
 select cron.schedule('melai-expiry-alerts', '0 23 * * *', $$ select public.enqueue_expiring_batch_alerts() $$);
+
+-- Owner's daily summary of yesterday, every morning at 07:05 Manila time (once per day, safe to re-run):
+select cron.schedule('melai-owner-digest', '5 23 * * *', $$ select public.enqueue_owner_daily_digest() $$);
 ```
 
 6. App: `flutter pub get` (adds `firebase_messaging`). Android 13+ asks for the notification permission

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\Admin\BusinessSettingsController;
+use App\Http\Controllers\Admin\ProfitReportController;
 use App\Http\Controllers\Admin\LoyaltyController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RefundController;
@@ -60,6 +61,10 @@ Route::middleware(['auth', 'active', 'bumps.cache'])->group(function () {
         Route::post('/refunds/{orderId}/hitpay/abandon', [RefundController::class, 'abandonHitpay'])->name('refunds.hitpay.abandon');
 
         Route::put('/loyalty/settings', [LoyaltyController::class, 'updateSettings'])->name('loyalty.settings.update');
+
+        // Owner: profit by product option and inventory valuation (20261024000000), CSV and print.
+        Route::get('/profit', [ProfitReportController::class, 'index'])->name('profit.index');
+        Route::get('/profit/export/{section}', [ProfitReportController::class, 'export'])->name('profit.export');
 
         // Owner business settings and branch details (stored in the app's database; owner only there too).
         Route::get('/business-settings', [BusinessSettingsController::class, 'index'])->name('business.index');

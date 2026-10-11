@@ -504,6 +504,16 @@ class SupabaseIntegrationTest extends TestCase
         $this->db()->update("update public.loyalty_cart_settings set earn_pesos_per_point = 50 where id = 'default'"); // leave the shared test DB as found
     }
 
+    public function test_profit_and_stock_value_page_reads_the_real_owner_reports(): void
+    {
+        $admin = $this->portalAdmin();
+        $page = $this->actingAs($admin)->get('/admin/profit')->assertOk()->assertSee('Profit by product option');
+        $this->assertNull($page->viewData('loadError'));
+        $this->assertArrayHasKey('totals', $page->viewData('profit'));
+        $this->assertArrayHasKey('totals', $page->viewData('valuation'));
+        $this->actingAs($admin)->get('/admin/profit/export/valuation')->assertOk();
+    }
+
     public function test_business_settings_and_branch_details_are_saved_in_the_app_database_by_the_owner_only(): void
     {
         $db = $this->db();

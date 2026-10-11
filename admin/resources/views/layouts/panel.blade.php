@@ -31,6 +31,7 @@
         ])),
         'Account' => array_values(array_filter([
             ['settings', 'Settings', route('settings'), 'settings', 'settings', null],
+            $isAdmin ? ['profit', 'Profit & stock value', route('admin.profit.index'), 'admin/profit*', 'coins', null] : null,
             $isAdmin ? ['business', 'Business settings', route('admin.business.index'), 'admin/business-settings*', 'store', null] : null,
             ['help', 'Help', route('help'), 'help', 'help', null],
         ])),

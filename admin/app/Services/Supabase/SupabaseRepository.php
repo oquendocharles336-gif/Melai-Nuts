@@ -320,6 +320,20 @@ class SupabaseRepository
             'select public.analytics_report(?::date, ?::date, ?::uuid)::text as r', [$from, $to, $branchId]) ?? []);
     }
 
+    /** Owner only: per product option net sales, cost (current cost), profit (20261024000000). */
+    public function profitReport(string $from, string $to, ?string $branchId): array
+    {
+        return $this->memo("profit:$from:$to:$branchId", fn () => $this->call(
+            'select public.owner_profit_report(?::date, ?::date, ?::uuid)::text as r', [$from, $to, $branchId]) ?? []);
+    }
+
+    /** Owner only: stock on hand valued at current cost (20261024000000). */
+    public function inventoryValuation(?string $branchId): array
+    {
+        return $this->memo("valuation:$branchId", fn () => $this->call(
+            'select public.owner_inventory_valuation(?::uuid)::text as r', [$branchId]) ?? []);
+    }
+
     public function salesForecast(string $branchId, ?string $variantId, string $metric, string $granularity,
         ?string $trainFrom, ?string $trainTo, int $horizon, ?int $holdout, bool $save = false): array
     {
