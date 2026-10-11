@@ -50,6 +50,10 @@
                 <input class="light-input" id="healthy_margin_percent" name="healthy_margin_percent" type="number" min="0" max="99" step="0.1"
                        value="{{ old('healthy_margin_percent', $num($s['healthy_margin_percent'] ?? null)) }}" placeholder="Not set">
                 <p class="note">Used by the app's product pricing screens. Not set: margins are shown without a rating.</p></div>
+            <div class="field"><label for="expiry_alert_days">Warn branch staff about batches expiring within (days)</label>
+                <input class="light-input" id="expiry_alert_days" name="expiry_alert_days" type="number" min="1" max="365" step="1"
+                       value="{{ old('expiry_alert_days', $s['expiry_alert_days'] ?? null) }}" placeholder="Not set">
+                <p class="note">Not set: no expiry push notifications are sent.</p></div>
             <button class="btn-solid" type="submit">Save settings</button>
         </form>
     </x-card>

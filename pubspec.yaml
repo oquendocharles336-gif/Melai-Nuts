@@ -50,6 +50,8 @@ dependencies:
   firebase_app_check: ^0.4.8
   # Crash / error reporting (lib/core/services/crash_reporter.dart).
   firebase_crashlytics: ^5.4.0
+  # Push notifications created by the database (lib/core/services/push_service.dart).
+  firebase_messaging: ^16.7.0
 
   # Calls the email-verification API (6-digit code mode).
   http: ^1.2.2

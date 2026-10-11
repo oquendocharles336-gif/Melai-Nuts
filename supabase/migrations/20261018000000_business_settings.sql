@@ -40,6 +40,7 @@ create table if not exists public.business_settings (
   sales_high_ratio numeric(5, 3) check (sales_high_ratio is null or (sales_high_ratio > 0 and sales_high_ratio <= 10)),
   default_daily_sales_target numeric(12, 2) check (default_daily_sales_target is null or default_daily_sales_target > 0),
   healthy_margin_percent numeric(5, 2) check (healthy_margin_percent is null or (healthy_margin_percent > 0 and healthy_margin_percent < 100)),
+  expiry_alert_days int check (expiry_alert_days is null or expiry_alert_days between 1 and 365),
   carried_over boolean not null default false,
   updated_at timestamptz not null default now(),
   updated_by text,
@@ -182,6 +183,7 @@ begin
     'sales_high_ratio', s.sales_high_ratio,
     'default_daily_sales_target', s.default_daily_sales_target,
     'healthy_margin_percent', s.healthy_margin_percent,
+    'expiry_alert_days', s.expiry_alert_days,
     'carried_over', coalesce(s.carried_over, false),
     'updated_at', s.updated_at,
     'loyalty', jsonb_build_object('earn_pesos_per_point', l.earn_pesos_per_point,
@@ -210,7 +212,7 @@ grant execute on function public.get_business_settings() to authenticated;
 -- -----------------------------------------------------------------------------
 -- p_settings keys (all optional; a key present with JSON null clears the value):
 --   restock_threshold_default, stock_low_ratio, stock_plenty_ratio, sales_low_ratio,
---   sales_high_ratio, default_daily_sales_target, healthy_margin_percent
+--   sales_high_ratio, default_daily_sales_target, healthy_margin_percent, expiry_alert_days
 create or replace function public.owner_update_business_settings(p_settings jsonb)
 returns jsonb
 language plpgsql
@@ -223,7 +225,7 @@ declare
   v_new public.business_settings;
   k text;
   allowed text[] := array['restock_threshold_default', 'stock_low_ratio', 'stock_plenty_ratio', 'sales_low_ratio',
-                          'sales_high_ratio', 'default_daily_sales_target', 'healthy_margin_percent'];
+                          'sales_high_ratio', 'default_daily_sales_target', 'healthy_margin_percent', 'expiry_alert_days'];
 begin
   v_owner := public._require_owner();
   if p_settings is null or jsonb_typeof(p_settings) <> 'object' then
@@ -247,6 +249,8 @@ begin
     v_new.default_daily_sales_target := (p_settings ->> 'default_daily_sales_target')::numeric; end if;
   if p_settings ? 'healthy_margin_percent' then
     v_new.healthy_margin_percent := (p_settings ->> 'healthy_margin_percent')::numeric; end if;
+  if p_settings ? 'expiry_alert_days' then
+    v_new.expiry_alert_days := (p_settings ->> 'expiry_alert_days')::numeric::int; end if;
 
   begin
     update public.business_settings set
@@ -257,12 +261,13 @@ begin
       sales_high_ratio = v_new.sales_high_ratio,
       default_daily_sales_target = v_new.default_daily_sales_target,
       healthy_margin_percent = v_new.healthy_margin_percent,
+      expiry_alert_days = v_new.expiry_alert_days,
       carried_over = false,
       updated_at = now(),
       updated_by = v_owner.firebase_uid
     where id = 'default';
   exception when check_violation then
-    raise exception 'A setting is out of range (ratios: low must be below plenty / high; margin 1-99%%; threshold 0-100,000; targets above 0).';
+    raise exception 'A setting is out of range (ratios: low must be below plenty / high; margin 1-99%%; threshold 0-100,000; targets above 0; expiry alerts 1-365 days).';
   end;
 
   perform public._write_audit(v_owner.firebase_uid, null, 'business.settings_updated', 'business_settings', 'default',

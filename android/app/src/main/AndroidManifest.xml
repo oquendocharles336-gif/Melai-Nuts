@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Release builds talk to Supabase/Firebase; INTERNET was only declared in the debug/profile manifests. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Push notifications (order status, refunds, low stock, expiring batches), Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Drivers share their position while a delivery run is out (app in the foreground only). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>

@@ -20,6 +20,7 @@ import 'sync_service.dart';
 import '../../data/repositories/driver_repository.dart';
 import '../../data/repositories/staff_repository.dart';
 import '../utils/app_error.dart';
+import 'push_service.dart';
 
 /// A user-facing authentication failure. The [message] is already written
 /// to be shown directly in a SnackBar/dialog — no FirebaseAuthException
@@ -746,6 +747,8 @@ class AuthService {
   /// wiped on the next app start (see [DataSyncService.initializeLocalDatabase]).
   Future<void> signOut() async {
     _userInitiatedSignOut = true;
+    // While still signed in: this device stops receiving the account's pushes.
+    await PushService.instance.onSigningOut();
     final signingOutStaffUid = StaffSessionStore.instance.ownerUid;
     // While the session is still valid: push any queued staff operations
     // (bounded, best effort — whatever cannot be sent stays queued on the
