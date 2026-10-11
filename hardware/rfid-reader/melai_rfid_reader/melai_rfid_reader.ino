@@ -43,7 +43,9 @@ const uint8_t PIN_SS = 10;
 const uint8_t PIN_RST = 9;
 const uint8_t PIN_BUZZER = 6;    // set to 255 if not connected
 const uint8_t PIN_LED = 5;       // set to 255 if not connected
+const bool BUZZER_IS_ACTIVE = true;             // true: active buzzer (on/off); false: passive (tone)
 const unsigned long SAME_CARD_PAUSE_MS = 1500;  // ignore the same card held on the reader
+const unsigned long HEALTH_CHECK_MS = 5000;     // re-check the RC522 this often (it can lock up)
 // ---------------------------------------------------------------------------
 
 #if defined(MODE_KEYBOARD)
@@ -56,12 +58,24 @@ const unsigned long SAME_CARD_PAUSE_MS = 1500;  // ignore the same card held on 
 MFRC522 rfid(PIN_SS, PIN_RST);
 String lastUid = "";
 unsigned long lastAt = 0;
+unsigned long lastHealthCheck = 0;
+bool readerOk = false;
 
 void beep(int ms) {
   if (PIN_LED != 255) digitalWrite(PIN_LED, HIGH);
-  if (PIN_BUZZER != 255) tone(PIN_BUZZER, 2200, ms);
+  if (PIN_BUZZER != 255) {
+    if (BUZZER_IS_ACTIVE) digitalWrite(PIN_BUZZER, HIGH);
+    else tone(PIN_BUZZER, 2200, ms);
+  }
   delay(ms);
+  if (PIN_BUZZER != 255 && BUZZER_IS_ACTIVE) digitalWrite(PIN_BUZZER, LOW);
   if (PIN_LED != 255) digitalWrite(PIN_LED, LOW);
+}
+
+// The RC522 answers 0x00 / 0xFF to a version read when it is missing or locked up.
+bool readerAlive() {
+  byte v = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+  return !(v == 0x00 || v == 0xFF);
 }
 
 String readUid() {
@@ -76,15 +90,17 @@ String readUid() {
 
 void setup() {
   if (PIN_LED != 255) pinMode(PIN_LED, OUTPUT);
+  if (PIN_BUZZER != 255) pinMode(PIN_BUZZER, OUTPUT);
   Serial.begin(9600);
+  Serial.setTimeout(50);   // a half-sent command must never stall card reading
   SPI.begin();
   rfid.PCD_Init();
   delay(50);
 #if defined(MODE_KEYBOARD)
   Keyboard.begin();
 #endif
-  byte v = rfid.PCD_ReadRegister(MFRC522::VersionReg);
-  if (v == 0x00 || v == 0xFF) {
+  readerOk = readerAlive();
+  if (!readerOk) {
     Serial.println("ERROR: RC522 not found - check the wiring and 3.3V power");
     for (int i = 0; i < 3; i++) { beep(80); delay(120); }
   } else {
@@ -98,7 +114,25 @@ void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    if (cmd == "PING") Serial.println("MELAI-RFID v1");
+    if (cmd == "PING") Serial.println(readerOk ? "MELAI-RFID v1" : "ERROR: RC522 not responding");
+  }
+
+  // Self-healing: an RC522 that stopped answering (loose wire, power dip) is re-initialised.
+  unsigned long nowMs = millis();
+  if (nowMs - lastHealthCheck >= HEALTH_CHECK_MS) {
+    lastHealthCheck = nowMs;
+    if (!readerAlive()) {
+      if (readerOk) Serial.println("ERROR: RC522 not responding - restarting it");
+      readerOk = false;
+      rfid.PCD_Init();
+      delay(50);
+      if (readerAlive()) {
+        readerOk = true;
+        Serial.println("MELAI-RFID v1");
+      }
+    } else {
+      readerOk = true;
+    }
   }
 
   if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
