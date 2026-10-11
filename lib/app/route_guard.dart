@@ -50,6 +50,11 @@ class RouteGuard extends StatefulWidget {
   /// the database enforces the same rules on every request.
   final Set<String> requiredPermissions;
 
+  /// Whether [role] may open a screen limited to [allowedRoles] (`null` = any
+  /// signed-in role). Pure, so the role matrix is unit-tested.
+  static bool roleAllowed(UserRole role, Set<UserRole>? allowedRoles) =>
+      allowedRoles == null || allowedRoles.contains(role);
+
   @override
   State<RouteGuard> createState() => _RouteGuardState();
 }
@@ -95,10 +100,7 @@ class _RouteGuardState extends State<RouteGuard> {
     super.dispose();
   }
 
-  bool _roleAllowed(UserRole role) {
-    final roles = widget.allowedRoles;
-    return roles == null || roles.contains(role);
-  }
+  bool _roleAllowed(UserRole role) => RouteGuard.roleAllowed(role, widget.allowedRoles);
 
   void _onAuthChanged(User? user) {
     if (user != null || _redirecting || !mounted) return;

@@ -420,6 +420,26 @@ class AppRoutes {
     deliveryCancelled: _rider,
   };
 
+  /// Test seam: may [role] open [route]? (`signedIn: false` = a guest.)
+  /// Mirrors [_guard] + [RouteGuard] exactly; UX gate only, the database and
+  /// firestore.rules enforce the real rules.
+  @visibleForTesting
+  static bool canOpen(String route, UserRole? role, {bool signedIn = true}) {
+    final access = _policy[route] ?? _anySignedIn;
+    if (access.isPublic) return true;
+    if (!signedIn || role == null) return access.guest;
+    return RouteGuard.roleAllowed(role, access.roles);
+  }
+
+  /// Test seam: named routes that have no access policy (must be empty).
+  @visibleForTesting
+  static List<String> get routesWithoutPolicy =>
+      _rawRoutes.keys.where((r) => !_policy.containsKey(r)).toList();
+
+  /// Test seam: permissions a staff member needs for [route].
+  @visibleForTesting
+  static Set<String> permissionsFor(String route) => (_policy[route] ?? _anySignedIn).permissions;
+
   static WidgetBuilder _guard(String? name, WidgetBuilder builder) {
     final access = _policy[name];
     assert(access != null, 'No access policy defined for route "$name".');

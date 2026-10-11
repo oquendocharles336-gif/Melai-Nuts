@@ -27,6 +27,7 @@ import '../../../data/repositories/products_repository.dart';
 import '../../payments/screens/online_payment_screen.dart';
 import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
+import '../widgets/online_payment_unavailable_notice.dart';
 import 'edit_profile_screen.dart';
 import 'order_confirmation_screen.dart';
 
@@ -684,7 +685,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
               const SizedBox(height: 8),
             ] else ...[
-              _OnlinePaymentUnavailableNotice(message: _paymentSettings.unavailableMessage),
+              OnlinePaymentUnavailableNotice(message: _paymentSettings.unavailableMessage),
               const SizedBox(height: 8),
             ],
             if (_fulfillment == _FulfillmentMethod.delivery)
@@ -901,37 +902,6 @@ class _OptionCard extends StatelessWidget {
               Text(subtitle, style: AppTextStyles.bodySm),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Shown in place of the online-payment option while it is off.
-class _OnlinePaymentUnavailableNotice extends StatelessWidget {
-  final String message;
-
-  const _OnlinePaymentUnavailableNotice({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      container: true,
-      label: 'Online payment unavailable. $message',
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.info_outline_rounded, color: AppColors.textSecondary),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message, style: AppTextStyles.bodySm)),
-          ],
         ),
       ),
     );
