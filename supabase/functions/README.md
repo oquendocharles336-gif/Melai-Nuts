@@ -1,5 +1,14 @@
 # Supabase Edge Functions
 
+> **Online payment is OFF by the owner's decision.** Customers pay by Cash on Delivery or Cash on
+> Counter Pickup. `hitpay-create-payment` and `hitpay-webhook` are kept dormant and intact so online
+> payment can be re-enabled later with one switch (`payment_settings.online_payment_enabled` plus the
+> app build flag `ONLINE_PAYMENT_ENABLED`); while the switch is off — or cannot be read —
+> `hitpay-create-payment` refuses with the database's `online_payment_disabled_message` before it
+> reads an order or calls HitPay (tests: `deno test supabase/functions/hitpay-create-payment/handler_test.ts`).
+> Do not deploy HitPay secrets or promote online payment until the owner changes this decision.
+> `hitpay-refund` is only for refunding PAST online payments; cash refunds are handled by hand.
+
 | Function | Called by | Purpose |
 | --- | --- | --- |
 | `hitpay-create-payment` | the app (customer) | Creates (or reuses) a HitPay hosted-checkout link for an order and returns its URL. The amount is read from the database, never from the app. |
