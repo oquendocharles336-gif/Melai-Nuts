@@ -113,9 +113,9 @@ insert into public.customer_addresses (firebase_uid, recipient_name, phone, line
 values ('i_b', 'Ben', '09170000002', '2 Test St', 'Calamba');
 insert into fx select 'addr_b', id::text from public.customer_addresses where firebase_uid = 'i_b';
 
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50)
-on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 -- Ann starts with 60 points, recorded in the ledger so balance == ledger.
 insert into public.loyalty_accounts (firebase_uid, points_balance, lifetime_points) values ('i_a', 60, 60);

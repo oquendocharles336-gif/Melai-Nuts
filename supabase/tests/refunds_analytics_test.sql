@@ -89,7 +89,7 @@ create function pg_temp.stock(p_branch text) returns int language sql as $$
   where branch_id = pg_temp.f(p_branch)::uuid and variant_id = pg_temp.f('var')::uuid $$;
 
 -- Fixtures ---------------------------------------------------------------------
-insert into public.branches (name, address) values ('RF-TEST A', 'a'), ('RF-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('RF-TEST A', 'a', 0), ('RF-TEST B', 'b', 0);
 insert into fx select 'ba', id::text from public.branches where name = 'RF-TEST A';
 insert into fx select 'bb', id::text from public.branches where name = 'RF-TEST B';
 insert into public.product_categories (label) values ('RF-TEST Cat');
@@ -111,8 +111,9 @@ insert into public.staff_permission_grants (firebase_uid, permission, granted_by
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('rf-c1', 'Cust One', 'rf-c1@test.local', '09170000101'),
        ('rf-c2', 'Cust Two', 'rf-c2@test.local', '09170000102');
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50) on conflict (id) do nothing;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 select pg_temp.call_as('rf-own', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'RF-A1', 50, current_date + 90)::text$q$,
   pg_temp.f('ba'), pg_temp.f('var')));

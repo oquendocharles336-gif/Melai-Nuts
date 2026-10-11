@@ -64,7 +64,7 @@ create function pg_temp.stock(p_branch text) returns int language sql as $$
   where branch_id = pg_temp.f(p_branch)::uuid and variant_id = pg_temp.f('var')::uuid $$;
 
 -- Fixtures ---------------------------------------------------------------------
-insert into public.branches (name, address) values ('POS-TEST A', 'a'), ('POS-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('POS-TEST A', 'a', 0), ('POS-TEST B', 'b', 0);
 insert into fx select 'ba', id::text from public.branches where name = 'POS-TEST A';
 insert into fx select 'bb', id::text from public.branches where name = 'POS-TEST B';
 insert into public.product_categories (label) values ('POS-TEST Cat');

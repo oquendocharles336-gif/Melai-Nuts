@@ -157,9 +157,9 @@ values ('uid_rls_a', 'Alice Test', '09170000001', '1 Test St', 'Calamba'),
        ('uid_rls_b', 'Bob Test',   '09170000002', '2 Test St', 'Calamba');
 insert into fx select 'addr_a', id::text from public.customer_addresses where firebase_uid = 'uid_rls_a';
 
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50)
-on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 insert into public.vouchers (code, discount_type, discount_value)
 values ('RLSTEST10', 'percent', 10);

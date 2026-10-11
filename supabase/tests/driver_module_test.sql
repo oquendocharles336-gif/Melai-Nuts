@@ -95,8 +95,9 @@ values ('d-c1', 'Cust One', 'd-c1@test.local', '09170000001'), ('d-c2', 'Cust Tw
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city, latitude, longitude)
 values ('d-c1', 'Cust One', '09170000001', '1 Test St', 'Calamba', 14.205, 121.156);
 insert into fx select 'addr1', id::text from public.customer_addresses where firebase_uid = 'd-c1';
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50) on conflict (id) do nothing;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 create function pg_temp.order_for(p_cust text, p_method text, p_key text) returns text language sql as $$
   select pg_temp.call_as(p_cust, format($q$select public.place_order(%L::uuid, true, %L::uuid, %L, '', %L)$q$,

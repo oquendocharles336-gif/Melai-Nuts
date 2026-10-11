@@ -92,8 +92,8 @@ $$;
 -- Fixtures (created as the table owner; rolled back at the end)
 -- ---------------------------------------------------------------------------
 
-insert into public.branches (name, address) values
-  ('STAFF-TEST Branch A', 'a'), ('STAFF-TEST Branch B', 'b');
+insert into public.branches (name, address, delivery_fee) values
+  ('STAFF-TEST Branch A', 'a', 0), ('STAFF-TEST Branch B', 'b', 0);
 
 create temp table fx as
 select

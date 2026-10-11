@@ -63,7 +63,7 @@ create function pg_temp.j(p_uid text, p_sql text) returns jsonb language sql as 
   select pg_temp.call_as(p_uid, 'select (' || p_sql || ')::text')::jsonb $$;
 
 -- Fixtures ---------------------------------------------------------------------
-insert into public.branches (name, address) values ('HR-TEST A', 'a'), ('HR-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('HR-TEST A', 'a', 0), ('HR-TEST B', 'b', 0);
 insert into fx select 'ba', id::text from public.branches where name = 'HR-TEST A';
 insert into fx select 'bb', id::text from public.branches where name = 'HR-TEST B';
 insert into public.product_categories (label) values ('HR-TEST Cat');
@@ -81,8 +81,9 @@ values ('h-sa', 'Refunds A', 'h-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 
        ('h-sb', 'Refunds B', 'h-sb@test.local', 'staff', pg_temp.f('bb')::uuid, 'active', true),
        ('h-own', 'Owner', 'h-own@test.local', 'owner', null, 'active', false);
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('h-c', 'HR Cust', 'h-c@test.local', '09181112222');
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50) on conflict (id) do nothing;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 -- Two pickup orders: one paid online through HitPay, one paid cash.
 create function pg_temp.order_for(p_method text, p_key text) returns text language plpgsql as $$

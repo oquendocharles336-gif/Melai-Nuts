@@ -109,8 +109,9 @@ insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('x-c1', 'Cust One', 'x-c1@test.local', '09180000001');
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city)
 values ('x-c1', 'Cust One', '09180000001', '1 Private St', 'Calamba');
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50) on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 -- Batches via the real RPC (owner works in both branches).
 select pg_temp.call_as('x-own', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'XB-A1', 5, current_date + 90, null, null, true)::text$q$,

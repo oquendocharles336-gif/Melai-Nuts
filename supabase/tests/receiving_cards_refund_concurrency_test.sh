@@ -72,7 +72,8 @@ insert into public.staff_members (firebase_uid, full_name, email, role, branch_i
   select 'cr-staff', 'CR Staff', 'cr-staff@test.local', 'staff', id, 'active', true, true from public.branches where name = 'CR-A';
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('cr-cust', 'CR Cust', 'cr-cust@test.local', '0918');
 insert into public.suppliers (name, created_by) values ('CR-Supplier', 'cr-staff');
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent) values ('default', 1, 50) on conflict (id) do nothing;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 SQL
 BA=$("${PSQL[@]}" -c "select id from public.branches where name='CR-A'")
 VAR=$("${PSQL[@]}" -c "select v.id from public.product_variants v join public.products p on p.id=v.product_id where p.name='CR-Nut'")

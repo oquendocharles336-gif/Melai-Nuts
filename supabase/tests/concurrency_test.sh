@@ -93,7 +93,7 @@ errored()   { grep -q 'ERROR' "$TMP/r$1" && echo yes || echo no; }
 echo "== setting up fixtures"
 cleanup
 "${PSQL[@]}" -q >/dev/null <<'EOF'
-insert into public.branches (name, address, supports_delivery, supports_pickup) values ('CONC-1','x',true,true),('CONC-2','x',true,true);
+insert into public.branches (name, address, supports_delivery, supports_pickup, delivery_fee) values ('CONC-1','x',true,true,0),('CONC-2','x',true,true,0);
 insert into public.product_categories (label) values ('CONC-cat');
 insert into public.products (category_id, name, price, unit) select id, 'CONC-Nut', 100, 'pack' from public.product_categories where label='CONC-cat';
 insert into public.product_variants (product_id, label, price) select id, 'Regular', 100 from public.products where name='CONC-Nut';
@@ -102,8 +102,8 @@ insert into public.branch_inventory (branch_id, product_id, variant_id, quantity
   where b.name like 'CONC-%' and v.product_id=(select id from public.products where name='CONC-Nut');
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
   select 'conc_'||n, 'C'||n, 'conc_'||n||'@conc.local', '0917000000'||n from generate_series(1,4) n;
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent) values ('default',1,50)
-  on conflict (id) do update set points_per_peso=1, max_discount_percent=50;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 EOF
 B1=$(val "select id from public.branches where name='CONC-1'"); B2=$(val "select id from public.branches where name='CONC-2'")
 PR=$(val "select id from public.products where name='CONC-Nut'"); VR=$(val "select id from public.product_variants where product_id='$PR'")

@@ -80,7 +80,7 @@ $$;
 
 
 -- Fixtures ------------------------------------------------------------------
-insert into public.branches (name, address) values ('FOUND-TEST A', 'a'), ('FOUND-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('FOUND-TEST A', 'a', 0), ('FOUND-TEST B', 'b', 0);
 create temp table fx as
 select (select id from public.branches where name = 'FOUND-TEST A') as branch_a,
        (select id from public.branches where name = 'FOUND-TEST B') as branch_b;

@@ -56,7 +56,7 @@ create function pg_temp.j(p_uid text, p_sql text) returns jsonb language sql as 
   select pg_temp.call_as(p_uid, 'select (' || p_sql || ')::text')::jsonb $$;
 
 -- Fixtures ---------------------------------------------------------------------
-insert into public.branches (name, address) values ('PR-TEST A', 'a'), ('PR-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('PR-TEST A', 'a', 0), ('PR-TEST B', 'b', 0);
 insert into fx select 'ba', id::text from public.branches where name = 'PR-TEST A';
 insert into fx select 'bb', id::text from public.branches where name = 'PR-TEST B';
 insert into public.product_categories (label) values ('PR-TEST Cat');

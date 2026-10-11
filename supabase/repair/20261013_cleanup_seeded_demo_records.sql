@@ -17,15 +17,28 @@
 --        Free 100g Roasted Cashew 350 pts, Free Delivery Voucher 150 pts) and the
 --        promotion "Fresh Batch Every Friday" (active)
 --   D. The 3 branches still carry the seed's address, phone and opening hours
---   E. Orders ORD-1001 to ORD-1004 (2026-10-01, Santa Cruz Branch, completed and paid:
---        ₱540 cash, ₱80 cash, ₱480 GCash, ₱90 cash)
+--   E. Orders ORD-1001 to ORD-1004 (2026-10-01, Santa Cruz Branch, completed and
+--        paid: ₱540 cash, ₱80 cash, ₱480 GCash, ₱90 cash) — FLAGGED for the owner only
+--   F. Check what is left (SELECT only)
+--
+-- RUN ORDER (see docs/PRODUCTION_RUNBOOK.md, "Seeded demo records clean-up"):
+--   1. STAGING FIRST: restore a copy of production to a staging project (or a
+--      Supabase branch), run every section there with COMMIT, check the app and
+--      the admin website, and run section F.
+--   2. PRODUCTION: take a backup (or note the PITR timestamp), then run the same
+--      sections in the same order: A, B, C, (C2 optional), D, F. Never E.
 --
 -- HOW TO USE: run ONE section at a time in the Supabase SQL editor. Every section is a
 -- transaction that ends with ROLLBACK, so running it as it is only SHOWS what it would
 -- do. When the result is what you want, change that section's ROLLBACK to COMMIT and
 -- run it again. Nothing here deletes an order, a payment or a product that was sold.
 -- Each section re-checks that the row is still exactly the seeded value, so a row you
--- already corrected by hand is left alone.
+-- already corrected by hand is left alone, and running a section twice changes nothing
+-- the second time.
+--
+-- Tested by supabase/tests/cleanup_seeded_demo_records_test.sh on a local database
+-- that reproduces the seeded rows: as shipped (ROLLBACK) it changes nothing; with
+-- COMMIT it changes exactly the rows listed above and nothing else.
 -- =============================================================================
 
 
@@ -96,6 +109,15 @@ returning p.name, p.price, p.is_active;   -- expect 3 rows
 
 rollback;  -- change to COMMIT to hide them
 
+-- B (review only): the 2 seeded products that WERE sold stay visible. Confirm or
+-- correct their price and description on the admin website (Products) or in the app.
+select p.name, p.price, p.description, p.is_active,
+       (select count(*) from public.order_items oi where oi.product_id = p.id or oi.product_name = p.name) as order_lines
+from public.products p
+where (p.name, p.description) in (
+        ('Roasted Peanuts', 'Crunchy roasted peanuts in shell.'),
+        ('Melai Nuts Gift Box', 'Assorted nuts in a gift-ready box.'));
+
 
 -- -----------------------------------------------------------------------------
 -- C. Seeded rewards (never redeemed) and the seeded promotion: deactivate.
@@ -114,6 +136,26 @@ where pr.title = 'Fresh Batch Every Friday' and pr.is_active
 returning pr.title, pr.is_active;                   -- expect 1 row
 
 rollback;  -- change to COMMIT to deactivate them
+
+
+-- -----------------------------------------------------------------------------
+-- C2. OPTIONAL, after C: permanently delete the seeded rewards that were never
+--     redeemed and the seeded promotion, once you are sure the business does not
+--     offer them. (C alone already hides them from customers.)
+-- -----------------------------------------------------------------------------
+begin;
+
+delete from public.rewards r
+where r.title in ('₱50 Off Voucher', 'Free 100g Roasted Cashew', 'Free Delivery Voucher')
+  and not r.is_active
+  and not exists (select 1 from public.reward_redemptions rr where rr.reward_id = r.id)
+returning r.title;                                   -- expect 3 rows (0 if C was not committed)
+
+delete from public.promotions pr
+where pr.title = 'Fresh Batch Every Friday' and not pr.is_active
+returning pr.title;                                  -- expect 1 row (0 if C was not committed)
+
+rollback;  -- change to COMMIT to delete them for good
 
 
 -- -----------------------------------------------------------------------------
@@ -154,7 +196,7 @@ rollback;  -- change to COMMIT when the values above are the real ones
 
 
 -- -----------------------------------------------------------------------------
--- E. Orders ORD-1001 .. ORD-1004: NO SQL CHANGE ON PURPOSE.
+-- E. Orders ORD-1001 .. ORD-1004: FLAGGED FOR OWNER REVIEW — NO SQL CHANGE ON PURPOSE.
 --    They went through the real checkout and payment, so stock, points, payments and
 --    reports already count them. If they were tests, refund them through the app / the
 --    website's Refunds page (that returns stock and points and keeps reports right).
@@ -167,3 +209,30 @@ from public.orders o
 left join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
 where o.id in ('ORD-1001', 'ORD-1002', 'ORD-1003', 'ORD-1004')
 order by o.created_at;
+
+
+-- -----------------------------------------------------------------------------
+-- F. What is left of the seed (SELECT only). After A-D are committed, expect:
+--    seeded_stock_rows 0, active_unsold_seed_products 0, active_seed_rewards 0,
+--    active_seed_promotions 0, branches_with_seed_address 0. The 4 orders stay (E).
+-- -----------------------------------------------------------------------------
+select
+  (select count(*) from public.branch_inventory bi
+     join public.branches b on b.id = bi.branch_id
+    where bi.quantity = 50
+      and b.name in ('Calamba Branch', 'Los Baños Branch', 'Santa Cruz Branch')
+      and not exists (select 1 from public.stock_movements sm where sm.branch_id = bi.branch_id and sm.variant_id = bi.variant_id)
+      and not exists (select 1 from public.inventory_batches ib where ib.branch_id = bi.branch_id and ib.variant_id = bi.variant_id)) as seeded_stock_rows,
+  (select count(*) from public.products p
+    where p.is_active and (p.name, p.description) in (
+        ('Roasted Cashew', 'Slow-roasted Laguna cashews, lightly salted.'),
+        ('Mixed Nuts & Raisins', 'Cashew, peanut, almond and raisin blend.'),
+        ('Chili Garlic Peanuts', 'Peanuts tossed in chili and garlic seasoning.'))) as active_unsold_seed_products,
+  (select count(*) from public.rewards r
+    where r.is_active and r.title in ('₱50 Off Voucher', 'Free 100g Roasted Cashew', 'Free Delivery Voucher')) as active_seed_rewards,
+  (select count(*) from public.promotions pr where pr.is_active and pr.title = 'Fresh Batch Every Friday') as active_seed_promotions,
+  (select count(*) from public.branches b where (b.name, b.address) in (
+        ('Calamba Branch', 'Poblacion Terminal, National Hwy, Calamba City, Laguna'),
+        ('Los Baños Branch', 'Lopez Ave, Los Baños, Laguna'),
+        ('Santa Cruz Branch', 'National Hwy, Santa Cruz, Laguna'))) as branches_with_seed_address,
+  (select count(*) from public.orders o where o.id in ('ORD-1001', 'ORD-1002', 'ORD-1003', 'ORD-1004')) as flagged_orders_kept;

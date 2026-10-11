@@ -79,7 +79,7 @@ create function pg_temp.stock(p_branch text) returns int language sql as $$
 -- Synthetic history written straight into the tables (as the database owner):
 -- branch A sells units(d) = 20 + 0.5*d (+10 on Saturdays) of one product at
 -- P10 per unit on days d = 1..60 before today, except one closed day (d = 45).
-insert into public.branches (name, address) values ('AN-TEST A', 'a'), ('AN-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('AN-TEST A', 'a', 0), ('AN-TEST B', 'b', 0);
 insert into fx select 'ba', id::text from public.branches where name = 'AN-TEST A';
 insert into fx select 'bb', id::text from public.branches where name = 'AN-TEST B';
 insert into public.product_categories (label) values ('AN-TEST Cat');

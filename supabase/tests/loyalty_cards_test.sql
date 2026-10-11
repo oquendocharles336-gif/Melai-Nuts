@@ -55,7 +55,11 @@ create function pg_temp.j(p_uid text, p_sql text) returns jsonb language sql as 
   select pg_temp.call_as(p_uid, 'select (' || p_sql || ')::text')::jsonb $$;
 
 -- Fixtures ---------------------------------------------------------------------
-insert into public.branches (name, address) values ('CARD-TEST A', 'a'), ('CARD-TEST B', 'b');
+insert into public.branches (name, address, delivery_fee) values ('CARD-TEST A', 'a', 0), ('CARD-TEST B', 'b', 0);
+-- Test fixture: an earn rate, so a sale earns points (a new database has none).
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 insert into fx select 'ba', id::text from public.branches where name = 'CARD-TEST A';
 insert into fx select 'bb', id::text from public.branches where name = 'CARD-TEST B';
 insert into public.product_categories (label) values ('CARD-TEST Cat');

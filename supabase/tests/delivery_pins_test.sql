@@ -95,8 +95,9 @@ values ('p-sa', 'Staff A', 'p-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 'a
        ('p-own', 'Owner', 'p-own@test.local', 'owner', null, 'active');
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('p-c1', 'Pia Pinned', 'p-c1@test.local', '09170000011'), ('p-c2', 'Nico Nopin', 'p-c2@test.local', '09170000012');
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50) on conflict (id) do nothing;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 -- 1. Customer writes the pin on their own saved address ------------------------
 select pg_temp.chk('customer saves a pinned address', 'p-c1',

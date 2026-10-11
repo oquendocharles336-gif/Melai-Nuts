@@ -66,8 +66,9 @@ insert into public.staff_members (firebase_uid, full_name, email, role, branch_i
 values ('pay-sa', 'Staff A', 'pay-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 'active');
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('pay-c1', 'Pay Customer', 'pay-c1@test.local', '09170000021');
-insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent)
-values ('default', 1, 50) on conflict (id) do nothing;
+insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)
+values ('default', 1, 50, 50)
+  on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
 create function pg_temp.cart() returns text language sql as $$
   select pg_temp.call_as('pay-c1', format($q$select (public.sync_customer_cart(%L::uuid,
