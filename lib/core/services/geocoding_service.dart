@@ -42,7 +42,7 @@ class NominatimGeocoder implements Geocoder {
   NominatimGeocoder({http.Client? client}) : _client = client ?? http.Client();
 
   static const String host = 'nominatim.openstreetmap.org';
-  static const String userAgent = 'MelaiNutsApp/1.0 (com.example.melai_nuts)';
+  static const String userAgent = 'MelaiNutsApp/1.0 (ph.melainuts.app)';
   static const Duration timeout = Duration(seconds: 8);
 
   final http.Client _client;

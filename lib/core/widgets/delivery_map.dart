@@ -19,7 +19,7 @@ class MapTiles {
   MapTiles._();
 
   static const String url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  static const String userAgentPackageName = 'com.example.melai_nuts';
+  static const String userAgentPackageName = 'ph.melainuts.app';
   static const String attributionText = 'OpenStreetMap contributors';
   static final Uri attributionUri = Uri.parse('https://openstreetmap.org/copyright');
 

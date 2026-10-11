@@ -18,9 +18,38 @@
 | Who can read/write each Supabase table / call each function | Postgres grants + RLS + `SECURITY DEFINER` functions | `supabase/schema.sql` then `supabase/migrations/*.sql` |
 | Prices, totals, stock, points, refund amounts | Server-side SQL functions/triggers | `place_order`, `request_refund`, triggers |
 | Screens shown for a role | `RouteGuard` (UX / defence-in-depth only) | `lib/app/route_guard.dart` |
-| Rate limiting / brute force | Firebase Auth server-side throttling (+ App Check) | Firebase Console |
+| Rate limiting / brute force | Firebase Auth throttling + App Check (sign-in); database limits on voucher codes and order bursts | Firebase Console; `migrations/20261019000000_rate_limits.sql` |
 
 A modified app can bypass anything in Dart. It cannot bypass Firestore rules or Postgres grants/RLS.
+
+## Owner checklist — exposed keys (do this first)
+
+Until 2026-10-18 the *example* files `env/firebase.example.json`, `env/supabase.example.json` and
+`android/app/google-services.json.example` (plus a copy in `android/app/src/`) contained the
+project's **real** Firebase API keys (web, Android, iOS) and the Supabase anon key, and they are in
+Git history. They are placeholders now. Treat the old values as public:
+
+- [ ] **Firebase keys — restrict** (Google Cloud Console > APIs & Services > Credentials), for each key:
+  - [ ] Android key: *Application restrictions* = Android apps, package **`ph.melainuts.app`** + the
+        release and debug **SHA-1** fingerprints (see `docs/RELEASE.md`).
+  - [ ] iOS key: iOS apps, bundle id **`ph.melainuts.app`**.
+  - [ ] Web key: HTTP referrers = your web domain(s) only.
+  - [ ] Windows / macOS (if used): their own key, *API restrictions* only.
+  - [ ] Every key: *API restrictions* = only Identity Toolkit API, Token Service API, Cloud Firestore
+        API (and Firebase App Check API, Firebase Installations API once App Check is on).
+- [ ] **Firebase keys — rotate**: create new keys with the restrictions above, put them in your local
+      `env/firebase.json` and `android/app/google-services.json`, ship a build, then **delete the old
+      keys**. In GitHub > Security > Secret scanning, close each alert as *Revoked*.
+- [ ] **Supabase anon key**: it is a public key by design (RLS and the SQL functions protect the data),
+      but it identifies the project. Optionally move to the new *publishable* key (Supabase dashboard >
+      Project Settings > API Keys) and disable the legacy anon key after the app is updated. **Never**
+      put the `service_role` / secret key anywhere in the app, `env/` or Git.
+- [ ] **HitPay** (dormant, online payment is off): no HitPay key should be set anywhere until the owner
+      re-enables online payment. If one was ever set as a Supabase secret, rotate it in the HitPay
+      dashboard.
+- [ ] Turn on **App Check** in monitor mode (`docs/APP_CHECK.md`).
+- [ ] Rewriting Git history does not un-leak a key — restriction and rotation do. (You may still
+      purge the old files from history with `git filter-repo` to stop future scanners flagging them.)
 
 ## Must-do steps outside the Flutter project
 
@@ -30,8 +59,8 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules or 
    (`cd firestore-tests && npm install && npm test`).
 2. **Restrict every Firebase API key** (Google Cloud Console → APIs & Services →
    Credentials):
-   - Android key: *Android apps* restriction (package `com.example.melai_nuts` →
-     use your real package name + release **and** debug SHA-1s).
+   - Android key: *Android apps* restriction (package `ph.melainuts.app` +
+     release **and** debug SHA-1s).
    - Web key: *HTTP referrers* restriction for your web domain(s).
    - Windows desktop uses the *web* app config and cannot be app-restricted —
      give it its **own** key restricted by **API** only (Identity Toolkit,
@@ -58,10 +87,11 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules or 
    4. In GitHub → Security → Secret scanning, close each alert as *Revoked*.
    For CI, store the JSON as a repository secret and write it to
    `env/firebase.json` before `flutter build`.
-5. **Enable Firebase App Check** (Play Integrity for Android, reCAPTCHA for web)
-   and *enforce* it for Authentication and Cloud Firestore. This is the main
-   defence against abuse from clones/scripts using the public API key. It needs
-   the `firebase_app_check` package plus console setup — add it together.
+5. **Enable Firebase App Check** (Play Integrity for Android, App Attest for iOS,
+   reCAPTCHA v3 for web). The app side is done (`lib/core/services/app_check_service.dart`);
+   the console steps and the enforcement caveat for the admin website are in
+   `docs/APP_CHECK.md`. Voucher-code guessing and order bursts are additionally
+   rate-limited in the database (migration `20261019000000_rate_limits.sql`).
 6. **Auth settings** (Firebase Console → Authentication → Settings):
    turn on *email enumeration protection*; set a password policy at least as
    strong as the app's (8+ chars, upper, number, symbol); consider requiring
@@ -69,10 +99,9 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules or 
 7. **First Owner account**: create the Firebase Auth user, then create
    `users/{uid}` in the console with `role: "owner"`, `isActive: true`,
    `email`, `name`. Owners create all other staff/owner/delivery accounts in-app.
-8. **Release signing / package id**: `android/app/build.gradle.kts` signs release
-   with the *debug* key and uses `com.example.*`. Set a real applicationId and a
-   release keystore (kept out of Git — `.gitignore` covers `*.jks`, `key.properties`).
-   Build releases with `--obfuscate --split-debug-info=...`.
+8. **Release signing / package id**: done — applicationId / bundle id `ph.melainuts.app`,
+   release signing from `android/key.properties` (git-ignored; a release build fails
+   without it), R8 on. Build with `--obfuscate --split-debug-info=...`. See `docs/RELEASE.md`.
 
 ## Deactivating an account
 

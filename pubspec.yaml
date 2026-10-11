@@ -46,6 +46,8 @@ dependencies:
   firebase_core: ^4.15.0
   firebase_auth: ^6.7.0
   cloud_firestore: ^6.10.0
+  # App Check (Play Integrity / App Attest / reCAPTCHA v3) — docs/APP_CHECK.md.
+  firebase_app_check: ^0.4.8
 
   # Calls the email-verification API (6-digit code mode).
   http: ^1.2.2

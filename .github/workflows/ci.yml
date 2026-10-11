@@ -1,0 +1,142 @@
+# Melai Nuts — continuous integration.
+# Every job must pass before a pull request can be merged into main: in GitHub,
+# Settings > Branches > Branch protection rule for "main" > "Require status checks
+# to pass before merging" and tick every job below (see docs/RELEASE.md, "CI").
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hardcoded-data-guard:
+    name: No hardcoded / fixture data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Guard (fixture classes, demo words, seed strings, keys)
+        run: python3 scripts/check_no_fixture_data.py
+      - name: Guard's own tests
+        run: python3 -m unittest scripts/test_check_no_fixture_data.py
+      - name: Resync file matches the migrations
+        run: bash scripts/build-resync.sh --check
+
+  flutter:
+    name: Flutter analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - name: flutter analyze (warnings fail the build)
+        run: flutter analyze --no-fatal-infos --fatal-warnings
+      - run: flutter test --coverage
+      - name: Coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-coverage
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  sql:
+    name: SQL suites (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: schema + migrations + every suite + concurrency scripts + fresh-install and re-run checks
+        env:
+          PGADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: bash scripts/run-sql-tests.sh
+
+  php:
+    name: Admin website (php artisan test)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, pgsql, pdo_sqlite, sqlite3, zip
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env && php artisan key:generate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci && npm run build
+      - name: Build the throwaway test database (stub roles + schema + migrations)
+        env:
+          PGADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: bash tests/Supabase/prepare-test-db.sh
+      - name: php artisan test (unit, feature, Supabase integration, page-load budgets)
+        env:
+          SUPABASE_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/melai_portal_test
+          SUPABASE_TEST_PORTAL_URL: postgresql://melai_admin_portal:portal-test-pw@127.0.0.1:5432/melai_portal_test
+        run: php artisan test
+
+  functions:
+    name: Firebase Functions + Firestore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: functions tests
+        working-directory: functions
+        run: npm ci && npm test
+      - name: firestore rules tests (emulator)
+        working-directory: firestore-tests
+        run: npm install && npm test
+
+  edge-functions:
+    name: Edge Functions (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check --no-remote supabase/functions/hitpay-create-payment/handler.ts
+      - run: deno test --no-remote supabase/functions/

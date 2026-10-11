@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'app/app.dart';
+import 'core/services/app_check_service.dart';
 import 'core/services/audit_service.dart';
 import 'core/services/branch_controller.dart';
 import 'core/services/connectivity_service.dart';
@@ -25,6 +26,8 @@ Future<void> main() async {
     } on FirebaseException catch (e) {
       if (e.code != 'duplicate-app') rethrow;
     }
+    // Before any Firebase Auth / Firestore request (see docs/APP_CHECK.md).
+    await AppCheckService.activate();
     await DataSyncService.instance.initializeLocalDatabase();
     await SupabaseService.instance.initialize();
   } catch (e, st) {

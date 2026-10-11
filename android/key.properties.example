@@ -1,0 +1,7 @@
+# Copy to android/key.properties (git-ignored) and fill in. NEVER commit the real file or the .jks.
+# Create the keystore once:
+#   keytool -genkeypair -v -keystore melai-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias melai
+storeFile=/absolute/path/to/melai-release.jks
+storePassword=replace-me
+keyAlias=melai
+keyPassword=replace-me

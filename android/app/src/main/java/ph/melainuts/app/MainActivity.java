@@ -1,4 +1,4 @@
-package com.example.melai_nuts;
+package ph.melainuts.app;
 
 import io.flutter.embedding.android.FlutterActivity;
 

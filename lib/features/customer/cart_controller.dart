@@ -456,6 +456,16 @@ class CartController extends ChangeNotifier {
       clearVoucher();
       return null;
     }
+    if (normalized != appliedVoucherCode) {
+      // Counted (and limited) by the database before the cart may use the code.
+      try {
+        await CartRepository.instance.registerVoucherAttempt(normalized);
+      } catch (e) {
+        lastError = _messageFor(e);
+        notifyListeners();
+        return lastError;
+      }
+    }
     final previous = appliedVoucherCode;
     appliedVoucherCode = normalized;
     _markDirty();

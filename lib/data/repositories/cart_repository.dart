@@ -124,6 +124,18 @@ class CartRepository {
 
   SupabaseClient get _client => SupabaseService.instance.client;
 
+  /// Registers a voucher code the customer typed, before a cart may use it.
+  /// The database limits how many codes one account can try (migration
+  /// 20261019000000_rate_limits.sql) and refuses an unregistered code, so
+  /// guessing codes in a loop is stopped server-side.
+  Future<void> registerVoucherAttempt(String code) async {
+    try {
+      await _client.rpc('register_voucher_attempt', params: {'p_code': code});
+    } on PostgrestException catch (e) {
+      throw Exception(e.message);
+    }
+  }
+
   Future<CartRemoteState?> loadOpenCart({required String branchId}) async {
     final result = await _client.rpc(
       'get_customer_cart',
