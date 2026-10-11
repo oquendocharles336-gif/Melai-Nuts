@@ -1,5 +1,5 @@
 Delete these from your copy of the project (removed in this change; unzipping does not remove them):
-Melai-Nuts-master/lib/features/auth/widgets/role_badge_card.dart
+Melai-Nuts-master/lib/features/auth/widgets/ole_badge_card.dart
 Melai-Nuts-master/android/app/src/google-services.json.example
 Melai-Nuts-master/android/app/src/main/java/com/example/melai_nuts/MainActivity.java   (moved to android/app/src/main/java/ph/melainuts/app/MainActivity.java)
 

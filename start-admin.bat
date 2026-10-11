@@ -27,11 +27,25 @@ if not exist .env (
 )
 if not exist database\database.sqlite type nul > database\database.sqlite
 call php artisan migrate --seed --force || (echo [!] Set ADMIN_EMAIL and ADMIN_PASSWORD in admin\.env first. & pause & exit /b 1)
-if not exist public\build\manifest.json (
+REM Rebuild the page scripts/styles when they are missing OR older than resources\js / resources\css.
+powershell -NoProfile -Command "$m=Get-Item public\build\manifest.json -ErrorAction SilentlyContinue; $n=(Get-ChildItem resources\js,resources\css -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime; if(-not $m -or $n -gt $m.LastWriteTime){exit 1}"
+if errorlevel 1 (
   where npm >nul 2>nul || (echo [!] Node.js not found. Install it from https://nodejs.org & pause & exit /b 1)
   echo [setup] building the page styles ...
-  call npm install
+  if not exist node_modules call npm install
   call npm run build
+)
+
+REM SPEED: cache config, routes, views and events (saves work on EVERY page load). Runs on every
+REM start, so changes to .env still apply after restarting this window.
+call php artisan optimize
+
+REM SPEED: OPcache keeps the compiled PHP in memory. Without it every page re-reads ~1000 PHP files.
+php -r "exit(function_exists('opcache_get_status') && ini_get('opcache.enable') ? 0 : 1);" || (
+  echo.
+  echo [!] PHP OPcache is OFF - every page will be slower. To turn it on, open your php.ini
+  echo     ^(run: php --ini^) and set:   zend_extension=opcache   opcache.enable=1   opcache.enable_cli=1
+  echo.
 )
 
 echo.

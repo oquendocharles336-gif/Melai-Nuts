@@ -588,7 +588,7 @@ function liveRefreshComponent(seconds) {
 // CSS and JS stay loaded; Alpine starts the new content's components by itself. Any problem
 // (error status, signed out, a page with its own scripts) falls back to a normal navigation.
 // ---------------------------------------------------------------------------------------------
-const fragments = new Map(); // url -> { at, promise }   (prefetched on hover / focus, ~15 s)
+const fragments = new Map(); // url -> { at, promise }   (started on pointerdown, ~15 s)
 const FRAG_TTL = 15000;
 let navToken = 0;
 let lastInteraction = 0;
@@ -676,8 +676,6 @@ function softTarget(e) {
     return u.origin === location.origin ? u : null;
 }
 
-let hoverTimer = null;
-
 function bootSoftNavigation() {
     history.replaceState({ soft: true }, '', location.href);
     document.addEventListener('click', (e) => {
@@ -685,14 +683,18 @@ function bootSoftNavigation() {
         const u = softTarget(e);
         if (!u) return;
         e.preventDefault();
-        clearTimeout(hoverTimer);
         if (u.href === location.href) { Alpine.store('ui').nav = false; return; }
         navigate(u.href);
     });
-    const warm = (e) => { const u = softTarget(e); if (!u || u.href === location.href) return; clearTimeout(hoverTimer); hoverTimer = setTimeout(() => { if (u.href !== location.href) prefetch(u.href); }, 70); };
-    document.addEventListener('mouseover', warm);
-    document.addEventListener('focusin', warm);
-    document.addEventListener('mouseout', () => clearTimeout(hoverTimer));
+    // SPEED: start loading only when the button is actually pressed (pointerdown comes ~100 ms before
+    // click). Prefetching on HOVER sent a request for every sidebar link the mouse crossed; the local
+    // server (php artisan serve) answers ONE request at a time, so the page you clicked waited
+    // behind pages you never opened (15-30 s loads).
+    document.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        const u = softTarget(e);
+        if (u && u.href !== location.href) prefetch(u.href);
+    });
     window.addEventListener('popstate', () => navigate(location.href, { push: false }));
     ['pointerdown', 'keydown'].forEach(t => document.addEventListener(t, () => { lastInteraction = Date.now(); }, true));
     window.addEventListener('melai:changed', () => fragments.clear());

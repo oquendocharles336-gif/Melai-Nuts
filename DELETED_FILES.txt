@@ -8,7 +8,7 @@ admin/app/Models/OrderOverride.php                       (local copy of refunds 
 admin/app/Services/Data/FirestoreDataSource.php          (legacy, unused)
 admin/app/Services/Data/MockDataSource.php               (moved to admin/tests/Support/MockDataSource.php)
 admin/app/Services/LoyaltyService.php                    (local points ledger, demo mode)
-admin/app/Services/PayMongo/                             (simulated PayMongo refunds)
+admin/app/Services/PayMongo/                            (simulated PayMongo refunds)
 admin/tests/Feature/LoyaltyTest.php                      (tested the removed demo flows)
 admin/tests/Feature/PaymentTest.php                      (tested the removed demo flows)
 admin/tests/Feature/RefundTest.php                       (tested the removed demo flows)
