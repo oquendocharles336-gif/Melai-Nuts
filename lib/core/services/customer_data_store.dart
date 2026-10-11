@@ -19,7 +19,6 @@ import 'connectivity_service.dart';
 import 'local_cache_service.dart';
 import 'offline_read_cache_client.dart';
 import 'pending_writes_service.dart';
-import '../utils/app_error.dart';
 
 /// Single source of truth for every customer-scoped record (orders,
 /// loyalty, notifications, refunds, payments, profile, addresses), loaded

@@ -5,7 +5,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Drivers share their location only while carrying a Melai Nuts delivery, so the branch and the customer can follow it. Customers can pin a saved delivery address to where they are.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Drivers take a photo of a delivered order as proof of delivery.</string>
+	<string>Drivers take a photo of a delivered order as proof of delivery, and cashiers scan product barcodes at the register.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo to attach as proof of delivery.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

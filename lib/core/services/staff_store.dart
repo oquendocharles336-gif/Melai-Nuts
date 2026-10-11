@@ -16,7 +16,6 @@ import '../../data/repositories/staff_repository.dart';
 import '../utils/app_error.dart';
 import 'staff_session_store.dart';
 import 'supabase_service.dart';
-import '../utils/app_error.dart';
 
 /// Loading status of one section of staff data.
 class LoadState {

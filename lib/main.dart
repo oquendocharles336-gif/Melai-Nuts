@@ -17,6 +17,7 @@ import 'core/services/supabase_service.dart';
 import 'core/services/sync_service.dart';
 import 'data/repositories/products_repository.dart';
 import 'features/customer/cart_controller.dart';
+import 'features/staff/pos_sale_queue.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -46,6 +47,7 @@ Future<void> main() async {
   // Crash reports carry the Firebase UID only (no name, e-mail or phone).
   FirebaseAuth.instance.authStateChanges().listen((user) => CrashReporter.setUser(user?.uid));
   AuditService.instance.registerWithSync();
+  PosSaleQueue.instance.register(); // offline POS sales (docs/OFFLINE_POS.md)
   SyncService.instance.attach(
     session: StaffSessionStore.instance,
     connectivity: ConnectivityService.instance,

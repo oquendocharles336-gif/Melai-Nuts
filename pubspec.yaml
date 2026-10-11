@@ -73,6 +73,9 @@ dependencies:
   # Proof-of-delivery photo (camera) for drivers.
   image_picker: ^1.2.4
 
+  # Barcode scanning at the POS (matched to product_variants.sku).
+  mobile_scanner: ^7.4.2
+
   # Real connectivity detection (not a guess from failed requests) so the
   # app can tell "offline" apart from "server error" and refresh real data
   # the moment a connection comes back — see lib/core/services/connectivity_service.dart.

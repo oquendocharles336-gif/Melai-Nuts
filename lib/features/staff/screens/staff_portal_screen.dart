@@ -14,6 +14,9 @@ import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../../inventory/screens/inventory_dashboard_screen.dart';
 import '../../settings/screens/logout_confirmation_screen.dart';
+import '../barcode/barcode_scan_screen.dart';
+import '../barcode/sku_matcher.dart';
+import '../widgets/pos_offline_widgets.dart';
 import 'cash_drawer_screen.dart';
 import 'staff_dashboard_tab.dart';
 import 'staff_extra_screens.dart';
@@ -245,16 +248,27 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
 
   /// Barcode scanners "type" the code then press Enter: an exact SKU match
   /// adds that product.
-  void _submitSearch(StaffStore store, String value) {
-    final code = value.trim().toLowerCase();
-    if (code.isEmpty) return;
-    for (final item in store.inventoryItems) {
-      if (item.sku.isNotEmpty && item.sku.toLowerCase() == code) {
-        _add(item);
-        setState(() => _searchController.clear());
-        return;
-      }
+  /// A keyboard-wedge scanner (or typed SKU + Enter) and the camera scanner
+  /// both end here: an exact SKU match adds the item; anything else says so.
+  void _submitSearch(StaffStore store, String value, {bool fromScanner = false}) {
+    if (value.trim().isEmpty) return;
+    final item = matchSku(store.inventoryItems, value);
+    if (item != null) {
+      _add(item);
+      setState(() => _searchController.clear());
+      return;
     }
+    if (fromScanner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No product at this branch has the code "${value.trim()}". Search by name instead.')),
+      );
+    }
+  }
+
+  Future<void> _scan(StaffStore store) async {
+    final code = await BarcodeScanScreen.open(context);
+    if (code == null || !mounted) return;
+    _submitSearch(store, code, fromScanner: true);
   }
 
   @override
@@ -279,6 +293,7 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
 
         return Column(
           children: [
+            const PosQueueBanner(),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
               child: TextField(
@@ -287,7 +302,11 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                 onSubmitted: (v) => _submitSearch(store, v),
                 decoration: InputDecoration(
                   hintText: 'Scan barcode or search name / SKU...',
-                  prefixIcon: const Icon(Icons.qr_code_scanner_rounded),
+                  prefixIcon: IconButton(
+                    tooltip: 'Scan a barcode with the camera',
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    onPressed: () => _scan(store),
+                  ),
                   suffixIcon: query.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear_rounded),

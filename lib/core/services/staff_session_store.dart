@@ -9,7 +9,6 @@ import '../../data/repositories/staff_profile_repository.dart';
 import '../utils/app_error.dart';
 import 'local_cache_service.dart';
 import 'pending_writes_service.dart';
-import '../utils/app_error.dart';
 
 /// Where the staff session stands. Only [ready] unlocks staff screens.
 enum StaffSessionStatus {

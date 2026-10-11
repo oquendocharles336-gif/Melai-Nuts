@@ -13,6 +13,7 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/staff_repository.dart';
+import '../widgets/pos_offline_widgets.dart';
 
 /// Everything the checkout screens share. [idempotencyKey] is created once per
 /// checkout so that retrying after a dropped connection can never ring the
@@ -81,6 +82,39 @@ Future<PosSaleResult> _submitSale(
   );
   unawaited(store.refreshLive());
   return result;
+}
+
+/// The sale could not reach the server: offer to keep it on the device
+/// ([PosSaleQueue]). Returns true when it was saved (the caller then leaves
+/// the checkout). Only offered for a connectivity failure — a sale the server
+/// answered and refused is never queued.
+Future<bool> _saveOfflineIfDisconnected(
+  BuildContext context,
+  Object error,
+  PosCheckout c, {
+  String? reference,
+  double? cashReceived,
+}) async {
+  final branchId = StaffStore.instance.activeBranchId;
+  if (branchId == null || c.method == null || !AppErrors.from(error).isConnectivity) return false;
+  final saved = await offerOfflineSave(
+    context,
+    branchId: branchId,
+    cart: c.cart,
+    paymentMethod: c.method!,
+    idempotencyKey: c.idempotencyKey,
+    displayedTotal: c.total,
+    reference: reference,
+    cashReceived: cashReceived,
+    customerUid: c.customerUid,
+  );
+  if (saved && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sale saved on this device. It will be sent when the connection returns.')),
+    );
+    Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.staffHome, (route) => false);
+  }
+  return saved;
 }
 
 /// POS Cart — review the sale and optionally attach a loyalty customer.
@@ -595,6 +629,8 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
       Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosReceipt, arguments: sale);
     } catch (e) {
       if (!mounted) return;
+      if (await _saveOfflineIfDisconnected(context, e, widget.checkout, cashReceived: _received)) return;
+      if (!mounted) return;
       setState(() => _saving = false);
       AppErrors.showSnack(context, e);
     }
@@ -691,6 +727,8 @@ class _PosProcessingScreenState extends State<PosProcessingScreen> {
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosReceipt, arguments: sale);
     } catch (e) {
+      if (!mounted) return;
+      if (await _saveOfflineIfDisconnected(context, e, widget.checkout, reference: _reference.text.trim())) return;
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRoutes.staffPosFailed, arguments: AppErrors.from(e).message);
     }

@@ -7,7 +7,6 @@ import '../../data/repositories/sync_queue_repository.dart';
 import '../utils/app_error.dart';
 import 'connectivity_service.dart';
 import 'staff_session_store.dart';
-import '../utils/app_error.dart';
 
 /// Sends one queued operation to Supabase. Return normally when the server
 /// ACCEPTED it. Use [SyncOperation.localOperationId] as the idempotency key so
@@ -206,6 +205,34 @@ class SyncService extends ChangeNotifier {
         }
         return true;
     }
+  }
+
+  /// Operations of [status] for the signed-in staff member (oldest first),
+  /// optionally only of [operationType]. Empty when nobody is signed in.
+  Future<List<SyncOperation>> operations(SyncStatus status, {String? operationType}) async {
+    final uid = _currentUid();
+    if (uid == null) return const [];
+    final all = await _queue.withStatus(uid, status);
+    return operationType == null ? all : all.where((o) => o.operationType == operationType).toList();
+  }
+
+  /// A person pressed "Retry" on a failed operation: back to pending (same
+  /// idempotency key, so it can never apply twice) and sent if possible.
+  Future<void> retryFailed(String localOperationId) async {
+    final uid = _currentUid();
+    if (uid == null) return;
+    await _queue.requeueFailed(uid, localOperationId);
+    await refreshCounts();
+    unawaited(processPending());
+  }
+
+  /// A person decided a failed operation should not be sent. Only failed
+  /// operations can be discarded (pending ones are never dropped).
+  Future<void> discardFailed(String localOperationId) async {
+    final uid = _currentUid();
+    if (uid == null) return;
+    await _queue.discardFailed(uid, localOperationId);
+    await refreshCounts();
   }
 
   /// Re-reads the counters for the signed-in staff member.
