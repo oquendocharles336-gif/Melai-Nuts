@@ -27,7 +27,10 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
         <option value="">All branches</option>
         @foreach ($branches as $b) <option value="{{ $b['id'] }}" @selected(($filters['branch'] ?? '') === $b['id'])>{{ $b['name'] }}</option> @endforeach
     </select>
-    @if (array_filter($filters)) <a href="{{ route('admin.refunds.index') }}" class="btn-outline" style="padding:.5rem 1rem">Clear</a> @endif
+    <input class="light-input" type="search" name="q" value="{{ $q }}" placeholder="Order, request, customer, reason" aria-label="Search refunds" maxlength="100">
+    <button class="btn-outline" type="submit" style="padding:.5rem 1rem">Search</button>
+    @if (array_filter($filters) || $q !== '') <a href="{{ route('admin.refunds.index') }}" class="btn-outline" style="padding:.5rem 1rem">Clear</a> @endif
+    <a class="btn-outline" style="padding:.5rem 1rem" href="{{ route('admin.refunds.export', request()->only(['status', 'method', 'branch', 'q'])) }}">Download CSV</a>
 </form>
 
 <div class="grid-4" style="grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))">
@@ -121,4 +124,5 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
     <div class="card">No refund requests match these filters.</div>
 @endforelse
 </div>
+@if ($refunds->hasPages())<div style="margin-top:12px">{{ $refunds->links() }}</div>@endif
 @endsection

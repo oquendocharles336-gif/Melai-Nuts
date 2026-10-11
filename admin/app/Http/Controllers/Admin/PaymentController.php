@@ -7,6 +7,7 @@ use App\Services\ActivityLogger;
 use App\Services\OrderQueryService;
 use App\Services\Platform;
 use App\Services\Supabase\SupabaseRepository;
+use App\Support\ListTools;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -29,7 +30,9 @@ class PaymentController extends Controller
     public function index(Request $request, \App\Contracts\DataSource $data)
     {
         $filters = $request->only(['status', 'method', 'branch', 'from', 'to']);
-        $orders = $this->orders()->filter($filters);
+        $q = ListTools::query($request);
+        $orders = collect(ListTools::search($this->orders()->filter($filters), $q, [self::class, 'searchText']))
+            ->sortByDesc('createdAt')->values()->all();
 
         // Totals per method: net sales by payment method from the database (sales_overview), for the
         // chosen days and branch: the same figures as the dashboard and the reports.
@@ -40,7 +43,8 @@ class PaymentController extends Controller
         $sales = $to >= $from ? $data->salesOverview($from, $to, $branch) : null;
 
         return view('admin.payments.index', [
-            'orders' => collect($orders)->sortByDesc('createdAt')->values()->all(),
+            'orders' => ListTools::paginate($orders, $request, 25),
+            'q' => $q,
             'totals' => $sales === null ? null : ($sales['by_method'] ?? []),
             'totalsRange' => [$from, $to],
             'failedOrPending' => collect($orders)->whereIn('effectivePaymentStatus', ['failed', 'pending'])->values()->all(),
@@ -50,6 +54,28 @@ class PaymentController extends Controller
             'liveData' => $this->platform()->isSupabase(),
             'filters' => $filters,
         ]);
+    }
+
+    /** CSV of every payment matching the page's filters and search (not just the visible page). */
+    public function export(Request $request)
+    {
+        $q = ListTools::query($request);
+        $rows = collect(ListTools::search($this->orders()->filter($request->only(['status', 'method', 'branch', 'from', 'to'])), $q, [self::class, 'searchText']))
+            ->sortByDesc('createdAt')->values()->all();
+        ActivityLogger::log('payments.exported', 'Exported payments ('.count($rows).' rows)', $request->user(), ['q' => $q] + $request->only(['status', 'method', 'branch', 'from', 'to']));
+
+        return ListTools::csv('melai-payments-'.now('Asia/Manila')->format('Y-m-d').'.csv', [
+            'order' => fn ($o) => $o['id'], 'placed_at' => fn ($o) => $o['createdAt'], 'branch' => fn ($o) => $o['branchName'] ?? $o['branch'],
+            'customer' => fn ($o) => $o['customer'], 'method' => fn ($o) => $o['paymentMethod'], 'reference' => fn ($o) => $o['paymentReference'] ?? null,
+            'amount' => fn ($o) => $o['total'], 'status' => fn ($o) => $o['effectivePaymentStatus'], 'paid_at' => fn ($o) => $o['paidAt'],
+            'refunded' => fn ($o) => $o['refundedAmount'] ?? null,
+        ], $rows);
+    }
+
+    /** What the search box matches: order, customer, branch, method, reference. */
+    public static function searchText(array $o): string
+    {
+        return implode(' ', [$o['id'], $o['customer'] ?? '', $o['branchName'] ?? '', $o['paymentMethod'] ?? '', $o['paymentReference'] ?? '']);
     }
 
     /** Only admin, only for cash (counter / on delivery), and only once the cash has actually been collected. */

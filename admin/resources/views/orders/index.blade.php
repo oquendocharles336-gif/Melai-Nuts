@@ -24,6 +24,7 @@
             @endif
             <label class="input-icon" style="min-width:240px"><span class="sr-only">Search orders</span><x-icon name="search" :size="15" />
                 <input class="input" style="height:34px" type="search" x-model.debounce.150ms="q" placeholder="Order, customer or product  /" data-page-search></label>
+            <a class="btn sm" style="height:34px" :href="@js(route('orders.export')) + '?' + new URLSearchParams({ status, branch, q }).toString()"><x-icon name="download" :size="14" /> CSV</a>
         </div>
     </div>
 

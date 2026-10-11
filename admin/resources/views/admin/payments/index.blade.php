@@ -30,7 +30,10 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
     </select>
     <input class="light-input" type="date" name="from" value="{{ $filters['from'] ?? '' }}" onchange="this.form.submit()">
     <input class="light-input" type="date" name="to" value="{{ $filters['to'] ?? '' }}" onchange="this.form.submit()">
-    @if (array_filter($filters)) <a href="{{ route('admin.payments.index') }}" class="btn-outline" style="padding:.5rem 1rem">Clear</a> @endif
+    <input class="light-input" type="search" name="q" value="{{ $q }}" placeholder="Order, customer, reference" aria-label="Search payments" maxlength="100">
+    <button class="btn-outline" type="submit" style="padding:.5rem 1rem">Search</button>
+    @if (array_filter($filters) || $q !== '') <a href="{{ route('admin.payments.index') }}" class="btn-outline" style="padding:.5rem 1rem">Clear</a> @endif
+    <a class="btn-outline" style="padding:.5rem 1rem" href="{{ route('admin.payments.export', request()->only(['status', 'method', 'branch', 'from', 'to', 'q'])) }}">Download CSV</a>
 </form>
 
 <section class="stat-row" data-method-totals>
@@ -78,7 +81,7 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
     <table class="table">
         <thead><tr><th>Order</th><th>Branch</th><th>Method</th><th>Amount</th><th>Refunded</th><th>Status</th><th>Paid at</th></tr></thead>
         <tbody>
-        @foreach (array_slice($orders, 0, 50) as $o)
+        @forelse ($orders as $o)
             <tr>
                 <td>{{ $o['id'] }}</td><td>{{ $branchName($o) }}</td>
                 <td>{{ $methodLabel($o['paymentMethod']) }}</td><td>{{ $peso($o['total']) }}</td>
@@ -86,9 +89,12 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
                 <td><span class="status {{ ['paid' => 'high', 'pending' => 'average', 'failed' => 'low', 'refunded' => 'info'][$o['effectivePaymentStatus']] ?? 'info' }}">{{ ($o['refundState'] ?? null) === 'partial' && $o['effectivePaymentStatus'] === 'refunded' ? 'Partially refunded' : ucfirst($o['effectivePaymentStatus']) }}</span></td>
                 <td>{{ $o['paidAt']?->format('M j, g:i A') ?? '—' }}</td>
             </tr>
-        @endforeach
+        @empty
+            <tr><td colspan="7">No payments match.</td></tr>
+        @endforelse
         </tbody>
     </table>
-    <p class="muted">Showing the 50 most recent matches.</p>
+    <p class="muted">{{ $orders->total() }} match(es){{ $orders->hasPages() ? ', page '.$orders->currentPage().' of '.$orders->lastPage() : '' }}.</p>
+    @if ($orders->hasPages()){{ $orders->links() }}@endif
 </div>
 @endsection

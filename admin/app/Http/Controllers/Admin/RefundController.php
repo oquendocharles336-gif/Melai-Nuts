@@ -10,6 +10,7 @@ use App\Services\HitPay\HitPayRefundService;
 use App\Services\OrderQueryService;
 use App\Services\Platform;
 use App\Services\Supabase\SupabaseRepository;
+use App\Support\ListTools;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -39,8 +40,8 @@ class RefundController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only(['status', 'method', 'branch']);
-
-        $refunds = $this->orders()->refundQueue($filters);
+        $q = ListTools::query($request);
+        $refunds = ListTools::paginate(ListTools::search($this->orders()->refundQueue($filters), $q, [self::class, 'searchText']), $request, 24);
         $hitpay = app(HitPayRefundService::class);
         $attempts = [];
         if ($this->platform()->isSupabase()) {
@@ -64,7 +65,29 @@ class RefundController extends Controller
             'cashMethod' => $this->platform()->cashMethod(),
             'liveData' => $this->platform()->isSupabase(),
             'filters' => $filters,
+            'q' => $q,
         ]);
+    }
+
+    /** CSV of every refund request matching the page's filters and search. */
+    public function export(Request $request)
+    {
+        $q = ListTools::query($request);
+        $rows = ListTools::search($this->orders()->refundQueue($request->only(['status', 'method', 'branch'])), $q, [self::class, 'searchText']);
+        ActivityLogger::log('refunds.exported', 'Exported refunds ('.count($rows).' rows)', $request->user(), ['q' => $q] + $request->only(['status', 'method', 'branch']));
+
+        return ListTools::csv('melai-refunds-'.now('Asia/Manila')->format('Y-m-d').'.csv', [
+            'refund' => fn ($o) => $o['refundId'] ?? null, 'order' => fn ($o) => $o['id'], 'placed_at' => fn ($o) => $o['createdAt'],
+            'branch' => fn ($o) => $o['branchName'] ?? $o['branch'], 'customer' => fn ($o) => $o['customer'], 'method' => fn ($o) => $o['paymentMethod'],
+            'order_total' => fn ($o) => $o['total'], 'refund_amount' => fn ($o) => $o['refundAmount'], 'status' => fn ($o) => $o['effectiveRefundStatus'],
+            'reason' => fn ($o) => $o['refundReason'] ?? null, 'completed_at' => fn ($o) => $o['refundCompletedAt'] ?? null,
+        ], $rows);
+    }
+
+    /** What the search box matches: order, refund id, customer, branch, reason. */
+    public static function searchText(array $o): string
+    {
+        return implode(' ', [$o['id'], $o['refundId'] ?? '', $o['customer'] ?? '', $o['branchName'] ?? '', $o['refundReason'] ?? '']);
     }
 
     public function approve(ApproveRefundRequest $request, string $orderId)

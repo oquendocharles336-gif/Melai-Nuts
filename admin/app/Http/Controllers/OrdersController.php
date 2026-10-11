@@ -57,6 +57,29 @@ class OrdersController extends Controller
         ]);
     }
 
+    /**
+     * CSV of the orders the page lists, with the page's stage chip (?status=), branch and search
+     * (?q=: order, customer or product), the same matching as the screen. Uses the same cached rows.
+     */
+    public function export(Request $request)
+    {
+        $status = (string) $request->query('status', 'all');
+        $branch = (string) $request->query('branch', '');
+        $q = \App\Support\ListTools::query($request);
+        $rows = \App\Support\Swr::remember('orders-page', \App\Support\Swr::fresh(), \App\Support\Swr::stale(), fn () => $this->rows());
+        $rows = array_filter($rows, fn ($r) => ($status === 'all' || ($status === 'other' ? $r['stage'] === null : $r['stage'] === $status))
+            && ($branch === '' || $r['branch'] === $branch));
+        $rows = \App\Support\ListTools::search($rows, $q, fn ($r) => $r['id'].' '.$r['customer'].' '.implode(' ', $r['items']));
+        ActivityLogger::log('orders.exported', 'Exported orders ('.count($rows).' rows)', $request->user(), compact('status', 'branch', 'q'));
+
+        return \App\Support\ListTools::csv('melai-orders-'.now('Asia/Manila')->format('Y-m-d').'.csv', [
+            'order' => fn ($r) => $r['id'], 'placed_at' => fn ($r) => $r['placedAt'], 'branch' => fn ($r) => $r['branchName'],
+            'channel' => fn ($r) => $r['isPos'] ? 'in-store' : ($r['isDelivery'] ? 'delivery' : 'pickup'), 'customer' => fn ($r) => $r['customer'],
+            'items' => fn ($r) => implode('; ', $r['items']), 'total' => fn ($r) => $r['total'], 'payment_method' => fn ($r) => $r['method'],
+            'payment_status' => fn ($r) => $r['payment'], 'status' => fn ($r) => $r['statusLabel'], 'refunded' => fn ($r) => $r['refunded'],
+        ], $rows);
+    }
+
     /** POST /orders/{id}/advance  {from: <status the screen showed>} */
     public function advance(Request $request, string $orderId, AdminActions $actions): JsonResponse
     {

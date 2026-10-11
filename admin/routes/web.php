@@ -48,6 +48,7 @@ Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(functi
     // Admin-only: staff get 403, even without access
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('logs');
+        Route::get('/activity-logs/export', [ActivityLogController::class, 'export'])->name('logs.export');
 
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
@@ -59,9 +60,11 @@ Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(functi
         Route::post('/users/{user}/approve', [UserController::class, 'approve'])->name('users.approve')->middleware('throttle:20,1'); // Supabase mode
 
         Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
+        Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');
         Route::post('/payments/{orderId}/mark-paid', [PaymentController::class, 'markPaid'])->name('payments.mark-paid');
 
         Route::get('/refunds', [RefundController::class, 'index'])->name('refunds.index');
+        Route::get('/refunds/export', [RefundController::class, 'export'])->name('refunds.export');
         Route::post('/refunds/{orderId}/approve', [RefundController::class, 'approve'])->name('refunds.approve')->middleware('password.recent');
         Route::post('/refunds/{orderId}/reject', [RefundController::class, 'reject'])->name('refunds.reject');
         Route::post('/refunds/{orderId}/complete', [RefundController::class, 'complete'])->name('refunds.complete')->middleware('password.recent'); // HitPay reference entered by hand
@@ -103,6 +106,7 @@ Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(functi
 
         // Orders: list + drawer, "Move to next stage" and "New order" (the app's own staff functions).
         Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index')->middleware('shell');
+        Route::get('/orders/export', [OrdersController::class, 'export'])->name('orders.export');
         Route::get('/orders/branches.json', [OrdersController::class, 'branches'])->name('orders.branches');
         Route::get('/orders/catalog.json', [OrdersController::class, 'catalog'])->name('orders.catalog');
         Route::post('/orders', [OrdersController::class, 'store'])->name('orders.store')->middleware('throttle:20,1');
