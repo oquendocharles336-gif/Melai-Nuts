@@ -542,6 +542,115 @@ class SupabaseIntegrationTest extends TestCase
         }
     }
 
+    // ---- races: the same action sent at the same moment from several sessions -------------
+
+    /**
+     * Runs $n copies of $sql at the same instant, each in its OWN database session acting as the
+     * app account $uid (exactly how the website's gateway calls a function: claims + role
+     * `authenticated`, one transaction). Returns one "ok:<json>" or "err:<message>" per copy.
+     */
+    private function race(int $n, string $uid, string $sql, array $bindings): array
+    {
+        if (! function_exists('pcntl_fork')) {
+            $this->markTestSkipped('needs the pcntl extension');
+        }
+        $u = parse_url(env('SUPABASE_TEST_PORTAL_URL'));
+        $dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $u['host'], $u['port'] ?? 5432, ltrim($u['path'], '/'));
+        $claims = json_encode(['sub' => $uid, 'role' => 'authenticated']);
+        $dir = sys_get_temp_dir().'/melai-race-'.Str::random(8);
+        mkdir($dir);
+        $start = microtime(true) + 0.6;
+        $pids = [];
+        for ($i = 0; $i < $n; $i++) {
+            $pid = pcntl_fork();
+            if ($pid === 0) {
+                $out = 'err:not run';
+                try {
+                    $pdo = new \PDO($dsn, urldecode($u['user']), urldecode($u['pass'] ?? ''), [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+                    while (microtime(true) < $start) {
+                        usleep(500);
+                    }
+                    $pdo->beginTransaction();
+                    $pdo->prepare("select set_config('request.jwt.claims', ?, true), set_config('role', 'authenticated', true)")->execute([$claims]);
+                    $st = $pdo->prepare($sql);
+                    $st->execute(array_map(fn ($b) => is_callable($b) ? $b($i) : $b, $bindings));
+                    $out = 'ok:'.$st->fetchColumn();
+                    $pdo->commit();
+                } catch (\Throwable $e) {
+                    $out = 'err:'.preg_replace('/^SQLSTATE\[\w+\]: [^:]+: \d+ ERROR:\s*/', '', strtok($e->getMessage(), "\n"));
+                }
+                file_put_contents("$dir/$i", $out);
+                exit(0); // child: no PHPUnit / Laravel shutdown
+            }
+            $pids[] = $pid;
+        }
+        foreach ($pids as $pid) {
+            pcntl_waitpid($pid, $status);
+        }
+        $results = array_map(fn ($i) => (string) @file_get_contents("$dir/$i"), range(0, $n - 1));
+        array_map('unlink', glob("$dir/*"));
+        rmdir($dir);
+        DB::purge('supabase');
+        DB::purge('supabase_admin');
+
+        return $results;
+    }
+
+    public function test_a_double_submitted_loyalty_adjustment_racing_in_parallel_is_applied_once(): void
+    {
+        $this->db()->insert('insert into public.loyalty_accounts (firebase_uid, points_balance, lifetime_points) values (?, 5, 5)', [$this->fx['customer']]);
+        $key = 'race-'.Str::random(20);
+
+        $results = $this->race(8, $this->fx['owner'],
+            'select public.owner_adjust_loyalty_points(?::text, ?::int, ?::text, ?::text)::text',
+            [$this->fx['customer'], 20, 'Race test', $key]);
+
+        $applied = array_filter($results, fn ($r) => str_starts_with($r, 'ok:') && ! str_contains($r, '"duplicate": true') && ! str_contains($r, '"duplicate":true'));
+        $this->assertCount(1, $applied, 'exactly one of 8 simultaneous submits applies: '.implode(' | ', $results));
+        $this->assertSame([], array_values(array_filter($results, fn ($r) => str_starts_with($r, 'err:'))), 'the others answer "duplicate", not an error');
+        $this->assertSame(25, (int) $this->db()->selectOne('select points_balance from public.loyalty_accounts where firebase_uid = ?', [$this->fx['customer']])->points_balance);
+        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.loyalty_transactions where firebase_uid = ? and source = 'admin_adjust'", [$this->fx['customer']])->n);
+    }
+
+    public function test_parallel_deductions_with_different_keys_never_make_a_balance_negative(): void
+    {
+        $this->db()->insert('insert into public.loyalty_accounts (firebase_uid, points_balance, lifetime_points) values (?, 30, 30)', [$this->fx['customer']]);
+        $prefix = 'deduct-'.Str::random(12).'-';
+
+        $results = $this->race(6, $this->fx['owner'],
+            'select public.owner_adjust_loyalty_points(?::text, ?::int, ?::text, ?::text)::text',
+            [$this->fx['customer'], -10, 'Race deduction', fn ($i) => $prefix.$i]);
+
+        $ok = count(array_filter($results, fn ($r) => str_starts_with($r, 'ok:')));
+        $this->assertSame(3, $ok, '30 points cover exactly three deductions of 10: '.implode(' | ', $results));
+        $this->assertSame(0, (int) $this->db()->selectOne('select points_balance from public.loyalty_accounts where firebase_uid = ?', [$this->fx['customer']])->points_balance);
+        foreach (array_filter($results, fn ($r) => str_starts_with($r, 'err:')) as $r) {
+            $this->assertStringContainsString('cannot deduct more points', $r);
+        }
+    }
+
+    public function test_a_refund_approved_from_several_sessions_at_once_is_completed_once(): void
+    {
+        $order = $this->placeOrder('a');
+        $this->completeOrder($order);
+        $refund = $this->requestRefund($order);
+        $paidBefore = (float) $this->db()->selectOne('select amount from public.payments where order_id = ?', [$order])->amount;
+
+        $results = $this->race(6, $this->fx['owner'],
+            'select public.admin_portal_review_refund(?::text, ?::text, ?::text)::text',
+            [$refund, 'approve_cash', null]);
+
+        $this->assertCount(1, array_filter($results, fn ($r) => str_starts_with($r, 'ok:')), 'one approval wins: '.implode(' | ', $results));
+        $row = $this->db()->selectOne('select r.status as refund, o.status as ord, p.status as pay, p.amount from public.refund_requests r
+            join public.orders o on o.id = r.order_id join public.payments p on p.order_id = o.id where r.id = ?', [$refund]);
+        $this->assertSame(['completed', 'refunded', 'refunded'], [$row->refund, $row->ord, $row->pay]);
+        $this->assertSame($paidBefore, (float) $row->amount, 'the payment record is not changed twice');
+        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.approve_cash'", [$refund])->n);
+        $this->assertSame(0, (int) $this->db()->selectOne('select points_balance from public.loyalty_accounts where firebase_uid = ?', [$this->fx['customer']])->points_balance,
+            'earned points reversed once, never below zero');
+        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.loyalty_transactions where order_id = ? and source = 'order_clawback'", [$order])->n);
+    }
+
     // ---- branch scoping, catalog, inventory ------------------------------------------------
 
     public function test_branch_staff_only_see_their_branch(): void
