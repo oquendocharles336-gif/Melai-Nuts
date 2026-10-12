@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -68,20 +69,19 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     });
   }
 
-  /// Re-checks live stock and adds to cart. Returns the quantity actually
-  /// added (see [CartController.addProductWithLiveCheck]), or null if the
-  /// check itself failed — in which case the customer has already been told
-  /// why (offline, timeout, expired session, ...).
-  Future<int?> _addToCart() async {
+  /// Re-checks live stock and adds to cart (asking for a branch first when
+  /// none is chosen). Returns what happened, or null if the request itself
+  /// threw — in which case the customer has already been told why.
+  Future<AddToCartResult?> _addToCart() async {
     setState(() => _busy = true);
     try {
-      return await AppErrors.guard(
-        () => CartController.instance.addProductWithLiveCheck(
-          widget.product,
-          _selectedVariant,
-          quantity: _quantity,
-        ),
-        scope: ErrorScope.cart,
+      // No overall timeout here: the customer may be on the branch picker.
+      // The live stock check has its own timeout (see checkLiveStock).
+      return await addToCartWithBranchPrompt(
+        context,
+        widget.product,
+        _selectedVariant,
+        quantity: _quantity,
       );
     } catch (e) {
       if (mounted) AppErrors.showSnack(context, e, scope: ErrorScope.cart);
@@ -92,20 +92,29 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
   }
 
-  String get _unavailableMessage =>
-      widget.product.isActive ? 'This item is out of stock.' : 'This item is no longer available.';
+  /// Shows the real reason nothing was added (not signed in, no branch, not
+  /// sold here, couldn't check...). "Out of stock" only when it truly is.
+  void _showFailure(AddToCartResult result) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(result.message ?? 'We couldn\'t add this item. Please try again.')));
+  }
 
   Future<void> _handleAddToCart() async {
-    final added = await _addToCart();
-    if (!mounted || added == null) return;
-    if (added <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_unavailableMessage)));
+    final result = await _addToCart();
+    if (!mounted || result == null) return;
+    if (!result.ok) {
+      _showFailure(result);
       return;
     }
-    final message = added < _quantity
+    final added = result.added;
+    var message = result.isPartial
         ? 'Only $added available — added $added to cart (stock limit reached).'
         : 'Added ${widget.product.name} to cart';
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (result.stockUnverified) message = '$message $kStockUnverifiedNote';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
       SnackBar(
         content: Text(message),
         action: SnackBarAction(
@@ -123,15 +132,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   /// straight to Checkout — it never forwards the customer to checkout for
   /// an item that just turned out to be unavailable or when the check failed.
   Future<void> _handleBuyNow() async {
-    final added = await _addToCart();
-    if (!mounted || added == null) return;
-    if (added <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_unavailableMessage)));
+    final result = await _addToCart();
+    if (!mounted || result == null) return;
+    if (!result.ok) {
+      _showFailure(result);
       return;
     }
-    if (added < _quantity) {
+    if (result.isPartial) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Only $added available — added $added to cart.')),
+        SnackBar(content: Text('Only ${result.added} available — added ${result.added} to cart.')),
       );
     }
     Navigator.of(context).push(
@@ -168,7 +177,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               children: [
                 if (product.badge != null)
                   _Pill(label: product.badge!, color: AppColors.primaryContainer, textColor: AppColors.primaryDark),
-                _Pill(label: product.stockLabel, color: product.stockLabelBg, textColor: product.stockLabelColor),
+                // Stock is per branch: until one is chosen, don't show the
+                // all-branches total as if it were available here.
+                ListenableBuilder(
+                  listenable: BranchController.instance,
+                  builder: (context, _) {
+                    final chip = CustomerStockChip.of(product);
+                    return _Pill(label: chip.label, color: chip.background, textColor: chip.foreground);
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 8),
