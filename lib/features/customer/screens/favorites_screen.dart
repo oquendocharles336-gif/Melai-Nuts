@@ -7,6 +7,7 @@ import '../../../core/widgets/state_views.dart';
 import '../../../data/catalog_store.dart';
 import '../../../data/repositories/favorites_repository.dart';
 import '../widgets/favorite_button.dart';
+import '../widgets/product_card.dart';
 import 'product_details_screen.dart';
 
 /// The customer's saved products, shown from the live catalogue of the
@@ -61,7 +62,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     Card(
                       child: ListTile(
                         title: Text(p.name, style: AppTextStyles.labelLg),
-                        subtitle: Text('₱${p.price.toStringAsFixed(0)} · ${p.stockLabel}', style: AppTextStyles.bodySm),
+                        subtitle: Text('₱${p.price.toStringAsFixed(0)} · ${CustomerStockChip.of(p).label}', style: AppTextStyles.bodySm),
                         trailing: FavoriteButton(productId: p.id, productName: p.name),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: p)),
