@@ -99,21 +99,42 @@ class RepeatOrderScreen extends StatelessWidget {
         continue;
       }
 
-      final stock = variant.stockOnHand;
-      final quantityToAdd = (stock != null && item.quantity > stock) ? stock : item.quantity;
-      CartController.instance.addProduct(product, variant, quantity: quantityToAdd);
-      final capped = quantityToAdd < item.quantity;
+      // addProduct caps at the stock still available (minus what's already
+      // in the cart) and says why when nothing could be added.
+      final result = CartController.instance.addProduct(product, variant, quantity: item.quantity);
+      if (!result.ok) {
+        results.add(_RepeatLineResult(
+          item: item,
+          added: false,
+          note: result.message ?? 'Could not be added',
+        ));
+        continue;
+      }
+      final quantityAdded = result.added;
       results.add(_RepeatLineResult(
         item: item,
         added: true,
-        quantityAdded: quantityToAdd,
-        note: capped ? 'Only $quantityToAdd of ${item.quantity} in stock — added what\'s available' : null,
+        quantityAdded: quantityAdded,
+        note: result.isPartial ? 'Only $quantityAdded of ${item.quantity} in stock — added what\'s available' : null,
       ));
     }
     return results;
   }
 
   Future<void> _handleRepeat(BuildContext context) async {
+    // Stock is per branch: pick one first (or auto-pick the only one) rather
+    // than reporting every line as unavailable.
+    if (CartController.instance.signedInUid != null &&
+        BranchController.instance.selectedBranch == null) {
+      final picked = await ensureBranchSelected(context);
+      if (!context.mounted) return;
+      if (!picked) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('Please select a branch to repeat this order.')));
+        return;
+      }
+    }
     // Availability is judged against the live catalog, so never do it against
     // one that failed to load — that would wrongly report every item as
     // "no longer available". Try to load it, and say so plainly if we can't.
