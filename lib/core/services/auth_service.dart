@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -12,6 +10,7 @@ import '../../data/catalog_store.dart';
 import '../../data/repositories/branch_repository.dart';
 import 'branch_controller.dart';
 import 'customer_data_store.dart';
+import 'customer_session_binder.dart';
 import 'data_sync_service.dart';
 import 'email_verification_service.dart';
 import 'staff_session_store.dart';
@@ -306,10 +305,17 @@ class AuthService {
           'We could not finish creating your account. Please try again.',
         );
       }
+      // appUser.phone already holds the registration phone, so the bind
+      // below can store it even though the pending copy is cleared here.
       _pendingName = null;
       _pendingPhone = null;
       _currentProfile = appUser;
       _userInitiatedSignOut = false;
+      // Same customer bind as a normal sign-in (the route guard skips it
+      // because _currentProfile is already set). The ID token was refreshed
+      // above, so Supabase sees email_verified = true for the profile insert.
+      // Best-effort: never blocks finishing registration.
+      await _bindCustomerSession(appUser);
       return appUser;
     } on FirebaseAuthException catch (e) {
       throw AuthException(_messageFor(e));
@@ -877,37 +883,36 @@ class AuthService {
 
     if (appUser.role == UserRole.customer) {
       // Business data lives in Supabase, keyed by this same Firebase UID.
-      // Best-effort: a slow/offline connection here must not block sign-in
-      // itself (the screens that need this data load it themselves too).
-      CustomerDataStore.instance.rememberCustomer(
-        firebaseUid: appUser.uid,
-        fallbackName: appUser.name,
-        fallbackEmail: appUser.email,
-      );
-      try {
-        await CustomerDataStore.instance.ensureProfile(
-          firebaseUid: appUser.uid,
-          fallbackName: appUser.name,
-          fallbackEmail: appUser.email,
-        );
-        await Future.wait([
-          CartController.instance.hydrate(appUser.uid),
-          CustomerDataStore.instance.loadForCustomer(appUser.uid),
-        ]);
-        // Needs CustomerDataStore.profile (just loaded above) to restore
-        // the customer's saved default branch.
-        unawaited(BranchController.instance.hydrate());
-      } catch (caughtError, caughtStack) {
-        AppErrors.report(caughtError, caughtStack, 'auth_service:862');
-        // Non-fatal — never block sign-in. But make sure a load is still
-        // attempted and its outcome recorded, so customer screens show an
-        // error state with a Retry button instead of staying silently empty.
-        unawaited(CustomerDataStore.instance.loadForCustomer(appUser.uid));
-        unawaited(BranchController.instance.hydrate());
-      }
+      // Best-effort: a slow/offline connection here must not block sign-in.
+      await _bindCustomerSession(appUser);
     }
 
     return appUser;
+  }
+
+  final CustomerSessionBinder _customerBinder = CustomerSessionBinder.live();
+  CustomerBindResult? _lastCustomerBind;
+
+  /// Outcome of the last customer bind, or null if none ran this session.
+  /// When [CustomerBindResult.isComplete] is false, customer screens already
+  /// show their stores' error + Retry state; [retryCustomerBind] reruns it.
+  CustomerBindResult? get lastCustomerBind => _lastCustomerBind;
+
+  /// Binds the customer's Supabase profile, cart, records and default branch
+  /// to this Firebase uid. Shared by sign-in and by
+  /// [completeCustomerRegistration]. Never throws.
+  Future<CustomerBindResult> _bindCustomerSession(AppUser appUser) async {
+    final result = await _customerBinder.bind(appUser);
+    _lastCustomerBind = result;
+    return result;
+  }
+
+  /// Reruns the customer bind for the signed-in customer (e.g. from a Retry
+  /// button after the first attempt failed offline). Null if no customer.
+  Future<CustomerBindResult?> retryCustomerBind() async {
+    final profile = _currentProfile;
+    if (profile == null || profile.role != UserRole.customer) return null;
+    return _bindCustomerSession(profile);
   }
 
   /// Loads the signed-in staff member's Supabase profile, branch and
