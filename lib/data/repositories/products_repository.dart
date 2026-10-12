@@ -495,6 +495,39 @@ class ProductsRepository extends ChangeNotifier {
     }
   }
 
+  /// Like [fetchLiveStock], but for ONE branch and telling three cases apart
+  /// so the customer gets the right message:
+  ///  * the check failed (offline, timeout) -> [LiveStock.checkFailed],
+  ///  * the branch has no `branch_inventory` row for this variant at all
+  ///    (not stocked here) -> [LiveStock.notStocked],
+  ///  * otherwise the real quantity (0 = genuinely out of stock).
+  Future<LiveStock> checkLiveStock({
+    required String productId,
+    required String variantId,
+    required String branchId,
+  }) async {
+    if (variantId.isEmpty) return const LiveStock.checkFailed();
+    try {
+      final raw = await AppErrors.guard(
+        () async => await _client
+            .from('branch_inventory')
+            .select('quantity')
+            .eq('product_id', productId)
+            .eq('variant_id', variantId)
+            .eq('branch_id', branchId),
+        scope: ErrorScope.cart,
+      );
+      final rows = List<Map<String, dynamic>>.from(raw);
+      if (rows.isEmpty) return const LiveStock.notStocked();
+      return LiveStock.quantity(
+        rows.fold<int>(0, (sum, r) => sum + (r['quantity'] as num).toInt()),
+      );
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:checkLiveStock');
+      return const LiveStock.checkFailed();
+    }
+  }
+
   /// Real, staff-configured promotions that specifically call out this
   /// product (`promotions.product_id`) or its category
   /// (`promotions.category_id`) — shown on the Product Details screen's
@@ -528,4 +561,28 @@ class ProductsRepository extends ChangeNotifier {
       return const [];
     }
   }
+}
+
+/// Result of [ProductsRepository.checkLiveStock].
+class LiveStock {
+  /// Units on the shelf right now; null when unknown (see the flags).
+  final int? quantity;
+
+  /// The check itself failed (offline, timeout...). Nothing is known.
+  final bool failed;
+
+  /// The branch has no inventory row for this variant: it isn't stocked here.
+  final bool notStockedHere;
+
+  const LiveStock.quantity(int this.quantity)
+      : failed = false,
+        notStockedHere = false;
+  const LiveStock.checkFailed()
+      : quantity = null,
+        failed = true,
+        notStockedHere = false;
+  const LiveStock.notStocked()
+      : quantity = null,
+        failed = false,
+        notStockedHere = true;
 }
