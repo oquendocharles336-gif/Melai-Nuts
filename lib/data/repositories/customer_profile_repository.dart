@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/utils/app_error.dart';
 import '../models/customer_profile.dart';
 
 /// Reads/writes the customer's business profile (`customer_profiles`) and
@@ -15,27 +16,69 @@ class CustomerProfileRepository {
 
   SupabaseClient get _client => SupabaseService.instance.client;
 
+  /// The row inserted the first time a customer is seen. The phone given at
+  /// registration is included so checkout (`place_order`) has a contact
+  /// number without the customer re-entering it. Empty values are left out.
+  static Map<String, dynamic> newProfileRow({
+    required String firebaseUid,
+    required String fullName,
+    required String email,
+    String phone = '',
+  }) {
+    final trimmedPhone = phone.trim();
+    return {
+      'firebase_uid': firebaseUid,
+      'full_name': fullName,
+      'email': email,
+      if (trimmedPhone.isNotEmpty) 'phone': trimmedPhone,
+    };
+  }
+
+  /// True when an existing profile has no phone yet but one is known from
+  /// the account (e.g. accounts created before the phone was saved here).
+  static bool shouldBackfillPhone(CustomerProfile existing, String phone) =>
+      existing.phone.trim().isEmpty && phone.trim().isNotEmpty;
+
   /// Fetches the profile for [firebaseUid], creating a row (seeded from the
-  /// Firebase account's name/email) the first time this customer is seen.
+  /// Firebase account's name/email and registration phone) the first time
+  /// this customer is seen.
   Future<CustomerProfile> ensureProfile({
     required String firebaseUid,
     required String fallbackName,
     required String fallbackEmail,
+    String fallbackPhone = '',
   }) async {
     final existing = await _client
         .from('customer_profiles')
         .select()
         .eq('firebase_uid', firebaseUid)
         .maybeSingle();
-    if (existing != null) return CustomerProfile.fromRow(existing);
+    if (existing != null) {
+      final profile = CustomerProfile.fromRow(existing);
+      if (!shouldBackfillPhone(profile, fallbackPhone)) return profile;
+      try {
+        final row = await _client
+            .from('customer_profiles')
+            .update({'phone': fallbackPhone.trim()})
+            .eq('firebase_uid', firebaseUid)
+            .select()
+            .single();
+        return CustomerProfile.fromRow(row);
+      } catch (caughtError, caughtStack) {
+        // Not critical: checkout lets the customer enter a phone inline.
+        AppErrors.report(caughtError, caughtStack, 'customer_profile_repository:backfillPhone');
+        return profile;
+      }
+    }
 
     final created = await _client
         .from('customer_profiles')
-        .insert({
-          'firebase_uid': firebaseUid,
-          'full_name': fallbackName,
-          'email': fallbackEmail,
-        })
+        .insert(newProfileRow(
+          firebaseUid: firebaseUid,
+          fullName: fallbackName,
+          email: fallbackEmail,
+          phone: fallbackPhone,
+        ))
         .select()
         .single();
     return CustomerProfile.fromRow(created);
