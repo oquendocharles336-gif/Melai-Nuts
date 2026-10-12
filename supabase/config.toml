@@ -1,0 +1,16 @@
+# Melai Nuts — minimal Supabase CLI / GitHub-integration config.
+#
+# The Supabase CLI (`supabase link`, `supabase migration list|repair`, `supabase db pull`)
+# treats the folder holding this file as the project, and the Supabase GitHub integration
+# ("Supabase directory" = supabase) applies supabase/migrations/*.sql to preview branches.
+# Every other setting uses the CLI defaults.
+#
+# project_id is only a LOCAL name for the CLI's Docker containers — it is NOT the hosted
+# project ref. Never put the real project ref, URL or any key in this file: link the
+# hosted project with `supabase link --project-ref <ref>` (stored outside git).
+project_id = "melai-nuts"
+
+[db]
+# Must match the hosted project's Postgres major version
+# (Dashboard > Project Settings > Infrastructure). Change it if yours differs.
+major_version = 17
