@@ -7,9 +7,11 @@ import '../../core/services/branch_controller.dart';
 import '../../core/services/customer_data_store.dart';
 import '../../data/catalog_store.dart';
 import '../../data/models/product.dart';
+import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/icon_registry.dart';
 import '../../data/repositories/products_repository.dart';
+import '../settings/screens/branch_settings_screen.dart';
 import 'screens/cart_screen.dart';
 import '../../core/utils/app_error.dart';
 
@@ -506,17 +508,16 @@ class CartController extends ChangeNotifier {
     return null;
   }
 
-  int addProduct(Product product, ProductVariant variant, {int quantity = 1, int? stockOverride}) {
-    if (quantity <= 0) return 0;
+  /// Adds to the cart, capped by [stockOverride] (or the variant's cached
+  /// stock). Returns how many were added and, when none were, WHY — callers
+  /// must show [AddToCartResult.message], never assume "out of stock".
+  AddToCartResult addProduct(Product product, ProductVariant variant, {int quantity = 1, int? stockOverride}) {
+    if (quantity <= 0) return AddToCartResult.failed(AddToCartFailure.invalidQuantity, requested: quantity);
     if (_firebaseUid == null) {
-      lastError = 'Please sign in before adding items to your cart.';
-      notifyListeners();
-      return 0;
+      return AddToCartResult.failed(AddToCartFailure.notSignedIn, requested: quantity);
     }
     if (_branchId == null) {
-      lastError = 'Please select a branch first.';
-      notifyListeners();
-      return 0;
+      return AddToCartResult.failed(AddToCartFailure.noBranch, requested: quantity);
     }
     final lineId = '${product.id}_${variant.id}';
     final index = _lines.indexWhere((line) => line.id == lineId);
@@ -524,8 +525,17 @@ class CartController extends ChangeNotifier {
     final stock = stockOverride ?? variant.stockOnHand;
     var addable = quantity;
     if (stock != null) {
+      if (stock <= 0) {
+        return AddToCartResult.failed(AddToCartFailure.outOfStock, requested: quantity);
+      }
       final remaining = stock - currentQty;
-      if (remaining <= 0) return 0;
+      if (remaining <= 0) {
+        return AddToCartResult.failed(
+          AddToCartFailure.cartAtStockLimit,
+          requested: quantity,
+          message: 'You already have all $stock available in your cart.',
+        );
+      }
       if (remaining < addable) addable = remaining;
     }
     if (index == -1) {
@@ -541,27 +551,73 @@ class CartController extends ChangeNotifier {
     }
     _pricing = _localPricing();
     _markDirty();
-    return addable;
+    return AddToCartResult.added(addable, requested: quantity);
   }
 
-  Future<int> addProductWithLiveCheck(Product product, ProductVariant variant, {int quantity = 1}) async {
-    if (!product.isActive) return 0;
+  /// The signed-in customer this cart belongs to, or null.
+  String? get signedInUid => _firebaseUid;
+
+  /// Tests only: binds the cart to [uid] / [branchId] without loading
+  /// anything from storage or the server.
+  @visibleForTesting
+  void debugBind(String? uid, {String? branchId}) {
+    _firebaseUid = uid;
+    _branchId = branchId;
+    _storageKey = null;
+    _dirty = false;
+    _clearMemoryOnly();
+  }
+
+  /// Re-checks stock at the customer's branch right now, then adds.
+  ///
+  /// "Out of stock" is only reported when the branch's live stock is really
+  /// 0. Not signed in, no branch chosen, not stocked at this branch, a
+  /// failed branch switch and a failed stock check each get their own
+  /// [AddToCartFailure].
+  Future<AddToCartResult> addProductWithLiveCheck(Product product, ProductVariant variant, {int quantity = 1}) async {
+    // Don't let an old message (e.g. from a previous attempt) be shown for
+    // this one. A message about edits still waiting to sync stays: it is
+    // still true.
+    if (!_dirty) lastError = null;
+    if (quantity <= 0) return AddToCartResult.failed(AddToCartFailure.invalidQuantity, requested: quantity);
+    if (!product.isActive) return AddToCartResult.failed(AddToCartFailure.unavailable, requested: quantity);
+    if (_firebaseUid == null) {
+      return AddToCartResult.failed(AddToCartFailure.notSignedIn, requested: quantity);
+    }
     final branchId = BranchController.instance.selectedBranch?.id ?? _branchId;
-    if (_firebaseUid != null && branchId == null) {
-      lastError = 'Please select a branch first.';
-      notifyListeners();
-      return 0;
+    if (branchId == null) {
+      return AddToCartResult.failed(AddToCartFailure.noBranch, requested: quantity);
     }
-    if (_branchId != branchId && _firebaseUid != null && branchId != null) {
+    if (_branchId != branchId) {
       final switched = await switchBranch(branchId);
-      if (!switched) return 0;
+      if (!switched) {
+        return AddToCartResult.failed(
+          AddToCartFailure.branchSwitchFailed,
+          requested: quantity,
+          message: lastError,
+        );
+      }
     }
-    final liveStock = await ProductsRepository.instance.fetchLiveStock(
+    final live = await ProductsRepository.instance.checkLiveStock(
       productId: product.id,
       variantId: variant.id,
       branchId: branchId,
     );
-    return addProduct(product, variant, quantity: quantity, stockOverride: liveStock);
+    if (live.notStockedHere) {
+      return AddToCartResult.failed(AddToCartFailure.notStockedHere, requested: quantity);
+    }
+    if (live.failed) {
+      // Couldn't verify. Use the last known stock only when it says there
+      // is some — never claim "out of stock" from data we couldn't confirm.
+      // The server re-checks stock when the cart syncs and at checkout.
+      final cached = variant.stockOnHand;
+      final inCart = quantityFor(product.id, variant.label);
+      if (cached != null && cached - inCart <= 0) {
+        return AddToCartResult.failed(AddToCartFailure.checkFailed, requested: quantity);
+      }
+      return addProduct(product, variant, quantity: quantity, stockOverride: cached).asUnverified();
+    }
+    return addProduct(product, variant, quantity: quantity, stockOverride: live.quantity);
   }
 
   Future<void> updateQuantity(String lineId, int quantity) async {
@@ -771,6 +827,125 @@ class CartController extends ChangeNotifier {
   }
 }
 
+/// Why an add-to-cart attempt added nothing.
+enum AddToCartFailure {
+  invalidQuantity,
+  notSignedIn,
+  noBranch,
+  branchSwitchFailed,
+  unavailable,
+  notStockedHere,
+  outOfStock,
+  cartAtStockLimit,
+  checkFailed,
+}
+
+/// What an add-to-cart attempt did: how many units were added, and if none,
+/// the [failure] reason with a customer-ready [message].
+class AddToCartResult {
+  final int added;
+  final int requested;
+  final AddToCartFailure? failure;
+  final String? _message;
+
+  /// Added while the live stock check was unavailable (cached stock used).
+  final bool stockUnverified;
+
+  const AddToCartResult._(this.added, this.requested, this.failure, this._message, this.stockUnverified);
+
+  const AddToCartResult.added(int added, {required int requested})
+      : this._(added, requested, null, null, false);
+
+  const AddToCartResult.failed(AddToCartFailure failure, {required int requested, String? message})
+      : this._(0, requested, failure, message, false);
+
+  AddToCartResult asUnverified() => AddToCartResult._(added, requested, failure, _message, added > 0);
+
+  bool get ok => added > 0;
+  bool get isPartial => added > 0 && added < requested;
+
+  /// Customer-facing reason when nothing was added (null when [ok]).
+  String? get message => failure == null ? null : (_message ?? messageFor(failure!));
+
+  static String messageFor(AddToCartFailure failure) {
+    switch (failure) {
+      case AddToCartFailure.invalidQuantity:
+        return 'Please choose a quantity of at least 1.';
+      case AddToCartFailure.notSignedIn:
+        return 'Please sign in before adding items to your cart.';
+      case AddToCartFailure.noBranch:
+        return 'Please select a branch first.';
+      case AddToCartFailure.branchSwitchFailed:
+        return 'We couldn\'t switch branches while your cart is waiting to sync. Please try again in a moment.';
+      case AddToCartFailure.unavailable:
+        return 'This item is no longer available.';
+      case AddToCartFailure.notStockedHere:
+        return 'This item isn\'t sold at your selected branch. Try another branch.';
+      case AddToCartFailure.outOfStock:
+        return 'This item is out of stock at your selected branch.';
+      case AddToCartFailure.cartAtStockLimit:
+        return 'You already have all available stock of this item in your cart.';
+      case AddToCartFailure.checkFailed:
+        return 'We couldn\'t check stock right now. Please check your connection and try again.';
+    }
+  }
+}
+
+/// Makes sure a signed-in customer has a branch before adding to the cart.
+/// Auto-selects the only open customer branch; otherwise opens the branch
+/// picker. Returns true when a branch is selected afterwards.
+Future<bool> ensureBranchSelected(BuildContext context) async {
+  if (BranchController.instance.selectedBranch != null) return true;
+  if (kBranches.isEmpty) {
+    try {
+      await BranchRepository.instance.loadBranches();
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'cart_controller:ensureBranchSelected');
+    }
+  }
+  if (!context.mounted) return false;
+  final open = kBranches.where((b) => b.servesCustomers && b.isActive).toList();
+  if (open.length == 1) {
+    final branch = open.single;
+    final cart = CartController.instance;
+    if (cart.signedInUid != null) {
+      final switched = await cart.switchBranch(branch.id);
+      if (!switched) return false;
+    }
+    await BranchController.instance.selectBranch(branch, firebaseUid: cart.signedInUid);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Shopping at ${branch.name}. You can change this in Settings.')),
+      );
+    }
+    return BranchController.instance.selectedBranch != null;
+  }
+  await Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+  );
+  return BranchController.instance.selectedBranch != null;
+}
+
+/// [CartController.addProductWithLiveCheck], but when the only problem is
+/// that no branch is chosen yet, asks for one (see [ensureBranchSelected])
+/// and tries again.
+Future<AddToCartResult> addToCartWithBranchPrompt(
+  BuildContext context,
+  Product product,
+  ProductVariant variant, {
+  int quantity = 1,
+}) async {
+  final cart = CartController.instance;
+  final first = await cart.addProductWithLiveCheck(product, variant, quantity: quantity);
+  if (first.failure != AddToCartFailure.noBranch || !context.mounted) return first;
+  final picked = await ensureBranchSelected(context);
+  if (!picked || !context.mounted) return first;
+  return cart.addProductWithLiveCheck(product, variant, quantity: quantity);
+}
+
+/// Shown under a successful add when live stock couldn't be confirmed.
+const String kStockUnverifiedNote = 'We couldn\'t confirm live stock — it will be checked again at checkout.';
+
 Future<void> addToCartWithFeedback(
   BuildContext context,
   Product product,
@@ -778,18 +953,22 @@ Future<void> addToCartWithFeedback(
   int quantity = 1,
 }) async {
   final messenger = ScaffoldMessenger.of(context);
-  final added = await CartController.instance.addProductWithLiveCheck(product, variant, quantity: quantity);
+  final result = await addToCartWithBranchPrompt(context, product, variant, quantity: quantity);
   if (!context.mounted) return;
-  if (added <= 0) {
-    messenger.showSnackBar(
-      SnackBar(content: Text(CartController.instance.lastError ?? 'This item is out of stock.')),
-    );
+  if (!result.ok) {
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(result.message ?? 'We couldn\'t add this item. Please try again.')));
     return;
   }
-  final message = added < quantity
+  final added = result.added;
+  var message = result.isPartial
       ? 'Only $added available — added $added to cart.'
       : 'Added ${product.name} to cart';
-  messenger.showSnackBar(
+  if (result.stockUnverified) message = '$message $kStockUnverifiedNote';
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
     SnackBar(
       content: Text(message),
       action: SnackBarAction(
