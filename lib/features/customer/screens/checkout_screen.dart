@@ -263,8 +263,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         // One stored phone format (E.164) — compare normalized numbers.
         final enteredPhone = ValidationUtils.normalizePhone(_contactController.text);
         final matching = CustomerDataStore.instance.addresses.where(
-          (address) =>
-              address.fullAddress.trim() == enteredAddress &&
+              (address) =>
+          address.fullAddress.trim() == enteredAddress &&
               ValidationUtils.normalizePhone(address.phone) == enteredPhone,
         );
         if (matching.isNotEmpty) {
@@ -274,7 +274,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           // the order copies the address's pin when it is placed.
           if (saved.latitude != _pinLat || saved.longitude != _pinLng) {
             final updated = await AppErrors.guard(
-              () => CustomerProfileRepository.instance.updateAddressPin(
+                  () => CustomerProfileRepository.instance.updateAddressPin(
                 id: saved.id,
                 firebaseUid: firebaseUid,
                 latitude: _pinLat!,
@@ -295,7 +295,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             );
           }
           final saved = await AppErrors.guard(
-            () => CustomerProfileRepository.instance.addAddress(
+                () => CustomerProfileRepository.instance.addAddress(
               firebaseUid: firebaseUid,
               label: 'Checkout',
               recipientName: profile.fullName,
@@ -458,7 +458,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final account = AuthService.instance.currentProfile;
       final CustomerProfile current = store.profile ??
           await AppErrors.guard<CustomerProfile>(
-            () => store.ensureProfile(
+                () => store.ensureProfile(
               firebaseUid: firebaseUid,
               fallbackName: account?.name ?? '',
               fallbackEmail: account?.email ?? '',
@@ -466,7 +466,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             scope: ErrorScope.profile,
           );
       final CustomerProfile updated = await AppErrors.guard<CustomerProfile>(
-        () => CustomerProfileRepository.instance.updateProfile(
+            () => CustomerProfileRepository.instance.updateProfile(
           firebaseUid: firebaseUid,
           fullName: current.fullName.trim().isNotEmpty ? current.fullName : (account?.name ?? ''),
           phone: phone,
@@ -526,303 +526,303 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.border),
-                boxShadow: AppShadows.sm,
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(10),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: AppShadows.sm,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.badge_outlined, color: AppColors.darkBrown),
                     ),
-                    child: const Icon(Icons.badge_outlined, color: AppColors.darkBrown),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Customer Account', style: AppTextStyles.titleMd),
-                        Text(
-                          (phone == null || phone.isEmpty) ? 'No phone linked' : phone,
-                          style: AppTextStyles.bodySm,
-                        ),
-                        Text(
-                          (email == null || email.isEmpty) ? 'No email linked' : email,
-                          style: AppTextStyles.bodySm,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Fulfillment Method', style: AppTextStyles.titleMd),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: _OptionCard(
-                    icon: Icons.storefront_outlined,
-                    title: 'Store Pickup',
-                    subtitle: 'Pick up at the branch counter',
-                    trailingLabel: 'FREE',
-                    selected: _fulfillment == _FulfillmentMethod.pickup,
-                    onTap: (branch == null || branch.supportsPickup)
-                        ? () => setState(() => _fulfillment = _FulfillmentMethod.pickup)
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _OptionCard(
-                    icon: Icons.delivery_dining_rounded,
-                    title: 'Melai Van',
-                    subtitle: (branch != null && !branch.supportsDelivery)
-                        ? 'Not offered at this branch'
-                        : 'Delivered by Melai',
-                    trailingLabel: branch == null ? '—' : '₱${branch.deliveryFee.toStringAsFixed(2)}',
-                    selected: _fulfillment == _FulfillmentMethod.delivery,
-                    onTap: (branch == null || branch.supportsDelivery)
-                        ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.primary, width: 1.4),
-                boxShadow: AppShadows.sm,
-              ),
-              child: branch == null
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('NO BRANCH SELECTED', style: AppTextStyles.labelSm),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Pick a branch so we know where to fulfil this order from.',
-                          style: AppTextStyles.bodySm,
-                        ),
-                        const SizedBox(height: 10),
-                        OutlinedButton(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
-                          ),
-                          child: const Text('Select Branch'),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _fulfillment == _FulfillmentMethod.pickup
-                                  ? 'PICKUP DEPOT DETAILS'
-                                  : 'FULFILLING FROM',
-                              style: AppTextStyles.labelSm,
-                            ),
-                            if (branch.contactPhone != null && branch.contactPhone!.isNotEmpty)
-                              Text(branch.contactPhone!, style: AppTextStyles.bodySm),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(branch.name, style: AppTextStyles.titleMd),
-                        Text(branch.address, style: AppTextStyles.bodySm),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                branch.operatingHours ?? 'Hours not set',
-                                style: AppTextStyles.bodySm,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-            ),
-            if (_fulfillment == _FulfillmentMethod.delivery) ...[
-              const SizedBox(height: AppSpacing.md),
-              Text('Delivery Details', style: AppTextStyles.titleMd),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(
-                  labelText: 'Delivery address',
-                  hintText: 'House/unit no., street, barangay, city',
-                ),
-                keyboardType: TextInputType.streetAddress,
-                autofillHints: const [AutofillHints.fullStreetAddress],
-                textCapitalization: TextCapitalization.words,
-                maxLength: InputLimits.address,
-                maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                maxLines: 2,
-                onChanged: (_) => _deliveryAddressId = null,
-                validator: (v) => ValidationUtils.validateAddress(v),
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _contactController,
-                keyboardType: TextInputType.phone,
-                autofillHints: const [AutofillHints.telephoneNumber],
-                inputFormatters: InputRules.phone(),
-                decoration: const InputDecoration(
-                  labelText: 'Contact number for the rider',
-                  hintText: '0917 123 4567',
-                ),
-                onChanged: (_) => _deliveryAddressId = null,
-                validator: (v) => ValidationUtils.validatePhone(v),
-              ),
-              if (CustomerDataStore.instance.addresses.isNotEmpty)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: _chooseSavedAddress,
-                    icon: const Icon(Icons.bookmark_border_rounded, size: 18),
-                    label: const Text('Use a saved address'),
-                  ),
-                ),
-              const SizedBox(height: 8),
-              _DeliveryPinReview(
-                latitude: _pinLat,
-                longitude: _pinLng,
-                branchName: branch?.name,
-                branchLatitude: branch?.latitude,
-                branchLongitude: branch?.longitude,
-                onPin: _pinOnMap,
-              ),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
-            const SizedBox(height: AppSpacing.sm),
-            // Online payment (HitPay) is hidden while it is off; the notice text
-            // comes from payment_settings.online_payment_disabled_message.
-            if (_onlineAllowed) ...[
-              _PaymentTile(
-                icon: Icons.account_balance_wallet_rounded,
-                title: 'Online Payment (GCash, Maya, Card)',
-                subtitle: 'Pay securely on the HitPay payment page',
-                selected: _payment == _PaymentMethod.online,
-                onTap: () => setState(() => _payment = _PaymentMethod.online),
-              ),
-              const SizedBox(height: 8),
-            ] else ...[
-              OnlinePaymentUnavailableNotice(message: _paymentSettings.unavailableMessage),
-              const SizedBox(height: 8),
-            ],
-            if (_fulfillment == _FulfillmentMethod.delivery)
-              _PaymentTile(
-                icon: Icons.delivery_dining_rounded,
-                title: AppLocalizations.of(context).cashOnDelivery,
-                subtitle: AppLocalizations.of(context).cashOnDeliverySubtitle,
-                selected: _payment == _PaymentMethod.cod,
-                onTap: () => setState(() => _payment = _PaymentMethod.cod),
-              )
-            else
-              _PaymentTile(
-                icon: Icons.storefront_rounded,
-                title: AppLocalizations.of(context).cashOnPickup,
-                subtitle: AppLocalizations.of(context).cashOnPickupSubtitle,
-                selected: _payment == _PaymentMethod.cash,
-                onTap: () => setState(() => _payment = _PaymentMethod.cash),
-              ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Special Instructions (Pasalubong / Packing)', style: AppTextStyles.titleMd),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                hintText: 'Optional note: add extra paper bag for pasalubong gift...',
-              ),
-              textCapitalization: TextCapitalization.sentences,
-              maxLength: InputLimits.note,
-              maxLengthEnforcement: MaxLengthEnforcement.enforced,
-              minLines: 1,
-              maxLines: 3,
-              validator: (v) => ValidationUtils.validateText(v, fieldName: 'Special instructions'),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.border),
-                boxShadow: AppShadows.md,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Order Summary (${cart.itemCount} items)', style: AppTextStyles.titleMd),
-                  const SizedBox(height: 10),
-                  for (final line in cart.lines)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              '${line.quantity}x ${line.product.name}',
-                              style: AppTextStyles.bodyMd,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                          Text('Customer Account', style: AppTextStyles.titleMd),
+                          Text(
+                            (phone == null || phone.isEmpty) ? 'No phone linked' : phone,
+                            style: AppTextStyles.bodySm,
                           ),
-                          Text('₱${line.lineTotal.toStringAsFixed(0)}', style: AppTextStyles.bodyMd),
+                          Text(
+                            (email == null || email.isEmpty) ? 'No email linked' : email,
+                            style: AppTextStyles.bodySm,
+                          ),
                         ],
                       ),
                     ),
-                  const Divider(height: 20),
-                  _SummaryLine('Subtotal', '₱${cart.subtotal.toStringAsFixed(0)}'),
-                  if (cart.voucherDiscount + cart.loyaltyDiscount > 0)
-                    _SummaryLine(
-                      'Discounts applied',
-                      '-₱${(cart.voucherDiscount + cart.loyaltyDiscount).toStringAsFixed(0)}',
-                      color: AppColors.success,
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text('Fulfillment Method', style: AppTextStyles.titleMd),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                children: [
+                  Expanded(
+                    child: _OptionCard(
+                      icon: Icons.storefront_outlined,
+                      title: 'Store Pickup',
+                      subtitle: 'Pick up at the branch counter',
+                      trailingLabel: 'FREE',
+                      selected: _fulfillment == _FulfillmentMethod.pickup,
+                      onTap: (branch == null || branch.supportsPickup)
+                          ? () => setState(() => _fulfillment = _FulfillmentMethod.pickup)
+                          : null,
                     ),
-                  _SummaryLine(
-                    'Fulfillment Fee',
-                    _fulfillment == _FulfillmentMethod.pickup ? '₱0.00 (Store Pickup)' : '₱${deliveryFee.toStringAsFixed(2)}',
-                    color: AppColors.success,
                   ),
-                  const Divider(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Total Payable', style: AppTextStyles.headlineSm),
-                      Text(
-                        '₱${total.toStringAsFixed(0)}',
-                        style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
-                      ),
-                    ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _OptionCard(
+                      icon: Icons.delivery_dining_rounded,
+                      title: 'Melai Van',
+                      subtitle: (branch != null && !branch.supportsDelivery)
+                          ? 'Not offered at this branch'
+                          : 'Delivered by Melai',
+                      trailingLabel: branch == null ? '—' : '₱${branch.deliveryFee.toStringAsFixed(2)}',
+                      selected: _fulfillment == _FulfillmentMethod.delivery,
+                      onTap: (branch == null || branch.supportsDelivery)
+                          ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
+                          : null,
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.primary, width: 1.4),
+                  boxShadow: AppShadows.sm,
+                ),
+                child: branch == null
+                    ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('NO BRANCH SELECTED', style: AppTextStyles.labelSm),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Pick a branch so we know where to fulfil this order from.',
+                      style: AppTextStyles.bodySm,
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+                      ),
+                      child: const Text('Select Branch'),
+                    ),
+                  ],
+                )
+                    : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _fulfillment == _FulfillmentMethod.pickup
+                              ? 'PICKUP DEPOT DETAILS'
+                              : 'FULFILLING FROM',
+                          style: AppTextStyles.labelSm,
+                        ),
+                        if (branch.contactPhone != null && branch.contactPhone!.isNotEmpty)
+                          Text(branch.contactPhone!, style: AppTextStyles.bodySm),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(branch.name, style: AppTextStyles.titleMd),
+                    Text(branch.address, style: AppTextStyles.bodySm),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.access_time_rounded, size: 16, color: AppColors.textSecondary),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            branch.operatingHours ?? 'Hours not set',
+                            style: AppTextStyles.bodySm,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (_fulfillment == _FulfillmentMethod.delivery) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text('Delivery Details', style: AppTextStyles.titleMd),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _addressController,
+                  decoration: const InputDecoration(
+                    labelText: 'Delivery address',
+                    hintText: 'House/unit no., street, barangay, city',
+                  ),
+                  keyboardType: TextInputType.streetAddress,
+                  autofillHints: const [AutofillHints.fullStreetAddress],
+                  textCapitalization: TextCapitalization.words,
+                  maxLength: InputLimits.address,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  maxLines: 2,
+                  onChanged: (_) => _deliveryAddressId = null,
+                  validator: (v) => ValidationUtils.validateAddress(v),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _contactController,
+                  keyboardType: TextInputType.phone,
+                  autofillHints: const [AutofillHints.telephoneNumber],
+                  inputFormatters: InputRules.phone(),
+                  decoration: const InputDecoration(
+                    labelText: 'Contact number for the rider',
+                    hintText: '0917 123 4567',
+                  ),
+                  onChanged: (_) => _deliveryAddressId = null,
+                  validator: (v) => ValidationUtils.validatePhone(v),
+                ),
+                if (CustomerDataStore.instance.addresses.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _chooseSavedAddress,
+                      icon: const Icon(Icons.bookmark_border_rounded, size: 18),
+                      label: const Text('Use a saved address'),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                _DeliveryPinReview(
+                  latitude: _pinLat,
+                  longitude: _pinLng,
+                  branchName: branch?.name,
+                  branchLatitude: branch?.latitude,
+                  branchLongitude: branch?.longitude,
+                  onPin: _pinOnMap,
+                ),
+              ],
+              const SizedBox(height: AppSpacing.lg),
+              Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
+              const SizedBox(height: AppSpacing.sm),
+              // Online payment (HitPay) is hidden while it is off; the notice text
+              // comes from payment_settings.online_payment_disabled_message.
+              if (_onlineAllowed) ...[
+                _PaymentTile(
+                  icon: Icons.account_balance_wallet_rounded,
+                  title: 'Online Payment (GCash, Maya, Card)',
+                  subtitle: 'Pay securely on the HitPay payment page',
+                  selected: _payment == _PaymentMethod.online,
+                  onTap: () => setState(() => _payment = _PaymentMethod.online),
+                ),
+                const SizedBox(height: 8),
+              ] else ...[
+                OnlinePaymentUnavailableNotice(message: _paymentSettings.unavailableMessage),
+                const SizedBox(height: 8),
+              ],
+              if (_fulfillment == _FulfillmentMethod.delivery)
+                _PaymentTile(
+                  icon: Icons.delivery_dining_rounded,
+                  title: AppLocalizations.of(context).cashOnDelivery,
+                  subtitle: AppLocalizations.of(context).cashOnDeliverySubtitle,
+                  selected: _payment == _PaymentMethod.cod,
+                  onTap: () => setState(() => _payment = _PaymentMethod.cod),
+                )
+              else
+                _PaymentTile(
+                  icon: Icons.storefront_rounded,
+                  title: AppLocalizations.of(context).cashOnPickup,
+                  subtitle: AppLocalizations.of(context).cashOnPickupSubtitle,
+                  selected: _payment == _PaymentMethod.cash,
+                  onTap: () => setState(() => _payment = _PaymentMethod.cash),
+                ),
+              const SizedBox(height: AppSpacing.lg),
+              Text('Special Instructions (Pasalubong / Packing)', style: AppTextStyles.titleMd),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _notesController,
+                decoration: const InputDecoration(
+                  hintText: 'Optional note: add extra paper bag for pasalubong gift...',
+                ),
+                textCapitalization: TextCapitalization.sentences,
+                maxLength: InputLimits.note,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                minLines: 1,
+                maxLines: 3,
+                validator: (v) => ValidationUtils.validateText(v, fieldName: 'Special instructions'),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: AppShadows.md,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Order Summary (${cart.itemCount} items)', style: AppTextStyles.titleMd),
+                    const SizedBox(height: 10),
+                    for (final line in cart.lines)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${line.quantity}x ${line.product.name}',
+                                style: AppTextStyles.bodyMd,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text('₱${line.lineTotal.toStringAsFixed(0)}', style: AppTextStyles.bodyMd),
+                          ],
+                        ),
+                      ),
+                    const Divider(height: 20),
+                    _SummaryLine('Subtotal', '₱${cart.subtotal.toStringAsFixed(0)}'),
+                    if (cart.voucherDiscount + cart.loyaltyDiscount > 0)
+                      _SummaryLine(
+                        'Discounts applied',
+                        '-₱${(cart.voucherDiscount + cart.loyaltyDiscount).toStringAsFixed(0)}',
+                        color: AppColors.success,
+                      ),
+                    _SummaryLine(
+                      'Fulfillment Fee',
+                      _fulfillment == _FulfillmentMethod.pickup ? '₱0.00 (Store Pickup)' : '₱${deliveryFee.toStringAsFixed(2)}',
+                      color: AppColors.success,
+                    ),
+                    const Divider(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Total Payable', style: AppTextStyles.headlineSm),
+                        Text(
+                          '₱${total.toStringAsFixed(0)}',
+                          style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
