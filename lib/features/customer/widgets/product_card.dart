@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -129,23 +130,31 @@ class ProductCard extends StatelessWidget {
                     ),
                   ),
                 // Real stock/availability state — only shown when it isn't
-                // the default "In Stock" (nothing to flag there).
-                if (product.isOutOfStock || product.isLowStock)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: product.stockLabelBg,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        product.stockLabel,
-                        style: AppTextStyles.labelSm.copyWith(color: product.stockLabelColor),
-                      ),
-                    ),
+                // the default "In Stock" (nothing to flag there). Before a
+                // branch is chosen the catalog holds the all-branches total,
+                // so it says "Choose a branch" instead of implying stock here.
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: ListenableBuilder(
+                    listenable: BranchController.instance,
+                    builder: (context, _) {
+                      final chip = CustomerStockChip.of(product);
+                      if (!chip.worthShowing) return const SizedBox.shrink();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: chip.background,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          chip.label,
+                          style: AppTextStyles.labelSm.copyWith(color: chip.foreground),
+                        ),
+                      );
+                    },
                   ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -271,6 +280,41 @@ class _AddButton extends StatelessWidget {
         ),
         child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
       ),
+    );
+  }
+}
+
+/// The stock label a customer should see for [product]. Stock is per branch,
+/// so with no branch chosen the catalog's all-branches total is not shown as
+/// "In Stock" (the customer could then fail at their real branch).
+class CustomerStockChip {
+  static const String chooseBranchLabel = 'Choose a branch to see stock';
+
+  final String label;
+  final Color foreground;
+  final Color background;
+
+  /// False for the plain "In Stock" state, which cards don't flag.
+  final bool worthShowing;
+
+  const CustomerStockChip._(this.label, this.foreground, this.background, this.worthShowing);
+
+  factory CustomerStockChip.of(Product product, {bool? branchChosen}) {
+    final chosen = branchChosen ?? BranchController.instance.selectedBranch != null;
+    // Zero across every branch is zero at any branch: still "Out of Stock".
+    if (!chosen && !product.isOutOfStock) {
+      return const CustomerStockChip._(
+        chooseBranchLabel,
+        AppColors.textSecondary,
+        AppColors.surfaceContainerHigh,
+        true,
+      );
+    }
+    return CustomerStockChip._(
+      product.stockLabel,
+      product.stockLabelColor,
+      product.stockLabelBg,
+      product.isOutOfStock || product.isLowStock,
     );
   }
 }
