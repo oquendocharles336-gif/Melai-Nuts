@@ -465,7 +465,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             scope: ErrorScope.profile,
           );
-      final updated = await AppErrors.guard(
+      final CustomerProfile updated = await AppErrors.guard<CustomerProfile>(
         () => CustomerProfileRepository.instance.updateProfile(
           firebaseUid: firebaseUid,
           fullName: current.fullName.trim().isNotEmpty ? current.fullName : (account?.name ?? ''),
