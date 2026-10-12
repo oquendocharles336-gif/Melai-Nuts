@@ -151,6 +151,7 @@ class CustomerDataStore extends ChangeNotifier {
 
   String? _fallbackName;
   String? _fallbackEmail;
+  String? _fallbackPhone;
 
   /// Records who is signing in (no network) so that [refresh]/[retry] work
   /// even if the very first load — or the profile-creation step before it —
@@ -159,10 +160,12 @@ class CustomerDataStore extends ChangeNotifier {
     required String firebaseUid,
     required String fallbackName,
     required String fallbackEmail,
+    String fallbackPhone = '',
   }) {
     _requestedUid = firebaseUid;
     _fallbackName = fallbackName;
     _fallbackEmail = fallbackEmail;
+    _fallbackPhone = fallbackPhone;
   }
 
   /// Loads (or reloads) everything for [firebaseUid]. Safe to call multiple
@@ -274,6 +277,7 @@ class CustomerDataStore extends ChangeNotifier {
             firebaseUid: firebaseUid,
             fallbackName: _fallbackName ?? '',
             fallbackEmail: fallbackEmail,
+            fallbackPhone: _fallbackPhone ?? '',
           );
           if (generation == _generation) profile = _withPendingProfileChange(firebaseUid, created);
         });
@@ -431,16 +435,19 @@ class CustomerDataStore extends ChangeNotifier {
   }
 
   /// Ensures the given customer's profile row exists (creating it from
-  /// their Firebase name/email the first time), and caches it here.
+  /// their Firebase name/email and registration phone the first time), and
+  /// caches it here.
   Future<CustomerProfile> ensureProfile({
     required String firebaseUid,
     required String fallbackName,
     required String fallbackEmail,
+    String fallbackPhone = '',
   }) async {
     final p = await CustomerProfileRepository.instance.ensureProfile(
       firebaseUid: firebaseUid,
       fallbackName: fallbackName,
       fallbackEmail: fallbackEmail,
+      fallbackPhone: fallbackPhone,
     );
     final resolved = _withPendingProfileChange(firebaseUid, p);
     profile = resolved;
@@ -687,6 +694,7 @@ class CustomerDataStore extends ChangeNotifier {
     _requestedUid = null;
     _fallbackName = null;
     _fallbackEmail = null;
+    _fallbackPhone = null;
     _inFlight = null;
     _reloadQueued = false;
     _loading = false;
