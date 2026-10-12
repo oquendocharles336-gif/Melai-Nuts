@@ -456,8 +456,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     Future<void> save(String phone) async {
       final store = CustomerDataStore.instance;
       final account = AuthService.instance.currentProfile;
-      final current = store.profile ??
-          await AppErrors.guard(
+      final CustomerProfile current = store.profile ??
+          await AppErrors.guard<CustomerProfile>(
             () => store.ensureProfile(
               firebaseUid: firebaseUid,
               fallbackName: account?.name ?? '',
