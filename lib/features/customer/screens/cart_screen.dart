@@ -17,6 +17,19 @@ import '../widgets/cart_item.dart';
 import 'checkout_screen.dart';
 import 'product_catalog_screen.dart';
 
+/// True while the cart on screen may differ from the one the server holds
+/// (a save is running, or edits haven't been accepted yet).
+bool cartBlocksCheckout(CartController cart) => cart.isSyncing || cart.hasUnsyncedChanges;
+
+/// Why "Proceed to Checkout" is off, or null when it is on.
+String? checkoutBlockedReason(CartController cart) {
+  if (cart.isSyncing) return 'Saving your cart...';
+  if (cart.hasUnsyncedChanges) {
+    return 'Your cart changes aren\'t saved yet. Please check your connection.';
+  }
+  return null;
+}
+
 /// "My Cart" — editable line items, loyalty points redemption, voucher
 /// code, order summary, and Proceed to Checkout (matches the prototype's
 /// Shopping Cart screen).
@@ -289,13 +302,21 @@ class _CartScreenState extends State<CartScreen> {
                           '₱${cart.total.toStringAsFixed(0)}',
                           style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
                         ),
+                        if (checkoutBlockedReason(cart) case final reason?)
+                          Text(
+                            reason,
+                            key: const ValueKey('checkout-blocked-reason'),
+                            style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                          ),
                       ],
                     ),
                   ),
                   Expanded(
                     child: PrimaryButton(
                       label: 'Proceed to Checkout',
-                      onPressed: () {
+                      // Checkout uses the cart the server holds, so it waits
+                      // until the server has accepted what is shown here.
+                      onPressed: cartBlocksCheckout(cart) ? null : () {
                         // Placing an order requires a signed-in customer.
                         if (AuthService.instance.currentFirebaseUser == null) {
                           ScaffoldMessenger.of(context).showSnackBar(

@@ -188,8 +188,18 @@ class RefundController extends Controller
     {
         abort_unless($this->platform()->isSupabase(), 404);
         $data = $request->validate(['attempt_id' => ['required', 'uuid'], 'note' => ['required', 'string', 'min:5', 'max:200']]);
+        // The attempt must belong to THIS order's refund, or the log below would file it under the
+        // wrong order.
+        $order = $this->orders()->find($orderId);
+        abort_if(! $order || empty($order['refundId']), 404);
+        $ids = array_column($this->repoAttempts($order['refundId']), 'attempt_id');
+        if (! in_array($data['attempt_id'], $ids, true)) {
+            throw ValidationException::withMessages(['attempt_id' => 'That HitPay attempt does not belong to this order\'s refund.']);
+        }
         app(SupabaseRepository::class)->abandonGatewayRefund($data['attempt_id'], $data['note']);
-        ActivityLogger::log('refund.hitpay_abandoned', "Closed unanswered HitPay attempt for order {$orderId}", null, ['order_id' => $orderId, 'note' => $data['note']]);
+        ActivityLogger::log('refund.hitpay_abandoned', "Closed unanswered HitPay attempt for order {$orderId}", null, [
+            'order_id' => $orderId, 'refund_id' => $order['refundId'], 'attempt' => $data['attempt_id'], 'note' => $data['note'],
+        ]);
 
         return back()->with('status', 'The unanswered attempt was closed. You can send the refund again.');
     }

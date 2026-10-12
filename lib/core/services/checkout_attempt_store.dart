@@ -173,7 +173,8 @@ class CheckoutAttemptStore extends ChangeNotifier {
   /// asked for the identical request; otherwise a brand-new key.
   ///
   /// If the saved attempt was already sent (outcome unknown) but the request
-  /// has since changed, the server is asked about the old key first, because
+  /// or the cart id has since changed, the server is asked about the old key
+  /// first, because
   /// it may have accepted that order. Throws [CheckoutAlreadyPlacedException]
   /// if it did. If the server can't be reached the lookup error propagates and
   /// the saved attempt is kept: with the outcome unknown, a new key could
@@ -184,13 +185,17 @@ class CheckoutAttemptStore extends ChangeNotifier {
     required String fingerprint,
   }) async {
     final existing = await _read();
-    final usable = existing != null &&
+    final recent = existing != null &&
         existing.uid == uid &&
-        existing.cartId == cartId &&
         _now().difference(existing.createdAt) < _maxAge;
+    final usable = recent && existing.cartId == cartId;
     if (usable && existing.fingerprint == fingerprint) return existing;
 
-    if (usable && existing.submitted) {
+    // Ask about a sent attempt WHATEVER its cart: when place_order succeeded
+    // but the answer was lost, the server cart was checked out and the next
+    // sync opened a new cart with a new id. Skipping the lookup then would
+    // mint a new key and place a second real order.
+    if (recent && existing.submitted) {
       final placed = await _lookup(uid, existing.key);
       if (placed != null) {
         await clear();

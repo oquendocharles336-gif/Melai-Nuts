@@ -7,6 +7,14 @@ import '../../core/utils/app_error.dart';
 import '../catalog_store.dart';
 import '../models/branch.dart';
 
+/// The `branches` columns the app reads. Listed on purpose (never `*`):
+/// internal columns such as `daily_sales_target` are not readable by
+/// customers or signed-out users (migration 20261027000000), and `*` would
+/// make the whole query fail.
+const String kBranchColumns =
+    'id, name, address, is_active, contact_phone, operating_hours, supports_delivery, '
+    'supports_pickup, delivery_fee, latitude, longitude, is_warehouse';
+
 /// Loads the real branch list (`branches` table) into [kBranches].
 ///
 /// Branches are public read data (any signed-in or guest customer needs to
@@ -47,7 +55,7 @@ class BranchRepository extends ChangeNotifier {
     scheduleMicrotask(notifyListeners);
     try {
       final raw = await AppErrors.guard(
-        () => _client.from('branches').select().order('name'),
+        () => _client.from('branches').select(kBranchColumns).order('name'),
       );
       final branches = List<Map<String, dynamic>>.from(raw).map(Branch.fromRow).toList();
       kBranches

@@ -497,17 +497,40 @@ function stockComponent(items, { receiveUrl, branch, branchName, live }) {
 // ---------------------------------------------------------------------------------------------
 // New order (in-store sale through the app's POS function)
 // ---------------------------------------------------------------------------------------------
+const newSaleKey = () => (crypto.randomUUID?.() || String(Date.now()) + Math.random());
+
+/**
+ * The sale's idempotency key. The database returns the recorded sale for the same key + same
+ * details and refuses the same key with different details. So a changed sale (lines, branch,
+ * method, cash) gets a new key, EXCEPT after a request whose outcome is unknown (network error,
+ * timeout, 5xx): the sale may already be recorded, and only the same key lets the database say so
+ * instead of recording a second one.
+ */
+export function rotateSaleKey(state) {
+    if (state.outcomeUnknown) return state.key;
+    state.key = newSaleKey();
+    return state.key;
+}
+
+/** True when a failed request may still have been recorded (it never got a clear answer). */
+export const outcomeUnknown = (e) => !e?.status || e.status === 408 || e.status >= 500;
+
 function newOrderComponent({ branches, live, branchesUrl, catalogUrl, storeUrl }) {
     return {
         branches, live, branch: branches[0]?.id || '', catalog: [], loadingCatalog: false, lines: [], method: 'cash', reference: '', cash: '',
-        busy: false, error: null, key: null, pick: '',
+        busy: false, error: null, key: null, outcomeUnknown: false, pick: '',
         init() {
             window.addEventListener('open-modal', (e) => { if (e.detail === 'new-order') this.reset(); });
-            this.$watch('branch', () => { this.lines = []; this.loadCatalog(); });
+            this.$watch('branch', () => { this.lines = []; this.loadCatalog(); rotateSaleKey(this); });
+            this.$watch('lines', () => rotateSaleKey(this), { deep: true });
+            this.$watch('method', () => rotateSaleKey(this));
+            this.$watch('cash', () => rotateSaleKey(this));
+            this.$watch('reference', () => rotateSaleKey(this));
         },
         reset() {
             this.lines = []; this.method = 'cash'; this.reference = ''; this.cash = ''; this.error = null; this.pick = '';
-            this.key = (crypto.randomUUID?.() || String(Date.now()) + Math.random());
+            this.outcomeUnknown = false;
+            this.key = newSaleKey();
             if (this.live && !this.branches.length) {
                 api(branchesUrl).then((list) => { this.branches = list; this.branch = list[0]?.id || ''; }).catch((e) => { this.error = e.message; });
             } else if (this.live && !this.catalog.length) this.loadCatalog();
@@ -536,12 +559,19 @@ function newOrderComponent({ branches, live, branchesUrl, catalogUrl, storeUrl }
                 const res = await api(storeUrl, { method: 'POST', body: {
                     branch: this.branch, items: this.lines.map(l => ({ variant_id: l.variant_id, quantity: parseInt(l.quantity, 10) })),
                     method: this.method, reference: this.reference || null, cash_received: this.method === 'cash' && this.cash !== '' ? Number(this.cash) : null, key: this.key } });
+                const already = Boolean(res.result?.already_recorded);
                 window.dispatchEvent(new CustomEvent('close-modal', { detail: 'new-order' }));
                 const change = Number(res.result?.change || 0);
-                Alpine.store('ui').toast(res.message + (change > 0 ? ' Change: ' + peso(change) + '.' : '') + ' Every number follows.');
+                // "Already recorded" is always shown, even with notifications turned off.
+                Alpine.store('ui').toast(res.message + (change > 0 ? ' Change: ' + peso(change) + '.' : '') + ' Every number follows.', 'ok', already);
+                // A finished sale's key must never be used again.
+                this.reset();
                 this.catalog = [];
                 changed('orders');
-            } catch (e) { this.error = e.message; }
+            } catch (e) {
+                if (outcomeUnknown(e)) this.outcomeUnknown = true;
+                this.error = e.message;
+            }
             finally { this.busy = false; }
         },
     };

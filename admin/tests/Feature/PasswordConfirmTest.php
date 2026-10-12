@@ -22,6 +22,17 @@ class PasswordConfirmTest extends TestCase
         $this->assertNotContains('owner_adjust_loyalty_points', $this->db->calledFunctions('uid-owner'));
     }
 
+    public function test_marking_a_payment_paid_needs_the_password_like_the_other_money_actions(): void
+    {
+        $this->useFakeSupabase();
+        $owner = $this->linkedLogin('uid-owner');
+        $this->signedIn($owner)->from('/admin/payments')
+            ->post(route('admin.payments.mark-paid', 'ORD-1'))
+            ->assertSessionHasErrors('current_password');
+        $this->assertNotContains('staff_confirm_payment', $this->db->calledFunctions('uid-owner'));
+        $this->assertStringContainsString('<x-password-confirm />', file_get_contents(resource_path('views/admin/payments/index.blade.php')));
+    }
+
     public function test_a_wrong_password_is_refused_and_rate_limited(): void
     {
         $this->useFakeSupabase();

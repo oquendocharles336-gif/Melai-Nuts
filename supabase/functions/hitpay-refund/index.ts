@@ -3,6 +3,8 @@
 //
 //   POST { "refund_id": "RFD-12" }                         -> send
 //   POST { "attempt_id": "<uuid>", "action": "check" }      -> re-check a pending refund
+//        (refund_id is optional here: the attempt is found by its id, with the same
+//         staff check, through staff_gateway_refund_attempt)
 //   with the staff member's Authorization header (Firebase ID token).
 //
 // Every rule lives in the database (supabase/migrations/20261011020000_hitpay_refunds.sql),
@@ -13,13 +15,16 @@
 //
 // HitPay answers (https://docs.hitpayapp.com/apis/payment-request/refund):
 //   200 { id, payment_id, amount_refunded, status: "succeeded" | ... }
-//   4xx -> refused (attempt marked failed, refund stays approved: retry or do it by hand)
-//   5xx / timeout -> unknown: the attempt stays "sending" and blocks a second send
+//   SEND:  4xx -> refused (attempt marked failed, refund stays approved: retry or do it by hand)
+//          5xx / timeout -> unknown: the attempt stays "sending" and blocks a second send
+//   CHECK: any non-2xx (401, 404, 429, 5xx...) -> unknown, the attempt stays pending. Only an
+//          explicit HitPay refund status may mark it failed (see outcome.ts).
 //
 // Env: HITPAY_API_KEY, HITPAY_ENV ('live' | anything else = sandbox).
 // SUPABASE_URL / SUPABASE_ANON_KEY are provided by Supabase.
 // Deploy: supabase functions deploy hitpay-refund --no-verify-jwt
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkOutcomeOf, type Outcome, sendOutcomeOf } from "./outcome.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,27 +37,6 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-type Outcome = { status: "succeeded" | "pending" | "failed" | "unknown"; refundId?: string; error?: string };
-
-// Maps a HitPay HTTP answer onto what we record.
-export function outcomeOf(httpStatus: number, body: Record<string, unknown> | null): Outcome {
-  if (httpStatus >= 200 && httpStatus < 300 && body && typeof body.id === "string") {
-    const s = String(body.status ?? "").toLowerCase();
-    if (s === "succeeded" || s === "success" || s === "completed" || s === "refunded") {
-      return { status: "succeeded", refundId: body.id };
-    }
-    if (s === "failed" || s === "cancelled" || s === "canceled" || s === "rejected") {
-      return { status: "failed", refundId: body.id, error: `HitPay refund ${s}` };
-    }
-    return { status: "pending", refundId: body.id };
-  }
-  if (httpStatus >= 400 && httpStatus < 500) {
-    const msg = typeof body?.message === "string" ? body.message : `HitPay refused the refund (HTTP ${httpStatus}).`;
-    return { status: "failed", error: msg.slice(0, 250) };
-  }
-  return { status: "unknown" };
 }
 
 async function finish(client: SupabaseClient, attemptId: string, o: Outcome) {
@@ -97,11 +81,13 @@ Deno.serve(async (req: Request) => {
   if (body.action === "check") {
     const attemptId = typeof body.attempt_id === "string" ? body.attempt_id : "";
     if (!attemptId) return json({ error: "attempt_id is required." }, 400);
-    const { data: list, error } = await client.rpc("staff_refund_gateway_attempts", {
-      p_refund_id: typeof body.refund_id === "string" ? body.refund_id : "",
-    });
+    const { data: found, error } = await client.rpc("staff_gateway_refund_attempt", { p_attempt_id: attemptId });
     if (error) return json({ error: error.message }, 403);
-    const attempt = (list as Array<Record<string, unknown>>).find((a) => a.attempt_id === attemptId);
+    const attempt = found && typeof found === "object" ? found as Record<string, unknown> : null;
+    const refundId = typeof body.refund_id === "string" ? body.refund_id.trim() : "";
+    if (attempt && refundId && attempt.refund_id !== refundId) {
+      return json({ error: "That HitPay refund attempt belongs to another refund." }, 409);
+    }
     if (!attempt || attempt.status !== "pending" || typeof attempt.gateway_refund_id !== "string") {
       return json({ error: "There is no pending HitPay refund to check." }, 409);
     }
@@ -114,8 +100,13 @@ Deno.serve(async (req: Request) => {
     } catch (_) {
       return json({ error: "HitPay did not answer. Try again in a moment." }, 502);
     }
-    const o = outcomeOf(res.status, await res.json().catch(() => null));
-    if (o.status === "unknown") return json({ error: "HitPay did not answer. Try again in a moment." }, 502);
+    const o = checkOutcomeOf(res.status, await res.json().catch(() => null));
+    if (o.status === "unknown") {
+      // Not an answer about the refund (bad key, not found, rate limit, server error...): the
+      // attempt stays pending, so "Send via HitPay" stays blocked.
+      console.error("hitpay-refund: check got no refund status", res.status);
+      return json({ error: "HitPay did not confirm the refund status. It is still pending: try again in a moment or check the HitPay dashboard." }, 502);
+    }
     const { data, error: finishError } = await finish(client, attemptId, { ...o, refundId: o.refundId ?? attempt.gateway_refund_id });
     if (finishError) return json({ error: finishError.message }, 409);
     return json(data);
@@ -145,7 +136,7 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  const o = outcomeOf(res.status, await res.json().catch(() => null));
+  const o = sendOutcomeOf(res.status, await res.json().catch(() => null));
   if (o.status === "unknown") {
     console.error("hitpay-refund: HitPay server error", res.status);
     return json({

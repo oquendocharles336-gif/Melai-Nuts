@@ -150,7 +150,14 @@ class OrdersController extends Controller
         ActivityLogger::log('order.pos_created', 'Recorded in-store sale '.($r['order_id'] ?? ''), null,
             ['order_id' => $r['order_id'] ?? null, 'branch_id' => $branchId, 'source' => 'supabase']);
 
-        return response()->json(['message' => 'Order '.($r['order_id'] ?? '').' recorded.', 'result' => $r]);
+        // A retry of a sale the database already holds (same key, same details) answers with
+        // that sale: say so, so nobody thinks it was charged twice.
+        $already = (bool) ($r['already_recorded'] ?? false);
+        $message = $already
+            ? 'This sale was already recorded as order '.($r['order_id'] ?? '').'. It was not charged twice.'
+            : 'Order '.($r['order_id'] ?? '').' recorded.';
+
+        return response()->json(['message' => $message, 'result' => $r, 'already_recorded' => $already]);
     }
 
     // ---- helpers ---------------------------------------------------------------------------

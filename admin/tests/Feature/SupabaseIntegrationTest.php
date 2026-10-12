@@ -1457,6 +1457,10 @@ class SupabaseIntegrationTest extends TestCase
         // 3. Pending answer then "Check HitPay" -> completed
         $attempt = $db->selectOne("select id from public.refund_gateway_attempts where refund_id = ? and status = 'sending'", [$refund])->id;
         $db->update("update public.refund_gateway_attempts set started_at = now() - interval '10 minutes' where id = ?", [$attempt]);
+        // An attempt that is not this order's refund is refused (it would be logged under the wrong order).
+        $this->actingAs($admin)->post(route('admin.refunds.hitpay.abandon', $order), ['attempt_id' => (string) \Illuminate\Support\Str::uuid(), 'note' => 'Dashboard shows no refund'])
+            ->assertSessionHasErrors('attempt_id');
+        $this->assertSame('sending', $db->selectOne('select status from public.refund_gateway_attempts where id = ?', [$attempt])->status);
         $this->actingAs($admin)->post(route('admin.refunds.hitpay.abandon', $order), ['attempt_id' => $attempt, 'note' => 'Dashboard shows no refund'])->assertSessionHas('status');
         $mode = 'pending-then-ok';
         $this->actingAs($admin)->post(route('admin.refunds.hitpay', $order))->assertSessionHas('status');

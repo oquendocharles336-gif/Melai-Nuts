@@ -186,4 +186,37 @@ void main() {
     expect(store.recoveredOrder, isNull);
     expect(storage.value, isNotNull);
   });
+
+  test('REVIEW FIX 5: a sent attempt for cart A is checked even when checkout now uses cart B', () async {
+    // place_order timed out but succeeded: the server cart was checked out and
+    // the next sync opened a new cart with a new id.
+    final first = await begin(_pickupCash, cart: 'cart-A');
+    await store.markSubmitted(first);
+    serverOrders[first.key] = _order('placed-earlier');
+
+    await expectLater(
+      begin(_pickupCash, cart: 'cart-B'),
+      throwsA(isA<CheckoutAlreadyPlacedException>().having((e) => e.order.id, 'order', 'placed-earlier')),
+    );
+    expect(lookups, [first.key]);
+    expect(storage.value, isNull, reason: 'the settled attempt is cleared');
+  });
+
+  test('REVIEW FIX 5: cart B gets a new key only after the server says cart A was not placed', () async {
+    final first = await begin(_pickupCash, cart: 'cart-A');
+    await store.markSubmitted(first);
+
+    final next = await begin(_pickupCash, cart: 'cart-B');
+    expect(lookups, [first.key]);
+    expect(next.key, isNot(first.key));
+    expect(next.cartId, 'cart-B');
+  });
+
+  test('REVIEW FIX 5: offline, a sent attempt for another cart is kept (no blind new key)', () async {
+    final first = await begin(_pickupCash, cart: 'cart-A');
+    await store.markSubmitted(first);
+    offline = true;
+    await expectLater(begin(_pickupCash, cart: 'cart-B'), throwsA(anything));
+    expect(CheckoutAttempt.fromJson(Map<String, dynamic>.from(jsonDecode(storage.value!) as Map)).key, first.key);
+  });
 }

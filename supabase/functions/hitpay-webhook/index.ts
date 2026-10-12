@@ -1,4 +1,4 @@
-// HitPay event webhook (payment_request.completed / payment_request.failed).
+// HitPay event webhook (payment_request.completed / .failed / .expired).
 //
 // Format, per https://docs.hitpayapp.com/apis/guide/events :
 //   * POST with a JSON body and the header `Hitpay-Signature`, which is the
@@ -88,8 +88,8 @@ Deno.serve(async (req: Request) => {
   const orderId = typeof payload.reference_number === "string" ? payload.reference_number.trim() : "";
   const status = payload.status;
   if (!orderId) return respond(400, "Missing reference_number");
-  if (status !== "completed" && status !== "failed") {
-    // Not a result we act on (e.g. pending/expired); acknowledge so HitPay does not retry.
+  if (status !== "completed" && status !== "failed" && status !== "expired") {
+    // Not a result we act on (e.g. pending); acknowledge so HitPay does not retry.
     return respond(200, "Ignored");
   }
 
@@ -104,6 +104,22 @@ Deno.serve(async (req: Request) => {
   const adminClient = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  if (status === "expired") {
+    // The link ran out unpaid. Only the CURRENT link moves the payment out of
+    // "processing" (to "failed", so the customer can pay with a new link); an old
+    // link expiring never touches a newer one or a paid payment.
+    const requestId = typeof payload.id === "string" ? payload.id : "";
+    const { error } = await adminClient.rpc("hitpay_expire_checkout", {
+      p_order_id: orderId,
+      p_payment_request_id: requestId,
+    });
+    if (error) {
+      console.error("hitpay-webhook: could not apply expiry", error.message);
+      return respond(500, "Could not apply expiry");
+    }
+    return respond(200, "OK");
+  }
 
   if (status === "completed") {
     const { data: row, error } = await adminClient

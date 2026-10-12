@@ -11,8 +11,8 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Money and points actions (refund approve / complete / HitPay send, loyalty adjustments) need the
- * person's password again: the form sends `current_password`. Once confirmed it is not asked again
+ * Money and points actions (refund approve / complete / HitPay send, marking a payment paid, loyalty
+ * adjustments) need the person's password again: the form sends `current_password`. Once confirmed it is not asked again
  * for config('melai.security.password_confirm_seconds') (default 5 minutes) in this session.
  */
 class ConfirmRecentPassword

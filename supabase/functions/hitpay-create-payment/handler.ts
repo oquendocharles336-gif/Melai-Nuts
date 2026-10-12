@@ -14,6 +14,8 @@ function json(body: unknown, status = 200): Response {
 }
 
 export type Env = (name: string) => string | undefined;
+export type Sleep = (ms: number) => Promise<void>;
+const realSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // deno-lint-ignore no-explicit-any
 export type ClientFactory = (url: string, key: string, options: any) => any;
 
@@ -22,7 +24,7 @@ export type ClientFactory = (url: string, key: string, options: any) => any;
  * tested without network access): `createClient` is supabase-js's, `env` reads
  * the function's secrets, `fetchFn` reaches HitPay.
  */
-export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: typeof fetch = fetch) {
+export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: typeof fetch = fetch, sleep: Sleep = realSleep) {
   return async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
@@ -90,7 +92,7 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
 
   const { data: payment, error: paymentError } = await userClient
     .from("payments")
-    .select("id, method, status, amount, gateway_payment_id, gateway_checkout_url")
+    .select("id, method, status, amount")
     .eq("order_id", orderId)
     .maybeSingle();
   if (paymentError) {
@@ -105,20 +107,42 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
     return json({ error: "This order is already paid." }, 409);
   }
 
-  // A payment that is still open keeps its existing HitPay link.
-  if (
-    payment.status !== "failed" &&
-    payment.gateway_checkout_url &&
-    payment.gateway_payment_id
-  ) {
-    return json({
-      checkout_url: payment.gateway_checkout_url,
-      payment_request_id: payment.gateway_payment_id,
+  const adminClient = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  // One payment request at a time: hitpay_claim_checkout locks the payment row.
+  // A still-fresh link is reused; an expired one never is (HITPAY_LINK_MAX_AGE_MINUTES,
+  // default 60: keep it at or below HitPay's own link expiry). When another call
+  // (a double tap) is creating the link right now, wait for its result.
+  const maxAge = Number(env("HITPAY_LINK_MAX_AGE_MINUTES") ?? "60");
+  let claim: Record<string, unknown> | null = null;
+  for (let tries = 0; tries < 5; tries++) {
+    const { data, error: claimError } = await adminClient.rpc("hitpay_claim_checkout", {
+      p_order_id: order.id,
+      p_max_age_minutes: Number.isFinite(maxAge) && maxAge > 0 ? Math.floor(maxAge) : 60,
     });
+    if (claimError) {
+      console.error("hitpay-create-payment: could not claim checkout", claimError.message);
+      return json({ error: "Could not start the payment. Please try again." }, 500);
+    }
+    claim = data && typeof data === "object" ? data as Record<string, unknown> : null;
+    if (claim?.action !== "busy") break;
+    await sleep(1000);
   }
+  if (claim?.action === "reuse") {
+    return json({ checkout_url: claim.checkout_url, payment_request_id: claim.payment_request_id });
+  }
+  if (claim?.action === "closed") return json({ error: "This order is already paid." }, 409);
+  if (claim?.action !== "create") {
+    return json({ error: "Your payment is still being prepared. Please try again in a moment." }, 409);
+  }
+  // From here this call holds the claim; give it back if no link gets stored.
+  const release = () => adminClient.rpc("hitpay_release_checkout", { p_order_id: order.id });
 
   const total = Number(order.total);
   if (!Number.isFinite(total) || total <= 0) {
+    await release();
     return json({ error: "This order has nothing to pay." }, 409);
   }
 
@@ -154,18 +178,17 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
     });
   } catch (e) {
     console.error("hitpay-create-payment: HitPay unreachable", String(e));
+    await release();
     return json({ error: "The payment service is unreachable. Please try again." }, 502);
   }
 
   const result = await hitpayResponse.json().catch(() => null);
   if (!hitpayResponse.ok || !result?.id || !result?.url) {
     console.error("hitpay-create-payment: HitPay rejected the request", hitpayResponse.status, result?.message ?? "");
+    await release();
     return json({ error: "The payment service could not start the payment. Please try again." }, 502);
   }
 
-  const adminClient = createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
   const { error: setError } = await adminClient.rpc("hitpay_set_checkout", {
     p_order_id: order.id,
     p_payment_id: String(result.id),
@@ -173,6 +196,7 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
   });
   if (setError) {
     console.error("hitpay-create-payment: could not store checkout", setError.message);
+    await release();
     return json({ error: "Could not save the payment. Please try again." }, 500);
   }
 

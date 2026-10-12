@@ -133,6 +133,12 @@ class DriverRepository {
     });
   }
 
+  /// Owner only: removes a driver row outright. Used to undo a driver account
+  /// whose creation failed partway (see AuthService.createManagedAccount);
+  /// the database refuses it once the driver has any delivery.
+  Future<void> removeDriver(String firebaseUid) =>
+      _rpc('owner_delete_driver', {'p_firebase_uid': firebaseUid});
+
   /// 'active' | 'inactive' | 'suspended'. Owner only.
   Future<void> setDriverStatus(String firebaseUid, String status) =>
       _rpc('owner_set_driver_status', {'p_firebase_uid': firebaseUid, 'p_status': status});

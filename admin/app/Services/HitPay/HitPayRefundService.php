@@ -55,10 +55,14 @@ class HitPayRefundService
                 'message' => 'HitPay did not answer. The refund may or may not have been sent: check the HitPay dashboard before trying again.'];
         }
 
-        return $this->record($attempt['attempt_id'], self::outcome($res->status(), $res->json()), $attempt);
+        return $this->record($attempt['attempt_id'], self::sendOutcome($res->status(), $res->json()), $attempt);
     }
 
-    /** Re-checks a pending refund (GET /v1/refund/{id}). */
+    /**
+     * Re-checks a pending refund (GET /v1/refund/{id}). Only an explicit refund status from HitPay
+     * can close the attempt; any other answer (401, 404, 429, 5xx...) leaves it pending, so "Send via
+     * HitPay" stays blocked while HitPay may already have paid.
+     */
     public function check(string $refundId, string $attemptId): array
     {
         $attempt = collect($this->repo->gatewayAttempts($refundId))->firstWhere('attempt_id', $attemptId);
@@ -70,7 +74,13 @@ class HitPayRefundService
         } catch (ConnectionException) {
             return ['status' => 'unknown', 'message' => 'HitPay did not answer. Try again in a moment.'];
         }
-        $o = self::outcome($res->status(), $res->json());
+        $o = self::checkOutcome($res->status(), $res->json());
+        if ($o['status'] === 'unknown') {
+            Log::warning('[hitpay] refund check: no refund status', ['attempt' => $attemptId, 'http' => $res->status()]);
+
+            return ['status' => 'unknown', 'attempt' => $attempt,
+                'message' => 'HitPay did not confirm the refund status. It is still pending: try again in a moment or check the HitPay dashboard.'];
+        }
         $o['refund_id'] ??= $attempt['gateway_refund_id'];
 
         return $this->record($attemptId, $o, $attempt);
@@ -92,18 +102,21 @@ class HitPayRefundService
         }];
     }
 
-    /** Maps a HitPay HTTP answer: succeeded | pending | failed | unknown (+ refund_id, error). */
+    /** Kept for existing callers: the SEND mapping. */
     public static function outcome(int $http, mixed $body): array
     {
-        $body = is_array($body) ? $body : [];
-        if ($http >= 200 && $http < 300 && is_string($body['id'] ?? null)) {
-            $s = strtolower((string) ($body['status'] ?? ''));
+        return self::sendOutcome($http, $body);
+    }
 
-            return match (true) {
-                in_array($s, ['succeeded', 'success', 'completed', 'refunded'], true) => ['status' => 'succeeded', 'refund_id' => $body['id']],
-                in_array($s, ['failed', 'cancelled', 'canceled', 'rejected'], true) => ['status' => 'failed', 'refund_id' => $body['id'], 'error' => "HitPay refund {$s}"],
-                default => ['status' => 'pending', 'refund_id' => $body['id']],
-            };
+    /**
+     * SEND (POST /v1/refund): succeeded | pending | failed | unknown (+ refund_id, error).
+     * A 4xx means HitPay refused to create the refund: no money moved, so it is "failed".
+     */
+    public static function sendOutcome(int $http, mixed $body): array
+    {
+        $body = is_array($body) ? $body : [];
+        if ($http >= 200 && $http < 300) {
+            return is_string($body['id'] ?? null) ? self::fromRefundBody($body) : ['status' => 'unknown'];
         }
         if ($http >= 400 && $http < 500) {
             $msg = is_string($body['message'] ?? null) ? $body['message'] : "HitPay refused the refund (HTTP {$http})";
@@ -112,5 +125,34 @@ class HitPayRefundService
         }
 
         return ['status' => 'unknown'];
+    }
+
+    /**
+     * CHECK (GET /v1/refund/{id}): the refund already exists at HitPay, so a non-2xx answer says
+     * nothing about the money and is always "unknown". Only an explicit status may say "failed".
+     */
+    public static function checkOutcome(int $http, mixed $body): array
+    {
+        $body = is_array($body) ? $body : [];
+        if ($http < 200 || $http >= 300) {
+            return ['status' => 'unknown'];
+        }
+        if (! is_string($body['id'] ?? null) && (string) ($body['status'] ?? '') === '') {
+            return ['status' => 'unknown'];
+        }
+
+        return self::fromRefundBody($body);
+    }
+
+    private static function fromRefundBody(array $body): array
+    {
+        $s = strtolower((string) ($body['status'] ?? ''));
+        $id = is_string($body['id'] ?? null) ? ['refund_id' => $body['id']] : [];
+
+        return match (true) {
+            in_array($s, ['succeeded', 'success', 'completed', 'refunded'], true) => ['status' => 'succeeded'] + $id,
+            in_array($s, ['failed', 'cancelled', 'canceled', 'rejected'], true) => ['status' => 'failed'] + $id + ['error' => "HitPay refund {$s}"],
+            default => ['status' => 'pending'] + $id,
+        };
     }
 }

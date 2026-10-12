@@ -55,6 +55,17 @@ Product findProductById(String id) {
   return kProducts.firstWhere((p) => p.id == id, orElse: () => _unknownProduct(id));
 }
 
+/// Returns the product with [id], or null when it is not in the loaded
+/// catalog (catalog not loaded yet, offline, or the product was removed).
+/// Use this wherever "not loaded" must not be confused with "no variants"
+/// (e.g. the cart, which must never drop a saved line for that reason).
+Product? tryFindProductById(String id) {
+  for (final product in kProducts) {
+    if (product.id == id) return product;
+  }
+  return null;
+}
+
 /// Placeholder shown when a category id can't be found (e.g. categories
 /// haven't loaded yet, or the category was deleted). Never a real record.
 const _unknownCategory = ProductCategory(

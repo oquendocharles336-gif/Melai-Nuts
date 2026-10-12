@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../../core/services/branch_controller.dart';
 import '../../core/services/customer_data_store.dart';
 import '../../data/catalog_store.dart';
@@ -132,6 +133,11 @@ class CartController extends ChangeNotifier {
     _hydrateFailed = false;
     notifyListeners();
     try {
+      // The catalog may still be loading (main.dart starts it without
+      // waiting) or may not load at all offline. Load it first so remote
+      // lines resolve to real products; if it can't load, lines are still
+      // kept (see [_lineFromRemote]).
+      await _ensureCatalogLoaded(resolvedBranch);
       final remote = await CartRepository.instance.loadOpenCart(branchId: resolvedBranch);
       if (remote != null && !_dirty) {
         _applyRemoteState(remote);
@@ -155,6 +161,51 @@ class CartController extends ChangeNotifier {
       _hydrating = false;
       notifyListeners();
     }
+  }
+
+  /// Loads the catalog for [branchId] when nothing is loaded yet. Never
+  /// throws: a missing catalog must not stop the cart from loading.
+  Future<void> _ensureCatalogLoaded(String branchId) async {
+    if (kProducts.isNotEmpty) return;
+    try {
+      await catalogLoader(branchId);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'cart_controller:ensureCatalogLoaded');
+    }
+  }
+
+  /// Loads the product catalog for a branch. Tests replace it.
+  @visibleForTesting
+  Future<void> Function(String branchId) catalogLoader =
+      (branchId) => ProductsRepository.instance.loadCatalog(branchId: branchId);
+
+  /// In-memory stand-in for the device's saved cart snapshots. Tests only;
+  /// null means the real device storage is used.
+  @visibleForTesting
+  Map<String, String>? debugSnapshotStorage;
+
+  Future<String?> _readSnapshot(String key) async {
+    final memory = debugSnapshotStorage;
+    if (memory != null) return memory[key];
+    return (await _storage).getString(key);
+  }
+
+  Future<void> _writeSnapshot(String key, String value) async {
+    final memory = debugSnapshotStorage;
+    if (memory != null) {
+      memory[key] = value;
+      return;
+    }
+    await (await _storage).setString(key, value);
+  }
+
+  Future<void> _removeSnapshot(String key) async {
+    final memory = debugSnapshotStorage;
+    if (memory != null) {
+      memory.remove(key);
+      return;
+    }
+    await (await _storage).remove(key);
   }
 
   Future<String?> _resolveBranchId() async {
@@ -192,8 +243,7 @@ class CartController extends ChangeNotifier {
   Future<void> _loadLocalSnapshot() async {
     final key = _storageKey;
     if (key == null) return;
-    final prefs = await _storage;
-    final raw = await prefs.getString(key);
+    final raw = await _readSnapshot(key);
     if (raw == null || raw.isEmpty) {
       _dirty = false;
       _clearMemoryOnly();
@@ -215,24 +265,27 @@ class CartController extends ChangeNotifier {
         final productId = item['product_id'] as String?;
         final variantId = item['variant_id'] as String?;
         if (productId == null) continue;
-        Product? product;
-        try {
-          product = findProductById(productId);
-        } catch (caughtError, caughtStack) {
-          AppErrors.report(caughtError, caughtStack, 'cart_controller:218');
-          product = null;
+        final quantity = (item['quantity'] as num?)?.toInt();
+        if (quantity == null || quantity <= 0) continue;
+        final variantLabel = item['variant_label'] as String?;
+        // Catalog first (fresh names/prices); when it isn't loaded yet, the
+        // product saved with the line. A line is never dropped just because
+        // the catalog is missing.
+        ProductVariant? variant;
+        Product? product = tryFindProductById(productId);
+        if (product != null) variant = _matchVariant(product, variantId, variantLabel);
+        if (variant == null) {
+          product = _productFromSnapshot(item['product_snapshot']);
+          if (product != null) variant = _matchVariant(product, variantId, variantLabel);
         }
-        product ??= _productFromSnapshot(item['product_snapshot']);
-        if (product == null) continue;
-        final variant = product.variants.where((v) => v.id == variantId || v.label == item['variant_label']).toList();
-        if (variant.isEmpty) continue;
+        if (product == null || variant == null) continue;
         _lines.add(
           CartLine(
-            id: '${product.id}_${variant.first.id}',
+            id: '${product.id}_${variant.id}',
             product: product,
-            variant: variant.first,
-            unitPrice: (item['unit_price'] as num?)?.toDouble() ?? variant.first.price,
-            quantity: (item['quantity'] as num?)?.toInt() ?? 0,
+            variant: variant,
+            unitPrice: (item['unit_price'] as num?)?.toDouble() ?? variant.price,
+            quantity: quantity,
           ),
         );
       }
@@ -242,7 +295,7 @@ class CartController extends ChangeNotifier {
       notifyListeners();
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'cart_controller:239');
-      await prefs.remove(key);
+      await _removeSnapshot(key);
       _clearMemoryOnly();
     }
   }
@@ -263,43 +316,17 @@ class CartController extends ChangeNotifier {
   }
 
   void _applyRemoteState(CartRemoteState remote) {
+    // Copied BEFORE clearing: these are the fallback for lines whose product
+    // isn't in the loaded catalog.
+    final previousLines = List<CartLine>.from(_lines);
     _cartId = remote.cartId;
     appliedVoucherCode = remote.voucherCode;
     redeemPoints = remote.redeemPoints;
     _pricing = remote.pricing;
     _lines.clear();
-    final previousLines = List<CartLine>.from(_lines);
-    _lines.clear();
     for (final item in remote.items) {
-      Product? product;
-      try {
-        product = findProductById(item.productId);
-      } catch (caughtError, caughtStack) {
-        AppErrors.report(caughtError, caughtStack, 'cart_controller:272');
-        product = null;
-      }
-      if (product == null) {
-        final cached = previousLines.where((line) => line.product.id == item.productId && line.variant.id == item.variantId).toList();
-        if (cached.isNotEmpty) {
-          final line = cached.first;
-          line.quantity = item.quantity;
-          line.unitPrice = item.currentPrice;
-          _lines.add(line);
-        }
-        continue;
-      }
-      final matches = product.variants.where((v) => v.id == item.variantId || v.label == item.variantLabel).toList();
-      if (matches.isEmpty) continue;
-      final variant = matches.first;
-      _lines.add(
-        CartLine(
-          id: '${product.id}_${variant.id}',
-          product: product,
-          variant: variant,
-          unitPrice: item.currentPrice,
-          quantity: item.quantity,
-        ),
-      );
+      if (item.quantity <= 0) continue;
+      _lines.add(_lineFromRemote(item, previousLines));
     }
     _dirty = false;
     _revision++;
@@ -307,10 +334,70 @@ class CartController extends ChangeNotifier {
     notifyListeners();
   }
 
+  ProductVariant? _matchVariant(Product product, String? variantId, String? variantLabel) {
+    for (final v in product.variants) {
+      if (v.id == variantId) return v;
+    }
+    if (variantLabel == null) return null;
+    for (final v in product.variants) {
+      if (v.label == variantLabel) return v;
+    }
+    return null;
+  }
+
+  /// Builds a cart line for a server cart item. Never drops the item: when
+  /// the catalog doesn't have its product (not loaded yet / offline), the
+  /// line seen before is reused, or one is built from the server's own
+  /// fields. Otherwise the next sync would delete it on the server.
+  CartLine _lineFromRemote(CartRemoteItem item, List<CartLine> previousLines) {
+    final product = tryFindProductById(item.productId);
+    if (product != null) {
+      final variant = _matchVariant(product, item.variantId, item.variantLabel);
+      if (variant != null) {
+        return CartLine(
+          id: '${product.id}_${variant.id}',
+          product: product,
+          variant: variant,
+          unitPrice: item.currentPrice,
+          quantity: item.quantity,
+        );
+      }
+    }
+    for (final line in previousLines) {
+      if (line.product.id == item.productId && line.variant.id == item.variantId) {
+        line.quantity = item.quantity;
+        line.unitPrice = item.currentPrice;
+        return line;
+      }
+    }
+    final variant = ProductVariant(id: item.variantId, label: item.variantLabel, price: item.currentPrice);
+    final placeholder = Product(
+      id: item.productId,
+      name: 'Saved item',
+      variantLabel: item.variantLabel,
+      categoryId: '',
+      price: item.currentPrice,
+      rating: 0,
+      reviewCount: 0,
+      stockLabel: 'Unknown',
+      description: '',
+      branchAvailability: const [],
+      variants: [variant],
+      icon: Icons.inventory_2_outlined,
+      color: Colors.grey,
+    );
+    return CartLine(
+      id: '${item.productId}_${item.variantId}',
+      product: placeholder,
+      variant: variant,
+      unitPrice: item.currentPrice,
+      quantity: item.quantity,
+    );
+  }
+
   Future<void> _saveLocalSnapshot({required bool dirty}) async {
     final key = _storageKey;
     if (key == null) return;
-    final prefs = await _storage;
     final payload = {
       'cart_id': _cartId,
       'branch_id': _branchId,
@@ -331,7 +418,7 @@ class CartController extends ChangeNotifier {
           },
       ],
     };
-    await prefs.setString(key, jsonEncode(payload));
+    await _writeSnapshot(key, jsonEncode(payload));
   }
 
   void _markDirty() {
@@ -393,14 +480,84 @@ class CartController extends ChangeNotifier {
       _retryTimer = null;
       return null;
     } catch (e) {
-      lastError = _messageFor(e);
-      _scheduleRetry();
+      final message = _messageFor(e);
+      if (!isServerRefusal(e)) {
+        // Offline / timeout / session expired: the server never judged this
+        // cart, so keep the edits and send them again later.
+        lastError = message;
+        _scheduleRetry();
+        notifyListeners();
+        return lastError;
+      }
+      // The server answered and refused this cart (e.g. not enough stock).
+      // Sending the same cart again would fail forever, so stop retrying and
+      // show what the server really holds; the message tells the customer
+      // what to fix.
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      await _reloadServerCartAfterRefusal();
+      lastError = message;
       notifyListeners();
-      return lastError;
+      return message;
     } finally {
       _syncing = false;
       notifyListeners();
     }
+  }
+
+  /// True when [error] is the server answering "no" to the request (a
+  /// business rule), not a connection / session / temporary server problem.
+  @visibleForTesting
+  static bool isServerRefusal(Object error) {
+    if (error is! PostgrestException) return false;
+    final kind = AppErrors.from(error, scope: ErrorScope.cart).kind;
+    if (kind == AppErrorKind.noInternet || kind == AppErrorKind.timeout || kind == AppErrorKind.authExpired) {
+      return false;
+    }
+    final code = error.code ?? '';
+    // Temporary server trouble (HTTP 5xx, connection/resource classes,
+    // serialization failures): worth retrying.
+    if (code.startsWith('5') || code.startsWith('08') || code == '40001' || code == '40P01') {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _reloadServerCartAfterRefusal() async {
+    final branch = _branchId;
+    if (branch == null) return;
+    try {
+      final remote = await CartRepository.instance.loadOpenCart(branchId: branch);
+      if (_branchId != branch) return;
+      if (remote == null) {
+        _dirty = false;
+        _clearMemoryOnly();
+      } else {
+        _applyRemoteState(remote);
+      }
+      await _saveLocalSnapshot(dirty: false);
+    } catch (caughtError, caughtStack) {
+      // Couldn't read the server cart: keep the local edits marked unsynced
+      // (checkout stays blocked); the customer's next edit tries again.
+      AppErrors.report(caughtError, caughtStack, 'cart_controller:reloadAfterRefusal', scope: ErrorScope.cart);
+    }
+  }
+
+  /// Tests only: whether an automatic re-send is waiting.
+  @visibleForTesting
+  bool get debugRetryScheduled => _retryTimer?.isActive ?? false;
+
+  /// Sends any unsynced edits now and waits for the answer. Returns null when
+  /// the server holds exactly this cart; otherwise a customer-ready message.
+  /// Checkout calls this first: `place_order` uses the server's cart, so it
+  /// must never run while the screen shows something else.
+  Future<String?> flush() async {
+    final error = await _syncNow();
+    if (error != null) return error;
+    if (_dirty) {
+      return 'Your cart is still saving. Please check your connection and try again.';
+    }
+    return null;
   }
 
   void _scheduleRetry() {
@@ -477,6 +634,9 @@ class CartController extends ChangeNotifier {
     _markDirty();
     final error = await _syncNow();
     if (error != null) {
+      // Refused by the server: the cart was reloaded from the server, which
+      // still holds the previous choice. Nothing to undo locally.
+      if (!_dirty) return error;
       appliedVoucherCode = previous;
       _dirty = true;
       _revision++;
@@ -498,6 +658,9 @@ class CartController extends ChangeNotifier {
     _markDirty();
     final error = await _syncNow();
     if (error != null) {
+      // Refused by the server: the cart was reloaded from the server, which
+      // still holds the previous choice. Nothing to undo locally.
+      if (!_dirty) return error;
       redeemPoints = previous;
       _dirty = true;
       _revision++;
@@ -686,7 +849,7 @@ class CartController extends ChangeNotifier {
       loyaltyPointsBalance: 0,
       loyaltyPointsUsed: 0,
     );
-    if (key != null) await (await _storage).remove(key);
+    if (key != null) await _removeSnapshot(key);
     notifyListeners();
   }
 

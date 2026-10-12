@@ -51,7 +51,9 @@ class AdminActionsSupabaseTest extends TestCase
                         return 'batch-1';
                     case 'staff_create_pos_sale':
                         $this->calls[] = ['uid' => $firebaseUid, 'fn' => $fn, 'bindings' => $bindings, 'claims' => $verified];
-                        return ['order_id' => 'POS-1', 'total' => 180, 'change' => 20];
+                        // Like the database: the same key + same details answers with the recorded sale.
+                        return ['order_id' => 'POS-1', 'total' => 180, 'change' => 20,
+                            'already_recorded' => str_ends_with((string) ($bindings[5] ?? ''), 'replay')];
                 }
 
                 return parent::call($firebaseUid, $sql, $bindings, $verified);
@@ -141,6 +143,20 @@ class AdminActionsSupabaseTest extends TestCase
         $this->assertSame([$line], json_decode($call['bindings'][1], true));
         $this->assertSame('cash', $call['bindings'][2]);
         $this->assertSame('web:k1', $call['bindings'][5]);
+    }
+
+    public function test_a_replayed_pos_sale_says_it_was_already_recorded(): void
+    {
+        $this->fake();
+        $owner = $this->linkedLogin('uid-owner');
+        $body = ['branch' => 'b-cal', 'items' => [['variant_id' => '11111111-1111-4111-8111-111111111111', 'quantity' => 2]],
+            'method' => 'cash', 'cash_received' => 200];
+
+        $this->signedIn($owner)->postJson('/orders', $body + ['key' => 'k-first'])
+            ->assertOk()->assertJsonPath('already_recorded', false)->assertJsonPath('message', 'Order POS-1 recorded.');
+        $this->signedIn($owner)->postJson('/orders', $body + ['key' => 'k-replay'])
+            ->assertOk()->assertJsonPath('already_recorded', true)
+            ->assertJsonPath('message', 'This sale was already recorded as order POS-1. It was not charged twice.');
     }
 
     public function test_overview_and_badges_follow_a_change_immediately(): void

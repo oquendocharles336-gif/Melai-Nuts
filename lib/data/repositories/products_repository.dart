@@ -8,6 +8,7 @@ import '../../core/utils/app_error.dart';
 import '../catalog_store.dart';
 import '../models/product.dart';
 import '../models/promotion.dart';
+import 'branch_repository.dart' show kBranchColumns;
 import 'storefront_settings_repository.dart';
 
 /// Loads the public product catalog (categories, products, variants, and
@@ -110,7 +111,7 @@ class ProductsRepository extends ChangeNotifier {
 
     final branchesRaw = await _client
         .from('branches')
-        .select()
+        .select(kBranchColumns)
         .eq('is_active', true);
 
     final productsRaw = await _client
@@ -224,7 +225,7 @@ class ProductsRepository extends ChangeNotifier {
 
     final branchesRaw = await _client
         .from('branches')
-        .select()
+        .select(kBranchColumns)
         .eq('is_active', true);
 
     final products = await _hydrateProducts(
@@ -252,7 +253,7 @@ class ProductsRepository extends ChangeNotifier {
 
     final branchesRaw = await _client
         .from('branches')
-        .select()
+        .select(kBranchColumns)
         .eq('is_active', true);
 
     return _hydrateProducts(
@@ -302,6 +303,9 @@ class ProductsRepository extends ChangeNotifier {
     final branchesByProduct = <String, Set<String>>{};
 
     for (final inventory in List<Map<String, dynamic>>.from(inventoryRaw)) {
+      // A row the branch doesn't carry (branch_inventory.is_carried = false)
+      // is "not sold here", never "out of stock".
+      if (inventory['is_carried'] == false) continue;
       final variantId = inventory['variant_id'] as String?;
       final productId = inventory['product_id'] as String;
       final quantity = (inventory['quantity'] as num).toInt();
@@ -498,7 +502,8 @@ class ProductsRepository extends ChangeNotifier {
   /// Like [fetchLiveStock], but for ONE branch and telling three cases apart
   /// so the customer gets the right message:
   ///  * the check failed (offline, timeout) -> [LiveStock.checkFailed],
-  ///  * the branch has no `branch_inventory` row for this variant at all
+  ///  * the branch has no `branch_inventory` row for this variant, or its row
+  ///    says the branch doesn't carry it (`is_carried = false`)
   ///    (not stocked here) -> [LiveStock.notStocked],
   ///  * otherwise the real quantity (0 = genuinely out of stock).
   Future<LiveStock> checkLiveStock({
@@ -511,17 +516,13 @@ class ProductsRepository extends ChangeNotifier {
       final raw = await AppErrors.guard(
         () async => await _client
             .from('branch_inventory')
-            .select('quantity')
+            .select()
             .eq('product_id', productId)
             .eq('variant_id', variantId)
             .eq('branch_id', branchId),
         scope: ErrorScope.cart,
       );
-      final rows = List<Map<String, dynamic>>.from(raw);
-      if (rows.isEmpty) return const LiveStock.notStocked();
-      return LiveStock.quantity(
-        rows.fold<int>(0, (sum, r) => sum + (r['quantity'] as num).toInt()),
-      );
+      return LiveStock.fromRows(List<Map<String, dynamic>>.from(raw));
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'products_repository:checkLiveStock');
       return const LiveStock.checkFailed();
@@ -585,4 +586,15 @@ class LiveStock {
       : quantity = null,
         failed = false,
         notStockedHere = true;
+
+  /// From one branch's `branch_inventory` rows for one variant. No row, or
+  /// only rows the branch doesn't carry (`is_carried = false`), means "not
+  /// sold here"; otherwise the quantity (0 = genuinely out of stock).
+  factory LiveStock.fromRows(List<Map<String, dynamic>> rows) {
+    final carried = rows.where((r) => r['is_carried'] != false).toList();
+    if (carried.isEmpty) return const LiveStock.notStocked();
+    return LiveStock.quantity(
+      carried.fold<int>(0, (sum, r) => sum + (r['quantity'] as num).toInt()),
+    );
+  }
 }

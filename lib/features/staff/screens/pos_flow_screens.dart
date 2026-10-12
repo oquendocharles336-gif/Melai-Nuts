@@ -16,21 +16,24 @@ import '../../../core/utils/form_utils.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/staff_repository.dart';
+import '../pos_sale_attempt.dart';
 import '../widgets/pos_offline_widgets.dart';
 
-/// Everything the checkout screens share. [idempotencyKey] is created once per
-/// checkout so that retrying after a dropped connection can never ring the
-/// same sale up twice (the database returns the original sale instead).
+/// Everything the checkout screens share. [attempt] holds the checkout's
+/// idempotency key: retrying the same sale after a dropped connection can
+/// never ring it up twice (the database returns the original sale instead),
+/// and a changed sale after a refused attempt gets a new key (see
+/// [PosSaleAttempt]).
 class PosCheckout {
   final Map<String, int> cart; // variantId -> quantity
   final String? customerUid;
   final String? customerName;
-  final String idempotencyKey;
+  final PosSaleAttempt attempt;
   final String? method; // cash | gcash | card
 
   const PosCheckout({
     required this.cart,
-    required this.idempotencyKey,
+    required this.attempt,
     this.customerUid,
     this.customerName,
     this.method,
@@ -38,7 +41,7 @@ class PosCheckout {
 
   PosCheckout withMethod(String m) => PosCheckout(
         cart: cart,
-        idempotencyKey: idempotencyKey,
+        attempt: attempt,
         customerUid: customerUid,
         customerName: customerName,
         method: m,
@@ -74,15 +77,30 @@ Future<PosSaleResult> _submitSale(
   if (branchId == null) {
     throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
   }
-  final result = await StaffRepository.instance.createPosSale(
+  // Same request -> same key (safe retry); a changed request after a refused
+  // attempt -> new key.
+  final key = c.attempt.keyFor(PosSaleAttempt.fingerprintOf(
     branchId: branchId,
-    quantitiesByVariant: c.cart,
-    paymentMethod: c.method!,
-    idempotencyKey: c.idempotencyKey,
-    paymentReference: reference,
-    cashReceived: cashReceived,
+    cart: c.cart,
+    method: c.method!,
     customerUid: c.customerUid,
-  );
+    reference: reference,
+  ));
+  final PosSaleResult result;
+  try {
+    result = await StaffRepository.instance.createPosSale(
+      branchId: branchId,
+      quantitiesByVariant: c.cart,
+      paymentMethod: c.method!,
+      idempotencyKey: key,
+      paymentReference: reference,
+      cashReceived: cashReceived,
+      customerUid: c.customerUid,
+    );
+  } catch (e) {
+    c.attempt.markFailed(outcomeUnknown: AppErrors.from(e).isConnectivity);
+    rethrow;
+  }
   unawaited(store.refreshLive());
   return result;
 }
@@ -105,7 +123,9 @@ Future<bool> _saveOfflineIfDisconnected(
     branchId: branchId,
     cart: c.cart,
     paymentMethod: c.method!,
-    idempotencyKey: c.idempotencyKey,
+    // The key the failed request was sent with: if the server did record
+    // it, sending the queued copy later returns that sale instead of a second.
+    idempotencyKey: c.attempt.currentKey,
     displayedTotal: c.total,
     reference: reference,
     cashReceived: cashReceived,
@@ -132,12 +152,12 @@ class PosCartScreen extends StatefulWidget {
 
 class _PosCartScreenState extends State<PosCartScreen> {
   late final Map<String, int> _cart = Map.from(widget.initialCart);
-  final String _key = _newKey();
+  final PosSaleAttempt _attempt = PosSaleAttempt();
   CustomerMatch? _customer;
 
   PosCheckout get _checkout => PosCheckout(
         cart: Map.from(_cart),
-        idempotencyKey: _key,
+        attempt: _attempt,
         customerUid: _customer?.uid,
         customerName: _customer?.name,
       );
@@ -854,7 +874,7 @@ class PosReceiptScreen extends StatelessWidget {
                       if (sale.alreadyRecorded)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
-                          child: Text('This sale had already been recorded; it was not charged twice.', style: AppTextStyles.bodySm),
+                          child: Text('This sale was already recorded. It was not charged twice.', style: AppTextStyles.bodySm),
                         ),
                     ],
                   ),

@@ -65,7 +65,7 @@ Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(functi
 
         Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
         Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');
-        Route::post('/payments/{orderId}/mark-paid', [PaymentController::class, 'markPaid'])->name('payments.mark-paid');
+        Route::post('/payments/{orderId}/mark-paid', [PaymentController::class, 'markPaid'])->name('payments.mark-paid')->middleware('password.recent');
 
         Route::get('/refunds', [RefundController::class, 'index'])->name('refunds.index');
         Route::get('/refunds/export', [RefundController::class, 'export'])->name('refunds.export');

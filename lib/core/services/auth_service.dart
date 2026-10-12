@@ -92,6 +92,30 @@ class _FailureBrake {
   }
 }
 
+/// Undoes a half-created managed account in reverse order of creation:
+/// driver row, staff row, then the Firebase Auth user. Each step is
+/// best-effort (a failure is reported and the next step still runs). A null
+/// step was never done, so there is nothing to undo.
+@visibleForTesting
+Future<void> rollbackManagedAccount({
+  Future<void> Function()? removeDriver,
+  Future<void> Function()? removeStaff,
+  required Future<void> Function() deleteAuthUser,
+}) async {
+  for (final (step, undo) in [
+    ('removeDriver', removeDriver),
+    ('removeStaff', removeStaff),
+    ('deleteAuthUser', deleteAuthUser),
+  ]) {
+    if (undo == null) continue;
+    try {
+      await undo();
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'auth_service:rollback:$step');
+    }
+  }
+}
+
 /// Wraps Firebase Authentication + the `users` Firestore collection so every
 /// screen (customer, staff, owner, delivery) goes through one real,
 /// validated sign-in / sign-up path.
@@ -584,6 +608,13 @@ class AuthService {
       if (newUser == null) {
         throw const AuthException('Account creation failed. Please try again.');
       }
+      // Everything after the Auth user exists is undone together on ANY error
+      // (not only FirebaseException), in reverse order: driver row, staff
+      // row, then the Auth user. Otherwise a half-created account stays
+      // registered against a UID that can never sign in, and blocks a retry
+      // with the same email.
+      var staffRowCreated = false;
+      var driverRowCreated = false;
       try {
         await newUser.updateDisplayName(name.trim());
 
@@ -609,17 +640,12 @@ class AuthService {
               role: role == UserRole.owner ? 'owner' : 'staff',
               branchName: needsBranch ? branch : null,
             );
-          } catch (e, st) {
-            AppErrors.report(e, st, 'auth_service:upsertStaffMember');
-            try {
-              await newUser.delete();
-            } catch (caughtError, caughtStack) {
-              AppErrors.report(caughtError, caughtStack, 'auth_service:587');
-            }
+          } catch (e) {
             throw AuthException(
               e is AuthException ? e.message : 'Could not register this account in the staff database. Please try again.',
             );
           }
+          staffRowCreated = true;
         }
         // Delivery accounts are registered in the database's driver registry
         // (what the driver RPCs check), for the same reason as staff above.
@@ -632,44 +658,34 @@ class AuthService {
               branchName: branch!,
               phone: phone == null ? null : ValidationUtils.normalizePhone(phone),
             );
-          } catch (e, st) {
-            AppErrors.report(e, st, 'auth_service:registerDriver');
-            try {
-              await newUser.delete();
-            } catch (caughtError, caughtStack) {
-              AppErrors.report(caughtError, caughtStack, 'auth_service:607');
-            }
+          } catch (e) {
             throw AuthException(
               e is AuthException ? e.message : 'Could not register this account as a driver. Please try again.',
             );
           }
+          driverRowCreated = true;
         }
         await _firestore
             .collection(_usersCollection)
             .doc(newUser.uid)
             .set(appUser.toFirestore(serverTimestamp: true));
-        await tempAuth.signOut();
-        return appUser;
-      } on FirebaseException {
-        // Roll back the half-created Auth user (still signed in on tempAuth)
-        // AND the staff_members row created above, if any — otherwise that
-        // row is orphaned forever: registered against a Firebase UID whose
-        // Auth account no longer exists, still showing up in staff lists,
-        // and blocking a retry with the same email.
-        if (role == UserRole.staff || role == UserRole.owner) {
-          try {
-            await StaffRepository.instance.removeStaffMember(newUser.uid);
-          } catch (caughtError, caughtStack) {
-            AppErrors.report(caughtError, caughtStack, 'auth_service:628');
-          }
-        }
+        // The account is complete: signing the temporary app out is tidying
+        // up and must not undo it.
         try {
-          await newUser.delete();
+          await tempAuth.signOut();
         } catch (caughtError, caughtStack) {
-          AppErrors.report(caughtError, caughtStack, 'auth_service:632');
+          AppErrors.report(caughtError, caughtStack, 'auth_service:createManagedAccount:signOut');
         }
-        throw const AuthException(
-          'Could not save the new account. Please try again.',
+        return appUser;
+      } catch (e, st) {
+        AppErrors.report(e, st, 'auth_service:createManagedAccount');
+        await rollbackManagedAccount(
+          removeDriver: driverRowCreated ? () => DriverRepository.instance.removeDriver(newUser.uid) : null,
+          removeStaff: staffRowCreated ? () => StaffRepository.instance.removeStaffMember(newUser.uid) : null,
+          deleteAuthUser: newUser.delete,
+        );
+        throw AuthException(
+          e is AuthException ? e.message : 'Could not save the new account. Please try again.',
         );
       }
     } on FirebaseAuthException catch (e) {

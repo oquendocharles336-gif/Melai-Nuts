@@ -5,7 +5,8 @@
 > payment can be re-enabled later with one switch (`payment_settings.online_payment_enabled` plus the
 > app build flag `ONLINE_PAYMENT_ENABLED`); while the switch is off — or cannot be read —
 > `hitpay-create-payment` refuses with the database's `online_payment_disabled_message` before it
-> reads an order or calls HitPay (tests: `deno test supabase/functions/hitpay-create-payment/handler_test.ts`).
+> reads an order or calls HitPay (tests: `deno test supabase/functions/hitpay-create-payment/handler_test.ts`;
+> refund answer mapping: `deno test supabase/functions/hitpay-refund/outcome_test.ts`).
 > Do not deploy HitPay secrets or promote online payment until the owner changes this decision.
 > `hitpay-refund` is only for refunding PAST online payments; cash refunds are handled by hand.
 
@@ -80,6 +81,8 @@ supabase functions deploy hitpay-create-payment --no-verify-jwt
 supabase functions deploy hitpay-refund --no-verify-jwt
 ```
 
+- `HITPAY_LINK_MAX_AGE_MINUTES` (optional, default 60): a stored HitPay checkout link older than this is never
+  reused; a new payment request is made instead. Keep it at or below HitPay's own link expiry.
 - `HITPAY_ENV=live` switches to `https://api.hit-pay.com`; anything else uses the sandbox. Use the API key and webhook salt of the same environment.
 - `hitpay-webhook` must use `--no-verify-jwt` because HitPay sends no Supabase token; the `Hitpay-Signature` check is its authentication.
 - `hitpay-create-payment` is deployed with `--no-verify-jwt` too because the app signs in with Firebase tokens. The function still authenticates the caller itself: it reads the order with the caller's token, so only the order's owner can get a link.

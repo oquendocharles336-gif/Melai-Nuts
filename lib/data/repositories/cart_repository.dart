@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
 
@@ -120,7 +121,21 @@ class CartRemoteState {
 /// `place_order` checks the cart out itself).
 class CartRepository {
   CartRepository._();
-  static final CartRepository instance = CartRepository._();
+
+  /// For test doubles that override the server calls.
+  @visibleForTesting
+  CartRepository.forTesting();
+
+  static CartRepository _instance = CartRepository._();
+  static CartRepository get instance => _instance;
+
+  /// Tests only: replaces [instance] with a test double.
+  @visibleForTesting
+  static set debugInstance(CartRepository repository) => _instance = repository;
+
+  /// Tests only: puts the real repository back.
+  @visibleForTesting
+  static void debugReset() => _instance = CartRepository._();
 
   SupabaseClient get _client => SupabaseService.instance.client;
 
@@ -131,8 +146,11 @@ class CartRepository {
   Future<void> registerVoucherAttempt(String code) async {
     try {
       await _client.rpc('register_voucher_attempt', params: {'p_code': code});
-    } on PostgrestException catch (e) {
-      throw Exception(e.message);
+    } on PostgrestException {
+      // Rethrown as is: its code tells "the server refused this" apart from
+      // "the network is down" (see CartController.isServerRefusal). Screens
+      // turn it into customer-safe text with AppErrors.from.
+      rethrow;
     }
   }
 
@@ -164,8 +182,11 @@ class CartRepository {
         },
       );
       return CartRemoteState.fromJson(Map<String, dynamic>.from(result as Map));
-    } on PostgrestException catch (e) {
-      throw Exception(e.message);
+    } on PostgrestException {
+      // Rethrown as is: its code tells "the server refused this" apart from
+      // "the network is down" (see CartController.isServerRefusal). Screens
+      // turn it into customer-safe text with AppErrors.from.
+      rethrow;
     }
   }
 
@@ -177,8 +198,11 @@ class CartRepository {
         params: {'p_cart_id': cartId, 'p_is_delivery': isDelivery},
       );
       return CartPricing.fromJson(Map<String, dynamic>.from(result as Map));
-    } on PostgrestException catch (e) {
-      throw Exception(e.message);
+    } on PostgrestException {
+      // Rethrown as is: its code tells "the server refused this" apart from
+      // "the network is down" (see CartController.isServerRefusal). Screens
+      // turn it into customer-safe text with AppErrors.from.
+      rethrow;
     }
   }
 }

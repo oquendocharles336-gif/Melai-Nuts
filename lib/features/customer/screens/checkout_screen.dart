@@ -41,6 +41,33 @@ enum _FulfillmentMethod { pickup, delivery }
 /// valid for delivery and `cash` (pay at the counter) only for pickup.
 enum _PaymentMethod { online, cod, cash }
 
+/// What makes two "Place Order" requests the same request (see
+/// [CheckoutAttemptStore.begin]): fulfilment, address and pin, payment method,
+/// notes, AND the cart itself (each line's variant and quantity, sorted, plus
+/// the voucher and the points choice). Any change means a new request.
+String checkoutFingerprint({
+  required CartController cart,
+  required bool isDelivery,
+  required String? deliveryAddressId,
+  required double? pinLat,
+  required double? pinLng,
+  required String paymentLabel,
+  required String notes,
+}) {
+  final lines = [for (final line in cart.lines) '${line.variant.id}x${line.quantity}']..sort();
+  return jsonEncode([
+    isDelivery,
+    deliveryAddressId,
+    if (isDelivery) pinLat,
+    if (isDelivery) pinLng,
+    paymentLabel,
+    notes,
+    lines,
+    cart.appliedVoucherCode,
+    cart.redeemPoints,
+  ]);
+}
+
 /// Checkout — fulfillment method, branch/pickup details, payment method,
 /// and order summary. Order totals, stock, discounts, and cart consumption
 /// are finalized by the Supabase order transaction.
@@ -249,6 +276,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     };
 
     try {
+      // `place_order` charges for the cart the SERVER holds. Make sure that
+      // is the cart on screen: send any unsaved edits and wait. If the server
+      // refused them, or they still aren't saved, stop here.
+      final flushError = await cart.flush();
+      if (flushError != null || cart.hasUnsyncedChanges) {
+        throw AppError(
+          AppErrorKind.orderFailed,
+          flushError ?? 'Your cart changes aren\'t saved yet. Please check your connection and try again.',
+        );
+      }
       final cartId = cart.cartId;
       if (cartId == null) {
         throw const AppError(
@@ -322,7 +359,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // The server answers a repeated key with the FIRST order it stored and
       // never compares the request, so a key may only be reused for the
       // identical request. Everything that shapes the order goes in here.
-      final fingerprint = jsonEncode([isDelivery, deliveryAddressId, if (isDelivery) _pinLat, if (isDelivery) _pinLng, paymentLabel, notes]);
+      final fingerprint = checkoutFingerprint(
+        cart: cart,
+        isDelivery: isDelivery,
+        deliveryAddressId: deliveryAddressId,
+        pinLat: _pinLat,
+        pinLng: _pinLng,
+        paymentLabel: paymentLabel,
+        notes: notes,
+      );
       final CheckoutAttempt attempt;
       try {
         attempt = await CheckoutAttemptStore.instance.begin(
