@@ -32,7 +32,6 @@ import '../../payments/screens/online_payment_screen.dart';
 import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
-import 'edit_profile_screen.dart';
 import 'order_confirmation_screen.dart';
 import '../../../l10n/generated/app_localizations.dart';
 
@@ -209,18 +208,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (_fulfillment == _FulfillmentMethod.pickup) {
       final profilePhone = CustomerDataStore.instance.profile?.phone.trim() ?? '';
       if (profilePhone.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Please add a contact phone number to your profile before checking out.'),
-            action: SnackBarAction(
-              label: 'Add Phone',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
-              ),
-            ),
-          ),
-        );
-        return;
+        // Let the customer add it right here instead of leaving checkout.
+        final saved = await _promptForContactPhone(firebaseUid);
+        if (!saved || !mounted) return;
       }
     }
 
@@ -458,6 +448,39 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'checkout_screen:448');
     }
+  }
+
+  /// Asks for a contact phone inline and saves it to the customer's profile.
+  /// Returns true once the profile has a phone.
+  Future<bool> _promptForContactPhone(String firebaseUid) async {
+    Future<void> save(String phone) async {
+      final store = CustomerDataStore.instance;
+      final account = AuthService.instance.currentProfile;
+      final current = store.profile ??
+          await AppErrors.guard(
+            () => store.ensureProfile(
+              firebaseUid: firebaseUid,
+              fallbackName: account?.name ?? '',
+              fallbackEmail: account?.email ?? '',
+            ),
+            scope: ErrorScope.profile,
+          );
+      final updated = await AppErrors.guard(
+        () => CustomerProfileRepository.instance.updateProfile(
+          firebaseUid: firebaseUid,
+          fullName: current.fullName.trim().isNotEmpty ? current.fullName : (account?.name ?? ''),
+          phone: phone,
+        ),
+        scope: ErrorScope.profile,
+      );
+      store.updateCachedProfile(updated);
+    }
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _ContactPhoneDialog(onSave: save),
+    );
+    return saved == true;
   }
 
   @override
@@ -1065,6 +1088,93 @@ class _DeliveryPinReview extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Inline "add a contact number" step for pickup checkout. Owns its text
+/// controller so it is disposed with the dialog, not mid-animation.
+class _ContactPhoneDialog extends StatefulWidget {
+  final Future<void> Function(String normalizedPhone) onSave;
+
+  const _ContactPhoneDialog({required this.onSave});
+
+  @override
+  State<_ContactPhoneDialog> createState() => _ContactPhoneDialogState();
+}
+
+class _ContactPhoneDialogState extends State<_ContactPhoneDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving || !(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(ValidationUtils.normalizePhone(_controller.text));
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = AppErrors.from(e, scope: ErrorScope.profile).message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add a contact number'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('The branch uses this to reach you about your pickup order.'),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _controller,
+              autofocus: true,
+              keyboardType: TextInputType.phone,
+              autofillHints: const [AutofillHints.telephoneNumber],
+              inputFormatters: InputRules.phone(),
+              decoration: const InputDecoration(
+                labelText: 'Mobile number',
+                hintText: '09XX XXX XXXX',
+              ),
+              validator: (v) => ValidationUtils.validatePhone(v),
+              onFieldSubmitted: (_) => _save(),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? 'Saving...' : 'Save and continue'),
+        ),
+      ],
     );
   }
 }
