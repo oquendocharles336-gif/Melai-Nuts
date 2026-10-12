@@ -292,6 +292,27 @@ class AppErrors {
         'You don\'t have enough loyalty points for this redemption.',
       );
     }
+    // Stock wording from place_order / sync_customer_cart that never says
+    // "stock" ("Only 2 of X left at this branch.", "The requested quantity
+    // is not available at this branch."). Must come before the branch rule,
+    // which would otherwise claim the whole branch can't take orders.
+    if (t.contains('left at this branch') ||
+        t.contains('requested quantity') ||
+        RegExp(r'\bonly \d+ of\b').hasMatch(t)) {
+      return const AppError(
+        AppErrorKind.insufficientStock,
+        'Some items in your cart don\'t have enough stock at this branch right now. Please lower the quantity or remove them.',
+      );
+    }
+    // place_order: "<product> is not available at this branch." means this
+    // branch has no inventory row for that item (it isn't sold here) — the
+    // branch itself is fine.
+    if (t.contains('is not available at this branch')) {
+      return const AppError(
+        AppErrorKind.productUnavailable,
+        'One or more items in your cart aren\'t sold at this branch. Please remove them or choose another branch.',
+      );
+    }
     if (_hasAny(t, const ['stock', 'inventory', 'sold out'])) {
       return const AppError(
         AppErrorKind.insufficientStock,
