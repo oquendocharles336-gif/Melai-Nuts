@@ -40,6 +40,13 @@ return [
     // 0 turns the cache off). The account's status is still checked on every request.
     'dashboard' => ['cache_seconds' => (int) env('DASHBOARD_CACHE_SECONDS', 45)],
 
+    // SPEED (opt-in, 0 = off = the account is checked with Supabase on EVERY request, as before).
+    // Seconds a successful account check (get_my_staff_context: active + branches) is reused for page
+    // loads (GET only; every change still re-checks). Saves one database round trip per page. Trade-off:
+    // an account deactivated IN THE APP keeps read access on the website for up to this long.
+    // Changes made through this website invalidate it at once. Suggested for local development: 15.
+    'account_check_seconds' => max(0, min(60, (int) env('MELAI_ACCOUNT_CHECK_SECONDS', 0))),
+
     // All users page (admin/users): customers loaded per view, newest first. A search reaches the
     // rest. The database caps it at 2000.
     'users_customer_limit' => (int) env('USERS_CUSTOMER_LIMIT', 500),

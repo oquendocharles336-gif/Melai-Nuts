@@ -118,6 +118,11 @@ return [
             // No 'search_path': setting it costs an extra round trip on every connect, and every query
             // here names its schema (public.*) while the SQL functions pin their own search_path.
             'sslmode' => env('SUPABASE_DB_SSLMODE', 'require'),
+            // TCP keepalives (App\Database\PostgresKeepaliveConnector): a kept-open connection that a
+            // router / the pooler silently dropped is noticed while idle, so the next page reconnects at
+            // once instead of hanging until the OS gives up (~20 s on Windows). 0 = off.
+            'keepalives_idle' => (int) env('SUPABASE_DB_KEEPALIVES_IDLE', 30),
+            'keepalives_interval' => (int) env('SUPABASE_DB_KEEPALIVES_INTERVAL', 10),
             'options' => [
                 PDO::ATTR_TIMEOUT => (int) env('SUPABASE_DB_TIMEOUT', 10),
                 // Needed by SupabaseGateway::call() (claims + function call in ONE round trip).

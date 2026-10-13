@@ -40,7 +40,11 @@ class UserController extends Controller
         // Every app account and the owner's branches (owner-only in Supabase).
         if ($platform->isSupabase() && auth()->user()->staff_uid) {
             try {
-                $app = app(SupabaseRepository::class)->allUsers($q, (int) config('melai.users_customer_limit', 500));
+                // SPEED: cached per account like the dashboard (fresh only); any change on this website
+                // (approve, link, access, ...) invalidates it at once; ?fresh=1 reloads.
+                $limit = (int) config('melai.users_customer_limit', 500);
+                $app = \App\Support\Swr::remember("all-users:$limit:".sha1($q), \App\Support\Swr::fresh(), \App\Support\Swr::fresh(),
+                    fn () => app(SupabaseRepository::class)->allUsers($q, $limit));
                 $branches = $platform->branches();
             } catch (BackendActionException|BackendUnavailableException|\App\Exceptions\AccountLinkException $e) {
                 $directoryError = $e->getMessage();

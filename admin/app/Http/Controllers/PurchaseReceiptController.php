@@ -65,8 +65,14 @@ class PurchaseReceiptController extends Controller
         }
         $status = in_array($request->query('status'), ['draft', 'approved', 'cancelled'], true) ? $request->query('status') : null;
 
+        // SPEED: cached per account like the dashboard (DASHBOARD_CACHE_SECONDS, fresh only: a full page
+        // has no background refresh). Any change made on this website (new / approved / cancelled
+        // receipt) invalidates it at once; ?fresh=1 reloads.
+        $receipts = \App\Support\Swr::remember("receipts-list:$branch:$status", \App\Support\Swr::fresh(), \App\Support\Swr::fresh(),
+            fn () => $this->repo()->purchaseReceipts($branch, $status));
+
         return view('receipts.index', [
-            'receipts' => $this->repo()->purchaseReceipts($branch, $status),
+            'receipts' => $receipts,
             'branches' => $this->platform()->branches(), 'branch' => $branch, 'status' => $status, 'isOwner' => $isOwner,
         ]);
     }

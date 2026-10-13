@@ -27,6 +27,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(Platform::class);
         $this->app->scoped(OrderQueryService::class);
         $this->app->scoped(FirebaseSession::class);
+
+        // Postgres connections get optional TCP keepalives (only 'supabase' sets keepalives_idle).
+        $this->app->bind('db.connector.pgsql', \App\Database\PostgresKeepaliveConnector::class);
     }
 
     public function boot(): void

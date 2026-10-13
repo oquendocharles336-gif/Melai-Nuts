@@ -79,13 +79,24 @@ final class Swr
         return app(\App\Services\Platform::class)->isSupabase();
     }
 
-    /** melai:swr:<login+account hash>:<data version>:<name> */
+    /** melai:swr:<login+account+database hash>:<data version>:<name> */
     public static function key(string $name): string
     {
         $user = auth()->user();
-        $scope = sha1(($user?->getAuthIdentifier() ?? '-').'|'.($user?->staff_uid ?? '-'));
+        $scope = sha1(($user?->getAuthIdentifier() ?? '-').'|'.($user?->staff_uid ?? '-').'|'.self::target());
 
         return 'melai:swr:'.$scope.':v'.AdminActions::version().':'.$name;
+    }
+
+    /**
+     * Which Supabase database answers (host/port/database): switching admin/.env between the real
+     * project and a local copy never serves one database's cached answers for the other.
+     */
+    public static function target(): string
+    {
+        $c = config('database.connections.'.config('melai.supabase.connection', 'supabase'), []);
+
+        return ($c['url'] ?? '') ?: (($c['host'] ?? '').':'.($c['port'] ?? '').'/'.($c['database'] ?? ''));
     }
 
     public static function fresh(): int

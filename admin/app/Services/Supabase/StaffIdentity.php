@@ -11,6 +11,7 @@ use App\Services\Auth\LinkState;
 use App\Services\Firebase\FirebaseSession;
 use App\Services\Platform;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Who the admin portal acts as in Supabase: the signed-in Laravel user's linked staff
@@ -71,7 +72,37 @@ class StaffIdentity
      */
     public function contextFor(string $uid): array
     {
-        return $this->contexts[$uid] ??= $this->gateway->call($uid, 'select public.get_my_staff_context()::text as r') ?? [];
+        return $this->contexts[$uid] ??= $this->loadContext($uid);
+    }
+
+    /**
+     * get_my_staff_context() round trip, or (opt-in, melai.account_check_seconds > 0) a recent ACTIVE
+     * answer for the same UID and database, on read-only requests only. Any change made through the
+     * website (AdminActions::version) invalidates it; every POST/PUT/DELETE always asks Supabase.
+     */
+    private function loadContext(string $uid): array
+    {
+        $load = fn () => $this->gateway->call($uid, 'select public.get_my_staff_context()::text as r') ?? [];
+        $ttl = (int) config('melai.account_check_seconds', 0);
+        if ($ttl <= 0 || ! request()->isMethodSafe() || ! app(Platform::class)->isSupabase()) {
+            return $load();
+        }
+        $key = $this->contextKey($uid);
+        $hit = Cache::get($key);
+        if (is_array($hit) && ($hit['status'] ?? null) === 'active') {
+            return $hit;
+        }
+        $ctx = $load();
+        if (($ctx['status'] ?? null) === 'active') {
+            Cache::put($key, $ctx, $ttl);
+        }
+
+        return $ctx;
+    }
+
+    private function contextKey(string $uid): string
+    {
+        return 'melai:ctx:'.sha1($uid.'|'.\App\Support\Swr::target()).':v'.\App\Services\AdminActions::version();
     }
 
     /**
@@ -89,6 +120,7 @@ class StaffIdentity
     public function forget(string $uid): void
     {
         unset($this->contexts[$uid]);
+        Cache::forget($this->contextKey($uid));
     }
 
     /** Context of the signed-in user. Throws if not linked or no longer active in the app. */
