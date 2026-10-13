@@ -9,7 +9,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../notifications/screens/notification_center_screen.dart';
-import '../../settings/screens/logout_confirmation_screen.dart';
+import '../../settings/screens/logout_flow.dart';
 import 'edit_profile_screen.dart';
 import 'saved_addresses_screen.dart';
 import 'favorites_screen.dart';
@@ -308,9 +308,7 @@ class CustomerProfileScreen extends StatelessWidget {
             SecondaryButton(
               label: 'Log Out of Session',
               icon: Icons.logout_rounded,
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
-              ),
+              onPressed: () => confirmAndLogOut(context),
             ),
           ],
         ),

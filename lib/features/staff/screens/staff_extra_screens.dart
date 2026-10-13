@@ -11,7 +11,7 @@ import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/staff_models.dart';
-import '../../settings/screens/logout_confirmation_screen.dart';
+import '../../settings/screens/logout_flow.dart';
 import '../../settings/screens/settings_screen.dart';
 
 /// Staff notifications, read from the database (`staff_notifications`).
@@ -319,9 +319,7 @@ class StaffProfileBody extends StatelessWidget {
               SecondaryButton(
                 label: 'Log Out',
                 icon: Icons.logout_rounded,
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
-                ),
+                onPressed: () => confirmAndLogOut(context),
               ),
             ],
           ),

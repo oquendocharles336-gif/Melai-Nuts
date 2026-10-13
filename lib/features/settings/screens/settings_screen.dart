@@ -9,7 +9,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../notifications/screens/notification_settings_screen.dart';
 import 'security_screen.dart';
 import 'branch_settings_screen.dart';
-import 'logout_confirmation_screen.dart';
+import 'logout_flow.dart';
 import '../../../app/routes.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -158,9 +158,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Log Out',
                   subtitle: 'Sign out of this device',
                   iconColor: AppColors.error,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
-                  ),
+                  onTap: () => confirmAndLogOut(context),
                 ),
               ],
             ),

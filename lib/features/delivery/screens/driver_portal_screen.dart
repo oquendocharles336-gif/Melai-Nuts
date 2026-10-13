@@ -19,7 +19,7 @@ import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/delivery.dart';
 import '../../../data/repositories/driver_repository.dart';
 import '../../../data/repositories/route_eta_repository.dart';
-import '../../settings/screens/logout_confirmation_screen.dart';
+import '../../settings/screens/logout_flow.dart';
 import '../widgets/run_map_card.dart';
 import '../../../l10n/generated/app_localizations.dart';
 
@@ -203,7 +203,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         icon: Icons.lock_outline_rounded,
         text: ctx.statusMessage,
         actionLabel: 'Log out',
-        onAction: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen())),
+        onAction: () => confirmAndLogOut(context),
       );
     }
     switch (_tab) {
@@ -705,11 +705,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
         SecondaryButton(
           label: 'Log Out',
           icon: Icons.logout_rounded,
-          onPressed: () async {
-            await _tracker.stop();
-            if (!mounted) return;
-            Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()));
-          },
+          onPressed: () => confirmAndLogOut(context, beforeSignOut: _tracker.stop),
         ),
       ],
     );

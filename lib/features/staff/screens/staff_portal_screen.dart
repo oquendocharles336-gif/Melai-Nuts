@@ -14,7 +14,7 @@ import '../../../data/models/order.dart';
 import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../../inventory/screens/inventory_dashboard_screen.dart';
-import '../../settings/screens/logout_confirmation_screen.dart';
+import '../../settings/screens/logout_flow.dart';
 import '../barcode/barcode_scan_screen.dart';
 import '../barcode/sku_matcher.dart';
 import '../widgets/pos_offline_widgets.dart';
@@ -192,9 +192,7 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const LogoutConfirmationScreen()),
-                    ),
+                    onPressed: () => confirmAndLogOut(context),
                     icon: const Icon(Icons.logout_rounded),
                     label: const Text('Log Out'),
                   ),
