@@ -259,6 +259,18 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                         ),
                         itemBuilder: (context, i) {
                           final product = products[i];
+                          // Same empty-variant branch as product_list_screen: a
+                          // product with no sizes still shows (and opens its
+                          // "Currently unavailable" details page) instead of
+                          // throwing on `variants.first`.
+                          if (product.variants.isEmpty) {
+                            return ProductCard(
+                              product: product,
+                              quantityInCart: 0,
+                              onTap: () => _openProduct(product),
+                              onAdd: () {},
+                            );
+                          }
                           final defaultVariant = product.variants.first;
                           return ProductCard(
                             product: product,

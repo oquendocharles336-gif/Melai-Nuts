@@ -1,5 +1,14 @@
 import 'package:intl/intl.dart';
 
+/// A peso amount as whole centavos (₱45.10 -> 4510). Money that is summed,
+/// compared or validated should go through centavos: doubles cannot hold most
+/// centavo values exactly, so ₱45.10 + ₱45.20 is 90.30000000000001 and an exact
+/// cash payment of ₱90.30 would be refused as "less than the total".
+int toCents(num value) => (value * 100).round();
+
+/// [value] rounded to the nearest centavo (2 decimals).
+double roundMoney(num value) => toCents(value) / 100;
+
 /// Peso amount with thousands separators, e.g. ₱1,250.00.
 String peso(num value) => '₱${NumberFormat('#,##0.00').format(value)}';
 

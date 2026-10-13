@@ -42,6 +42,22 @@ void main() {
       expect(ValidationUtils.validatePassword('Aa1!${'x' * 61}'), contains('64'));
     });
 
+    test('the checklist helpers match the validator (any symbol counts)', () {
+      // Change Password used a narrower symbol list than the validator, so
+      // these valid passwords left its submit button disabled.
+      for (final password in ['Kasoy-Tanim9', 'Nuts+2026x', 'Kasoy~Tanim4', 'Kasoy₱Tanim4']) {
+        expect(ValidationUtils.validatePassword(password), isNull, reason: password);
+        expect(ValidationUtils.hasUpper(password), isTrue, reason: password);
+        expect(ValidationUtils.hasDigit(password), isTrue, reason: password);
+        expect(ValidationUtils.hasSpecial(password), isTrue, reason: password);
+      }
+      // A space is not a special character, in either place.
+      expect(ValidationUtils.hasSpecial('Kasoy Tanim4'), isFalse);
+      expect(ValidationUtils.validatePassword('Kasoy Tanim4'), contains('special'));
+      expect(ValidationUtils.hasUpper('kasoy#tanim4'), isFalse);
+      expect(ValidationUtils.hasDigit('Kasoy#Tanim'), isFalse);
+    });
+
     test('rejects common passwords and ones containing the email or name', () {
       expect(ValidationUtils.validatePassword('Password1!'), contains('common'));
       expect(ValidationUtils.validatePassword('P@ssw0rd1!'), contains('common'));

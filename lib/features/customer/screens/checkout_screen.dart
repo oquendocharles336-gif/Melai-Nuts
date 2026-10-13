@@ -34,6 +34,7 @@ import '../cart_controller.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
 import 'order_confirmation_screen.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../../core/utils/format_utils.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
 
@@ -560,9 +561,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final deliveryFee = _fulfillment == _FulfillmentMethod.delivery
         ? (branch?.deliveryFee ?? 0)
         : 0.0;
-    final total = (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
-        .clamp(0.0, double.infinity)
-        .toDouble();
+    // Rounded to centavos so the total shown and compared is an exact peso amount.
+    final total = roundMoney(
+      (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
+          .clamp(0.0, double.infinity),
+    );
 
     return Scaffold(
       backgroundColor: AppColors.canvas,

@@ -15,6 +15,7 @@ import '../../data/repositories/products_repository.dart';
 import '../settings/screens/branch_settings_screen.dart';
 import 'screens/cart_screen.dart';
 import '../../core/utils/app_error.dart';
+import '../../core/utils/format_utils.dart';
 
 class CartLine {
   final String id;
@@ -31,7 +32,7 @@ class CartLine {
     this.quantity = 1,
   });
 
-  double get lineTotal => unitPrice * quantity;
+  double get lineTotal => toCents(unitPrice) * quantity / 100;
 }
 
 class CartController extends ChangeNotifier {
@@ -301,13 +302,17 @@ class CartController extends ChangeNotifier {
   }
 
   CartPricing _localPricing() {
-    final subtotal = _lines.fold<double>(0, (sum, line) => sum + line.lineTotal);
+    // Summed in centavos (see toCents): adding doubles drifts by fractions of
+    // a centavo (90.30000000000001), which breaks later comparisons.
+    final subtotalCents = _lines.fold<int>(0, (sum, line) => sum + toCents(line.unitPrice) * line.quantity);
+    final subtotal = subtotalCents / 100;
+    final deliveryFee = BranchController.instance.selectedBranch?.deliveryFee ?? 0.0;
     return CartPricing(
       subtotal: subtotal,
       voucherDiscount: 0,
       loyaltyDiscount: 0,
-      deliveryFee: BranchController.instance.selectedBranch?.deliveryFee ?? 0,
-      total: subtotal + (BranchController.instance.selectedBranch?.deliveryFee ?? 0),
+      deliveryFee: deliveryFee,
+      total: (subtotalCents + toCents(deliveryFee)) / 100,
       voucherCode: appliedVoucherCode,
       redeemPoints: redeemPoints,
       loyaltyPointsBalance: _pricing.loyaltyPointsBalance,

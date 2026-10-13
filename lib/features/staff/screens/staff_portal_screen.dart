@@ -226,13 +226,14 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
     super.dispose();
   }
 
+  // Summed in centavos (see toCents) so it matches PosCheckout.total exactly.
   double _total(StaffStore store) {
-    double sum = 0;
+    var cents = 0;
     _cart.forEach((variantId, qty) {
       final item = store.itemByVariant(variantId);
-      if (item != null) sum += item.price * qty;
+      if (item != null) cents += toCents(item.price) * qty;
     });
-    return sum;
+    return cents / 100;
   }
 
   void _add(InventoryItem item) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/catalog_store.dart';
@@ -62,7 +63,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     Card(
                       child: ListTile(
                         title: Text(p.name, style: AppTextStyles.labelLg),
-                        subtitle: Text('₱${p.price.toStringAsFixed(0)} · ${CustomerStockChip.of(p).label}', style: AppTextStyles.bodySm),
+                        subtitle: Text('${peso(p.price)} · ${CustomerStockChip.of(p).label}', style: AppTextStyles.bodySm),
                         trailing: FavoriteButton(productId: p.id, productName: p.name),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: p)),

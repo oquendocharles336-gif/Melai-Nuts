@@ -236,6 +236,24 @@ class ValidationUtils {
     return candidates.any(_weakPasswordWords.contains);
   }
 
+  // Password character rules, shared by [validatePassword] and the live
+  // checklist on the Change Password screen so the two can never drift apart
+  // (a checklist stricter than the validator disables the submit button for a
+  // password the validator would accept).
+  static final RegExp _upperPattern = RegExp(r'[A-Z]');
+  static final RegExp _digitPattern = RegExp(r'[0-9]');
+  static final RegExp _specialPattern = RegExp(r'[^A-Za-z0-9\s]');
+
+  /// True when [password] has at least one uppercase letter (A-Z).
+  static bool hasUpper(String password) => _upperPattern.hasMatch(password);
+
+  /// True when [password] has at least one digit (0-9).
+  static bool hasDigit(String password) => _digitPattern.hasMatch(password);
+
+  /// True when [password] has at least one special character: anything that
+  /// is not a letter, digit or whitespace ("-", "+", "~", "#", "₱" ...).
+  static bool hasSpecial(String password) => _specialPattern.hasMatch(password);
+
   /// Password validation. The value is **not trimmed**: a leading or trailing
   /// space is part of the password the person typed.
   /// - 8 to 64 characters
@@ -255,15 +273,15 @@ class ValidationUtils {
       return 'Password cannot exceed ${InputLimits.passwordMax} characters.';
     }
 
-    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+    if (!hasUpper(password)) {
       return 'Password must contain at least one uppercase letter (A-Z).';
     }
 
-    if (!RegExp(r'[0-9]').hasMatch(password)) {
+    if (!hasDigit(password)) {
       return 'Password must contain at least one number (0-9).';
     }
 
-    if (!RegExp(r'[^A-Za-z0-9\s]').hasMatch(password)) {
+    if (!hasSpecial(password)) {
       return 'Password must contain at least one special character (!@#\$...).';
     }
 

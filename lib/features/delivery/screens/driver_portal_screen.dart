@@ -516,12 +516,25 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: InputRules.decimal(),
                     decoration: InputDecoration(labelText: 'Cash collected (${peso(s.orderTotal ?? 0)} due)'),
-                    validator: (v) => ValidationUtils.validateNumber(
-                      v,
-                      fieldName: 'Cash collected',
-                      min: 0,
-                      max: 1000000,
-                    ),
+                    // driver_update_stop only accepts exactly the amount due, so
+                    // check it here — before the proof photo is uploaded — with a
+                    // clear message, instead of a confusing server refusal when
+                    // the rider types the bill handed over (₱500 for ₱450).
+                    validator: (v) {
+                      final error = ValidationUtils.validateNumber(
+                        v,
+                        fieldName: 'Cash collected',
+                        min: 0,
+                        max: 1000000,
+                      );
+                      if (error != null) return error;
+                      final due = s.orderTotal;
+                      if (due == null) return null; // Server still checks it.
+                      if (toCents(double.parse(v!.trim())) != toCents(due)) {
+                        return 'Enter exactly ${peso(due)} — the order total. Give change separately.';
+                      }
+                      return null;
+                    },
                   ),
                 TextFormField(
                   controller: noteCtrl,

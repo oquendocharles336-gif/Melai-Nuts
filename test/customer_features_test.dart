@@ -107,4 +107,19 @@ void main() {
       expect(repo.isLoaded, isFalse);
     });
   });
+
+  // Final-check fix 5: a product with no variants (e.g. created in the
+  // Supabase dashboard) is kept by fromRow, so every screen must handle
+  // `variants.isEmpty` instead of calling `variants.first`.
+  group('a product with no variants', () {
+    test('is kept with an empty variant list and safe defaults', () {
+      final p = _product('p9', 'Plain Peanuts', const [], const {});
+      expect(p.variants, isEmpty);
+      expect(p.variantLabel, '');
+      expect(p.costPrice, 0);
+      expect(p.price, 100); // product-level price is still available to show
+      expect(p.stockLabel, 'Out of Stock');
+    });
+  });
 }
+

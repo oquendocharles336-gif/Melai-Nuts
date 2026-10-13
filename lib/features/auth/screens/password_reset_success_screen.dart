@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
-import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 
-/// Confirms the password reset succeeded, then routes back to Login.
+/// Confirms the password change succeeded, then returns to Security.
+///
+/// The person is still signed in here (they changed their password from
+/// Settings → Security), so sending them to Login would show the login screen
+/// while their session, cart and staff session stay active. ResetPasswordScreen
+/// opened this screen with pushReplacementNamed, so one pop lands back on the
+/// Security screen.
 class PasswordResetSuccessScreen extends StatelessWidget {
   const PasswordResetSuccessScreen({super.key});
 
-  void _backToLogin(BuildContext context) {
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+  void _backToSecurity(BuildContext context) {
+    Navigator.of(context).maybePop();
   }
 
   @override
@@ -45,7 +48,7 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      'Authentication Workflow • Complete',
+                      'Change Password • Complete',
                       style: AppTextStyles.labelMd,
                     ),
                   ),
@@ -65,7 +68,7 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    'Password Reset\nSuccessfully!',
+                    'Password Changed\nSuccessfully!',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.headlineLg.copyWith(
                       color: AppColors.primary,
@@ -73,7 +76,7 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Your Melai Nuts portal account password has been updated. You can now use your new password to sign in across POS registers and management dashboards.',
+                    'Your Melai Nuts account password has been updated. Use your new password the next time you sign in.',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.bodyMd,
                   ),
@@ -107,7 +110,7 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'ACCOUNT RECOVERED',
+                                'PASSWORD UPDATED',
                                 style: AppTextStyles.labelSm,
                               ),
                               Text(
@@ -170,9 +173,9 @@ class PasswordResetSuccessScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 20),
                   PrimaryButton(
-                    label: 'Proceed to Login',
-                    icon: Icons.arrow_forward_rounded,
-                    onPressed: () => _backToLogin(context),
+                    label: 'Back to Security',
+                    icon: Icons.arrow_back_rounded,
+                    onPressed: () => _backToSecurity(context),
                   ),
                 ],
               ),

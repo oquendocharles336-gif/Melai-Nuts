@@ -13,7 +13,7 @@
 //
 // Env: HITPAY_SALT (secret). SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are
 // provided by Supabase.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const encoder = new TextEncoder();
 
@@ -143,12 +143,15 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // The payment-request id lets the database ignore a late "failed" event from
+  // an OLDER link (same rule as "expired" above); it is not used for success.
   const { error } = await adminClient.rpc("hitpay_apply_payment", {
     p_order_id: orderId,
     p_status: status === "completed" ? "success" : "failed",
     p_method: methodCode(paid?.payment_type),
     p_gateway_payment_id: gatewayPaymentId,
     p_reference_number: null,
+    p_payment_request_id: typeof payload.id === "string" ? payload.id : null,
   });
   if (error) {
     console.error("hitpay-webhook: could not apply payment", error.message);

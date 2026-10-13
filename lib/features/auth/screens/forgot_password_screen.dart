@@ -28,6 +28,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _emailController = TextEditingController();
   bool _sending = false;
 
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
   Future<void> _sendResetCode() async {
     if (!FormUtils.validateAndFocus(_formKey)) return;
 

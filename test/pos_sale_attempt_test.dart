@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:melai_nuts/core/utils/format_utils.dart';
 import 'package:melai_nuts/features/staff/pos_sale_attempt.dart';
 
 /// Review fix 3: the POS idempotency key follows the request.
@@ -50,5 +51,35 @@ void main() {
     expect(fp(cart: const {'a': 1, 'b': 2}), fp(cart: const {'b': 2, 'a': 1}));
     expect(fp(customer: null), fp(customer: ''));
     expect(fp(cart: const {'a': 1}), isNot(fp(cart: const {'a': 2})));
+  });
+
+  // Final-check fix 4: PosCheckout.total and the cash screen work in centavos,
+  // so an exact cash payment is never refused as "less than the total".
+  group('POS money is exact to the centavo', () {
+    int totalCents(Map<double, int> lines) =>
+        lines.entries.fold(0, (sum, e) => sum + toCents(e.key) * e.value);
+
+    test('the doubles really do drift (why this matters)', () {
+      expect(45.10 + 45.20, isNot(90.30));
+      expect(45.10 * 2 + 99.90, isNot(190.10));
+    });
+
+    test('summing in centavos gives the exact total', () {
+      expect(totalCents({45.10: 1, 45.20: 1}) / 100, 90.30);
+      expect(totalCents({45.10: 2, 99.90: 1}) / 100, 190.10);
+      expect(totalCents({0.10: 3}) / 100, 0.30);
+    });
+
+    test('an exact cash amount passes the "at least the total" check', () {
+      final total = totalCents({45.10: 1, 45.20: 1}) / 100;
+      expect(toCents(90.30) >= toCents(total), isTrue);
+      expect(toCents(90.29) >= toCents(total), isFalse);
+    });
+
+    test('roundMoney rounds to 2 decimals', () {
+      expect(roundMoney(90.30000000000001), 90.30);
+      expect(roundMoney(190.10000000000002), 190.10);
+      expect(roundMoney(0.005), 0.01);
+    });
   });
 }

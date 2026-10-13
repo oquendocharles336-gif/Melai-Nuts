@@ -7,7 +7,7 @@
 // Secrets: ROUTING_PROVIDER = "ors" (+ ORS_API_KEY, openrouteservice.org) or "osrm"
 // (+ ROUTING_URL, an https OSRM server you run). Not set = 503 "not configured" (the app then
 // shows straight-line distance only). Deploy: supabase functions deploy route-eta --no-verify-jwt
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { makeHandler } from "./handler.ts";
 
 const url = Deno.env.get("SUPABASE_URL") ?? "";

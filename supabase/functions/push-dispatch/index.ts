@@ -7,7 +7,7 @@
 // FIREBASE_SERVICE_ACCOUNT (service-account JSON with the "Firebase Cloud
 // Messaging API Admin" role). SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are
 // provided by Supabase.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { importPKCS8, SignJWT } from "npm:jose@5.9.6";
 import { makeHandler } from "./handler.ts";
 

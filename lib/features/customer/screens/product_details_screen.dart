@@ -30,7 +30,12 @@ class ProductDetailsScreen extends StatefulWidget {
 }
 
 class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
-  late ProductVariant _selectedVariant = widget.product.variants.first;
+  // Null when the product has no variants (e.g. created directly in the
+  // Supabase dashboard without sizes): the page still shows the product, but
+  // with a disabled "Currently unavailable" button instead of crashing on
+  // `variants.first`.
+  late ProductVariant? _selectedVariant =
+      widget.product.variants.isEmpty ? null : widget.product.variants.first;
   String? _selectedSpiceLevel;
   int _quantity = 1;
   bool _busy = false;
@@ -73,6 +78,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   /// none is chosen). Returns what happened, or null if the request itself
   /// threw — in which case the customer has already been told why.
   Future<AddToCartResult?> _addToCart() async {
+    final variant = _selectedVariant;
+    if (variant == null) return null; // Buttons are disabled; defensive only.
     setState(() => _busy = true);
     try {
       // No overall timeout here: the customer may be on the branch picker.
@@ -80,7 +87,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       return await addToCartWithBranchPrompt(
         context,
         widget.product,
-        _selectedVariant,
+        variant,
         quantity: _quantity,
       );
     } catch (e) {
@@ -151,6 +158,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
+    final selectedVariant = _selectedVariant;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: MelaiAppBar(
@@ -194,7 +202,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             Row(
               children: [
                 Text(
-                  '₱${_selectedVariant.price.toStringAsFixed(0)}',
+                  '₱${(selectedVariant?.price ?? product.price).toStringAsFixed(0)}',
                   style: AppTextStyles.headlineMd.copyWith(color: AppColors.primary),
                 ),
                 if (product.originalPrice != null) ...[
@@ -324,15 +332,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   ),
                 ),
             ],
-            const SizedBox(height: AppSpacing.lg),
-            Text('Select Size & Packaging', style: AppTextStyles.titleMd),
-            const SizedBox(height: AppSpacing.sm),
+            if (product.variants.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Text('Select Size & Packaging', style: AppTextStyles.titleMd),
+              const SizedBox(height: AppSpacing.sm),
+            ],
             for (final variant in product.variants)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _VariantTile(
                   variant: variant,
-                  selected: _selectedVariant.label == variant.label,
+                  selected: selectedVariant?.label == variant.label,
                   onTap: () => setState(() {
                     _selectedVariant = variant;
                     final stock = variant.stockOnHand;
@@ -422,7 +432,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
+            child: selectedVariant == null
+                // No sizes to sell: no quantity picker or Add to Cart.
+                ? const PrimaryButton(
+                    label: 'Currently unavailable',
+                    icon: Icons.block_rounded,
+                    onPressed: null,
+                  )
+                : Row(
               children: [
                 Container(
                   decoration: BoxDecoration(
@@ -441,7 +458,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       IconButton(tooltip: 'Add one more', 
                         icon: const Icon(Icons.add_rounded),
                         onPressed: () => setState(() {
-                          final stock = _selectedVariant.stockOnHand;
+                          final stock = selectedVariant.stockOnHand;
                           if (stock == null || _quantity < stock) _quantity++;
                         }),
                       ),
@@ -452,7 +469,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 Expanded(
                   child: Builder(builder: (context) {
                     final unavailable = !product.isActive ||
-                        (_selectedVariant.stockOnHand ?? 1) <= 0;
+                        (selectedVariant.stockOnHand ?? 1) <= 0;
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -461,7 +478,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                               ? 'Unavailable'
                               : unavailable
                                   ? 'Out of Stock'
-                                  : 'Add to Cart • ₱${(_selectedVariant.price * _quantity).toStringAsFixed(0)}',
+                                  : 'Add to Cart • ₱${(selectedVariant.price * _quantity).toStringAsFixed(0)}',
                           icon: Icons.shopping_cart_outlined,
                           loading: _busy,
                           onPressed: unavailable ? null : _handleAddToCart,

@@ -96,7 +96,20 @@ begin
   return v_order;
 end $$;
 insert into fx values ('o_online', pg_temp.order_for('Online Payment (GCash, Maya, Card)', 'hr-key-online-1'));
+-- A first link (preq-old) is replaced by a newer one (preq-123) while the
+-- customer pays: a late "failed" event from the OLD link must not fail the
+-- payment (migration 20261028000000_hitpay_failed_event_link_check.sql).
+select public.hitpay_set_checkout(pg_temp.f('o_online'), 'preq-old', 'https://pay.example/old');
 select public.hitpay_set_checkout(pg_temp.f('o_online'), 'preq-123', 'https://pay.example/x');
+select pg_temp.chk_true('failed event: an OLD link failing leaves the current payment processing',
+  public.hitpay_apply_payment(pg_temp.f('o_online'), 'failed', 'GCash', 'pay-old-1', null, 'preq-old') = 'processing'
+  and (select status = 'processing' and gateway_payment_id = 'preq-123'
+       from public.payments where order_id = pg_temp.f('o_online')));
+select pg_temp.chk_true('failed event: no request id is treated as not the current link',
+  public.hitpay_apply_payment(pg_temp.f('o_online'), 'failed', 'GCash', 'pay-old-1', null) = 'processing');
+select pg_temp.chk_true('failed event: the CURRENT link failing fails the payment',
+  public.hitpay_apply_payment(pg_temp.f('o_online'), 'failed', 'GCash', 'pay-cur-1', null, 'preq-123') = 'failed');
+-- HitPay lets the buyer retry on the same page: the success below still applies.
 select public.hitpay_apply_payment(pg_temp.f('o_online'), 'success', 'GCash', 'pay-abc-001', null);
 insert into fx values ('o_cash', pg_temp.order_for('Cash on Counter Pickup', 'hr-key-cash-1'));
 select pg_temp.call_as('h-own', format($q$select public.staff_confirm_payment(%L, null)::text$q$, pg_temp.f('o_cash')));

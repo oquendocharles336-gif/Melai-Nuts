@@ -23,7 +23,7 @@
 // Env: HITPAY_API_KEY, HITPAY_ENV ('live' | anything else = sandbox).
 // SUPABASE_URL / SUPABASE_ANON_KEY are provided by Supabase.
 // Deploy: supabase functions deploy hitpay-refund --no-verify-jwt
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { checkOutcomeOf, type Outcome, sendOutcomeOf } from "./outcome.ts";
 
 const corsHeaders = {

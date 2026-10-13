@@ -31,10 +31,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _confirmVisible = false;
 
   bool get _hasLength => _passwordController.text.length >= 8;
-  bool get _hasUpper => _passwordController.text.contains(RegExp(r'[A-Z]'));
-  bool get _hasNumber => _passwordController.text.contains(RegExp(r'[0-9]'));
-  bool get _hasSpecial =>
-      _passwordController.text.contains(RegExp(r'[!@#\$%^&*(),.?":{}|<>_]'));
+  // Same rules as ValidationUtils.validatePassword (shared helpers), so a
+  // password the validator accepts — e.g. "Nuts+2026x" — is never blocked by a
+  // stricter checklist here.
+  bool get _hasUpper => ValidationUtils.hasUpper(_passwordController.text);
+  bool get _hasNumber => ValidationUtils.hasDigit(_passwordController.text);
+  bool get _hasSpecial => ValidationUtils.hasSpecial(_passwordController.text);
   int get _score =>
       [_hasLength, _hasUpper, _hasNumber, _hasSpecial].where((e) => e).length;
   bool get _match =>
@@ -45,7 +47,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   Future<void> _resetPassword() async {
     if (_submitting || !FormUtils.validateAndFocus(_formKey)) return;
-    if (!_canSubmit) return;
+    if (!_canSubmit) {
+      // Tell the person what is missing instead of silently doing nothing.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_missingRequirementsMessage())),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
       await AuthService.instance.changePassword(_passwordController.text);
@@ -66,12 +74,39 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
   }
 
+  String _missingRequirementsMessage() {
+    final missing = <String>[
+      if (!_hasLength) 'at least 8 characters',
+      if (!_hasUpper) 'an uppercase letter',
+      if (!_hasNumber) 'a number',
+      if (!_hasSpecial) 'a special character',
+    ];
+    if (missing.isNotEmpty) return 'Your new password needs ${missing.join(', ')}.';
+    return 'Passwords do not match.';
+  }
+
+  void _onTextChanged() => setState(() {});
+
   @override
   void initState() {
     super.initState();
-    _passwordController.addListener(() => setState(() {}));
-    _confirmController.addListener(() => setState(() {}));
+    _passwordController.addListener(_onTextChanged);
+    _confirmController.addListener(_onTextChanged);
   }
+
+  @override
+  void dispose() {
+    _passwordController.removeListener(_onTextChanged);
+    _confirmController.removeListener(_onTextChanged);
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  String get _accountEmail =>
+      AuthService.instance.currentProfile?.email ??
+      AuthService.instance.currentFirebaseUser?.email ??
+      '';
 
   @override
   Widget build(BuildContext context) {
@@ -84,63 +119,41 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border),
-                  boxShadow: AppShadows.sm,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+              // Shows which account is being changed (replaces the old
+              // "Step 2 of 2 / Authorized Node" placeholder, which had no step 1
+              // and validated nothing).
+              if (_accountEmail.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                    boxShadow: AppShadows.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.account_circle_outlined,
+                        color: AppColors.textSecondary,
                       ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'STEP 2 OF 2 • SECURITY ACCESS',
-                        style: AppTextStyles.labelSm,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('AUTHORIZED NODE', style: AppTextStyles.labelSm),
-                        Row(
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(
-                              Icons.check_circle,
-                              size: 14,
-                              color: AppColors.success,
-                            ),
-                            const SizedBox(width: 4),
+                            Text('ACCOUNT', style: AppTextStyles.labelSm),
                             Text(
-                              'Valid',
-                              style: AppTextStyles.labelMd.copyWith(
-                                color: AppColors.success,
-                              ),
+                              _accountEmail,
+                              style: AppTextStyles.titleMd,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text('Authorized Access Node', style: AppTextStyles.titleMd),
-                    Text(
-                      'Melai Nuts',
-                      style: AppTextStyles.bodySm,
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               const SizedBox(height: 16),
               Text('Create New Password', style: AppTextStyles.headlineMd),
               const SizedBox(height: 4),
@@ -274,14 +287,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 label: 'Reset Password & Update Credentials',
                 icon: Icons.arrow_forward_rounded,
                 loading: _submitting,
-                onPressed: _canSubmit ? _resetPassword : null,
+                // Always tappable: field errors and the SnackBar in
+                // _resetPassword explain what is missing, instead of a greyed-out
+                // button with no reason given.
+                onPressed: _resetPassword,
               ),
               const SizedBox(height: 10),
+              // The person is signed in (opened from Settings → Security), and
+              // /login is no longer on the stack after sign-in, so popUntil(login)
+              // would pop every route and leave a black screen. Just go back.
               SecondaryButton(
-                label: 'Cancel and Return to Login',
-                onPressed: () => Navigator.of(
-                  context,
-                ).popUntil((r) => r.settings.name == AppRoutes.login),
+                label: 'Cancel',
+                onPressed: () => Navigator.of(context).maybePop(),
               ),
             ],
           ),

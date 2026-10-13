@@ -50,13 +50,17 @@ class PosCheckout {
   /// Display total using the prices the register currently shows. The
   /// database recomputes the real total from the catalog when the sale is
   /// recorded.
+  ///
+  /// Summed in whole centavos so the total is exact: adding doubles gives
+  /// ₱45.10 + ₱45.20 = 90.30000000000001, and the cash screen would then
+  /// refuse an exact ₱90.30 payment.
   double get total {
-    double sum = 0;
+    var cents = 0;
     cart.forEach((variantId, qty) {
       final item = StaffStore.instance.itemByVariant(variantId);
-      if (item != null) sum += item.price * qty;
+      if (item != null) cents += toCents(item.price) * qty;
     });
-    return sum;
+    return cents / 100;
   }
 }
 
@@ -651,7 +655,11 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
   @override
   void initState() {
     super.initState();
-    _controller.addListener(() => setState(() => _received = double.tryParse(_controller.text) ?? 0));
+    // Rounded to centavos so the change and the "at least the total" check
+    // compare exact peso amounts.
+    _controller.addListener(
+      () => setState(() => _received = roundMoney(double.tryParse(_controller.text) ?? 0)),
+    );
   }
 
   @override
@@ -679,7 +687,10 @@ class _PosCashInputScreenState extends State<PosCashInputScreen> {
   @override
   Widget build(BuildContext context) {
     final amount = widget.checkout.total;
-    final double change = _received > amount ? _received - amount : 0;
+    final receivedCents = toCents(_received);
+    final amountCents = toCents(amount);
+    final double change =
+        receivedCents > amountCents ? (receivedCents - amountCents) / 100 : 0;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,

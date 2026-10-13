@@ -484,9 +484,25 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         separatorBuilder: (context, index) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final product = items[index];
-          final defaultVariant = product.variants.first;
           // Horizontal lists give children unbounded width, so each card
           // needs an explicit one.
+          void openDetails() => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: product)),
+              );
+          // Same empty-variant branch as product_list_screen: no sizes means
+          // nothing to add, but the card still shows instead of throwing.
+          if (product.variants.isEmpty) {
+            return SizedBox(
+              width: _cardWidth,
+              child: ProductCard(
+                product: product,
+                onTap: openDetails,
+                onAdd: () {},
+                quantityInCart: 0,
+              ),
+            );
+          }
+          final defaultVariant = product.variants.first;
           return SizedBox(
             width: _cardWidth,
             child: ProductCard(
