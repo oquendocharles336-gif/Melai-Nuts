@@ -1030,6 +1030,47 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame('staff', $this->fb->profiles[$u->firebase_uid]['role']);
     }
 
+    public function test_owner_disables_and_enables_customer_and_staff_accounts_after_confirming(): void
+    {
+        $owner = $this->portalAdmin();
+        $staff = $this->portalStaff();
+        $this->fb->profiles[$this->fx['customer']] = ['role' => 'customer', 'email' => "cust-{$this->sfx}@test.local", 'isActive' => true];
+        $this->fb->profiles[$this->fx['staff_a']] = ['role' => 'staff', 'email' => "staff-a-{$this->sfx}@test.local", 'isActive' => true];
+        $page = $this->actingAs($owner)->get(route('admin.users.index', ['q' => $this->sfx, 'per_page' => 100]))->assertOk();
+        $html = str_replace('\\', '', $page->getContent());   // the button's target is escaped JSON in an Alpine attribute
+        $this->assertStringContainsString('app-accounts/'.$this->fx['customer'].'/active', $html);
+        $this->assertStringContainsString('app-accounts/'.$this->fx['staff_a'].'/active', $html);
+        $this->assertStringNotContainsString('app-accounts/'.$this->fx['owner'].'/active', $html, 'never your own / an owner account');
+        $page->assertSee('Are you sure?');
+
+        // Customer: database + Firestore isActive (what the app's sign-in check reads).
+        $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0, 'name' => 'IT Customer'])
+            ->assertSessionHasNoErrors()->assertSessionHas('status');
+        $this->assertFalse((bool) $this->db()->selectOne('select is_active from public.customer_profiles where firebase_uid = ?', [$this->fx['customer']])->is_active);
+        $this->assertFalse($this->fb->profiles[$this->fx['customer']]['isActive']);
+        $this->actingAs($owner)->get(route('admin.users.index', ['q' => $this->sfx, 'per_page' => 100]))->assertSee('Disabled')->assertSee('Enable');
+        $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 1]);
+        $this->assertTrue((bool) $this->db()->selectOne('select is_active from public.customer_profiles where firebase_uid = ?', [$this->fx['customer']])->is_active);
+        $this->assertTrue($this->fb->profiles[$this->fx['customer']]['isActive']);
+
+        // Staff: the app's staff registry, Firestore, and the website login follow.
+        $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['staff_a']), ['active' => 0])->assertSessionHasNoErrors();
+        $this->assertSame('inactive', $this->db()->selectOne('select account_status from public.staff_members where firebase_uid = ?', [$this->fx['staff_a']])->account_status);
+        $this->assertFalse($this->fb->profiles[$this->fx['staff_a']]['isActive']);
+        $this->assertFalse((bool) $staff->fresh()->is_active);
+        $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['staff_a']), ['active' => 1])->assertSessionHasNoErrors();
+        $this->assertSame('active', $this->db()->selectOne('select account_status from public.staff_members where firebase_uid = ?', [$this->fx['staff_a']])->account_status);
+        $this->assertTrue((bool) $staff->fresh()->is_active);
+
+        // Never your own account, never staff doing it, and Firestore refusing undoes the database change.
+        $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['owner']), ['active' => 0])->assertSessionHasErrors('account');
+        $this->actingAs($staff)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0])->assertForbidden();
+        $this->fb->firestoreDenied = true;
+        $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0])->assertSessionHasErrors('account');
+        $this->assertTrue((bool) $this->db()->selectOne('select is_active from public.customer_profiles where firebase_uid = ?', [$this->fx['customer']])->is_active);
+        $this->assertAuthenticatedAs($owner);
+    }
+
     public function test_expired_token_is_refreshed_and_revoked_disabled_or_forged_tokens_are_rejected(): void
     {
         $owner = $this->portalAdmin();

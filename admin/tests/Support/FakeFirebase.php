@@ -277,6 +277,16 @@ class FakeFirebase
 
             return Http::response([]);
         }
+        if ($r->method() === 'PATCH') {   // update of the fields in updateMask; currentDocument.exists=true
+            if (! isset($this->profiles[$uid])) {
+                return Http::response(['error' => ['code' => 404, 'status' => 'NOT_FOUND', 'message' => 'No document to update']], 404);
+            }
+            foreach ((array) $r['fields'] as $k => $v) {
+                $this->profiles[$uid][$k] = reset($v);
+            }
+
+            return Http::response(['name' => $uid]);
+        }
         if (! isset($this->profiles[$uid])) {
             return Http::response(['error' => ['code' => 404, 'status' => 'NOT_FOUND']], 404);
         }

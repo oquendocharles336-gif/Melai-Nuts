@@ -62,6 +62,7 @@ Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(functi
         Route::post('/users/{user}/link', [UserController::class, 'link'])->name('users.link');       // Supabase mode
         Route::post('/users/{user}/unlink', [UserController::class, 'unlink'])->name('users.unlink'); // Supabase mode
         Route::post('/users/{user}/approve', [UserController::class, 'approve'])->name('users.approve')->middleware('throttle:20,1'); // Supabase mode
+        Route::post('/app-accounts/{uid}/active', [UserController::class, 'setAppActive'])->name('users.app-active')->middleware('throttle:30,1'); // disable / enable a staff or customer app account
 
         Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
         Route::get('/payments/export', [PaymentController::class, 'export'])->name('payments.export');

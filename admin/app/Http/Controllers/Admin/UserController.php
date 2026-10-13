@@ -101,6 +101,22 @@ class UserController extends Controller
             .(($profile['branch_name'] ?? null) ? " ({$profile['branch_name']})" : '').' and can use the website.');
     }
 
+    /** Disable / enable a staff member's or customer's app account (see AppAccountStatus). */
+    public function setAppActive(Request $request, string $uid, AccountProvisioner $provisioner, \App\Services\Auth\AppAccountStatus $status, Platform $platform)
+    {
+        abort_unless($platform->isSupabase(), 404);
+        abort_unless(preg_match('/^[A-Za-z0-9:_-]{1,128}$/', $uid) === 1, 404);
+        $data = $request->validate(['active' => ['required', 'boolean'], 'name' => ['nullable', 'string', 'max:120']]);
+        $active = (bool) $data['active'];
+        $token = $provisioner->ownerToken($request->user(), $request->input('owner_password'));
+        $kind = $status->set($uid, $active, $request->user(), $token);
+        $who = $data['name'] ?? 'The account';
+
+        return back()->with('status', $active
+            ? "{$who} is enabled again and can sign in."
+            : "{$who} is disabled: this {$kind} can no longer sign in to the Melai Nuts app".($kind === 'staff' ? ' or this website' : '').'.');
+    }
+
     public function unlink(Request $request, User $user, StaffLinker $linker, Platform $platform)
     {
         abort_unless($platform->isSupabase(), 404);

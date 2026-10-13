@@ -78,6 +78,29 @@ class FirestoreProfiles
         return collect((array) $r->json('fields', []))->map(fn ($v) => is_array($v) ? reset($v) : $v)->all();
     }
 
+    /**
+     * users/{uid}.isActive (owners may change it, firestore.rules). This is what the app's sign-in
+     * check (functions/lib/sign-in-policy.js) and its rules read. Returns false when the account has
+     * no profile document (nothing to block in Firestore).
+     */
+    public function setActive(string $ownerIdToken, string $uid, bool $active): bool
+    {
+        $r = $this->send(fn () => Http::withToken($ownerIdToken)->timeout(15)->acceptJson()
+            ->patch($this->base().'/users/'.rawurlencode($uid).'?updateMask.fieldPaths=isActive&currentDocument.exists=true',
+                ['fields' => ['isActive' => ['booleanValue' => $active]]]));
+        if ($r->successful()) {
+            return true;
+        }
+        $status = strtoupper((string) $r->json('error.status', ''));
+        if ($r->status() === 404 || $status === 'NOT_FOUND' || ($status === 'FAILED_PRECONDITION' && str_contains(strtolower((string) $r->json('error.message')), 'exist'))) {
+            return false;
+        }
+        Log::warning('[firestore] isActive write refused', ['http' => $r->status(), 'status' => $status]);
+        throw new FirebaseAuthException($r->serverError() ? FirebaseAuthException::NETWORK : FirebaseAuthException::UNEXPECTED,
+            $status === 'PERMISSION_DENIED' ? self::DENIED : 'Could not update the app profile in Firestore ('.($status ?: 'HTTP '.$r->status()).').',
+            $status ?: null);
+    }
+
     /** Delete users/{uid} (rollback of a failed registration; firestore.rules allow owners). */
     public function delete(string $ownerIdToken, string $uid): void
     {

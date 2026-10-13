@@ -262,6 +262,11 @@ class SupabaseRepository
             try {
                 $all = ($this->call('select public.owner_all_users(?::text, ?::int)::text as r', [$search, $limit]) ?? []) + ['partial' => false];
                 unset($all['drivers']);
+                // Disabled customers (migration 20261029000000; null = unknown on an older database).
+                $disabled = $this->disabledCustomers();
+                foreach ($all['customers'] ?? [] as $i => $c) {
+                    $all['customers'][$i]['is_active'] = $disabled === null ? null : ! in_array($c['firebase_uid'], $disabled, true);
+                }
 
                 return $all;
             } catch (\App\Exceptions\BackendUnavailableException $e) {
@@ -418,6 +423,39 @@ class SupabaseRepository
     {
         return $this->call('select public.owner_update_loyalty_settings(?::numeric, ?::numeric, ?::numeric)::text as r',
             [$earnPesosPerPoint, $pointsPerPeso, $maxDiscountPercent]) ?? [];
+    }
+
+    /** UIDs of customers the owner disabled, or null when the database lacks migration 20261029000000. */
+    public function disabledCustomers(): ?array
+    {
+        try {
+            return $this->call('select public.owner_disabled_customers()::text as r') ?? [];
+        } catch (\App\Exceptions\BackendUnavailableException|\App\Exceptions\BackendActionException $e) {
+            if (! SupabaseGateway::isMissingFunction($e)) {
+                report($e);   // the list still shows; only the "Disabled" status is unknown
+            }
+
+            return null;
+        }
+    }
+
+    /** Owner only: a staff member's app account on / off (the app's owner_set_staff_active). */
+    public function setStaffActive(string $firebaseUid, bool $active): void
+    {
+        $this->call('select public.owner_set_staff_active(?::text, ?::boolean)::text as r', [$firebaseUid, $active ? 'true' : 'false']);
+    }
+
+    /** Owner only: a customer's account on / off (migration 20261029000000_admin_portal_account_status.sql). */
+    public function setCustomerActive(string $firebaseUid, bool $active): void
+    {
+        try {
+            $this->call('select public.owner_set_customer_active(?::text, ?::boolean)::text as r', [$firebaseUid, $active ? 'true' : 'false']);
+        } catch (\App\Exceptions\BackendUnavailableException $e) {
+            if (SupabaseGateway::isMissingFunction($e)) {
+                throw new \App\Exceptions\BackendActionException('Disabling customers needs the database update supabase/migrations/20261029000000_admin_portal_account_status.sql. Run it in the Supabase SQL editor, then try again.', 0, $e);
+            }
+            throw $e;
+        }
     }
 
     public function setProductActive(string $productId, bool $active): void

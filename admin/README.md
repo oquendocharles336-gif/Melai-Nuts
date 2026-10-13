@@ -16,7 +16,7 @@ See `../INTEGRATION.md` for how the pieces fit together.
 | Payments | All orders' payments, totals per method, **mark cash paid** |
 | Refunds | Refund requests from the app: approve (cash: one step), mark online refunds completed with the HitPay reference, reject with a reason the customer sees |
 | Loyalty | Members, balances, history; owners edit the earn/redeem rules and add/deduct points |
-| Users | Website logins, access, activation, approvals; which app account each login is linked to (unlink if needed) |
+| Users | Website logins, access, activation, approvals; which app account each login is linked to (unlink if needed); **disable / enable** a staff member's or customer's app account (with an "Are you sure?" step; needs migration `20261029000000_admin_portal_account_status.sql`) |
 | Activity Logs | This website's log + the app's append-only staff audit log |
 
 **Delivery is not on the website.** Runs, dispatch, riders, live tracking and customer map pins are handled only in the

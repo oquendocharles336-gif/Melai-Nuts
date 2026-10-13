@@ -43,6 +43,8 @@
     </form>
 </div>
 
+{{-- t = the account being disabled / enabled (opens the "Are you sure?" dialog below). --}}
+<div x-data="{ t: null }" x-on:keydown.escape.window="t = null">
 <x-card flush>
     <x-table stack data-no-paginate>
         <x-slot:head><th>Person</th><th>Accounts</th><th>Branch</th><th>Status</th><th>Activity</th><th class="r"><span class="sr-only">Actions</span></th></x-slot:head>
@@ -147,13 +149,28 @@
 
                 <td class="r">
                     <div class="row-actions">
+                        @php
+                            // The app account this row can disable / enable: a staff member's or a customer's (never an owner's, never your own).
+                            $appUid = ($s && $s['role'] === 'staff') ? $s['firebase_uid'] : ((! $s && $c) ? $c['firebase_uid'] : null);
+                            $appOn = $s ? (($s['account_status'] ?? 'active') === 'active' && ($s['is_active'] ?? true)) : (($c['is_active'] ?? true) !== false);
+                            if ($appUid && $appUid === $me->staff_uid) { $appUid = null; }
+                        @endphp
                         @if ($u && ! $u->isAdmin())
                             <form method="POST" action="{{ route('admin.users.toggle-access', $u) }}">
                                 @csrf<button class="btn sm" type="submit">{{ $u->has_access ? 'Restrict' : 'Grant access' }}</button>
                             </form>
-                            <form method="POST" action="{{ route('admin.users.toggle-active', $u) }}">
-                                @csrf<button class="btn sm {{ $u->is_active ? 'danger' : '' }}" type="submit">{{ $u->is_active ? 'Deactivate' : 'Reactivate' }}</button>
-                            </form>
+                            @unless ($appUid && $liveData)
+                                <form method="POST" action="{{ route('admin.users.toggle-active', $u) }}"
+                                      data-confirm="{{ $u->is_active ? 'Are you sure you want to deactivate the website login of '.$u->email.'? They can no longer sign in to this website.' : 'Are you sure you want to reactivate the website login of '.$u->email.'?' }}"
+                                      data-confirm-title="{{ $u->is_active ? 'Deactivate this login?' : 'Reactivate this login?' }}" data-confirm-label="{{ $u->is_active ? 'Yes, deactivate' : 'Yes, reactivate' }}" @unless ($u->is_active) data-confirm-safe @endunless>
+                                    @csrf<button class="btn sm {{ $u->is_active ? 'danger' : '' }}" type="submit">{{ $u->is_active ? 'Deactivate' : 'Reactivate' }}</button>
+                                </form>
+                            @endunless
+                        @endif
+                        @if ($appUid && $liveData && $appLoaded)
+                            <button type="button" class="btn sm {{ $appOn ? 'danger' : '' }}"
+                                    x-on:click="t = @js(['action' => route('admin.users.app-active', $appUid), 'enable' => ! $appOn, 'name' => $p['name'], 'email' => $p['email'], 'kind' => $s ? 'staff member' : 'customer'])">
+                                {{ $appOn ? 'Disable' : 'Enable' }}</button>
                         @endif
                         @if ($c)
                             <a class="btn sm ghost" href="{{ route('loyalty.show', $c['firebase_uid']) }}">Loyalty</a>
@@ -170,6 +187,41 @@
     </x-table>
     {{ $people->links() }}
 </x-card>
+
+{{-- "Are you sure?" before disabling / enabling an app account. --}}
+<template x-if="t">
+    <div>
+        <div class="overlay" x-on:click="t = null"></div>
+        <div class="modal-wrap" x-on:click.self="t = null">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="acct-toggle-title" x-trap.noscroll="t">
+                <form method="POST" :action="t.action" data-disable-on-submit>
+                    @csrf
+                    <input type="hidden" name="active" :value="t.enable ? 1 : 0">
+                    <input type="hidden" name="name" :value="t.name">
+                    <div class="modal-head"><h2 id="acct-toggle-title" x-text="t.enable ? 'Enable this account?' : 'Are you sure?'"></h2>
+                        <button class="btn ghost sm icon" type="button" x-on:click="t = null" aria-label="Close"><x-icon name="x" :size="16" /></button></div>
+                    <div class="modal-body form-grid">
+                        <p style="margin:0" x-show="!t.enable">Disable the account of <b x-text="t.name"></b> <span class="muted" x-text="t.email ? '(' + t.email + ')' : ''"></span>?
+                            This <span x-text="t.kind"></span> will no longer be able to sign in to the Melai Nuts app<span x-show="t.kind === 'staff member'"> or this website</span>.
+                            Their records and history are kept, and you can enable the account again at any time.</p>
+                        <p style="margin:0" x-show="t.enable">Enable the account of <b x-text="t.name"></b> <span class="muted" x-text="t.email ? '(' + t.email + ')' : ''"></span> again?
+                            They will be able to sign in to the Melai Nuts app again.</p>
+                        @if ($needsOwnerPassword)
+                            <div><label class="form-label" for="acct-owner-password">Your Melai Nuts app password</label>
+                                <input class="input" id="acct-owner-password" type="password" name="owner_password" autocomplete="current-password" required>
+                                <p class="form-hint">You signed in with the website password. Confirm as your app owner account (used once, not saved).</p></div>
+                        @endif
+                    </div>
+                    <div class="modal-foot">
+                        <button type="button" class="btn" x-on:click="t = null">Cancel</button>
+                        <button type="submit" class="btn" :class="t.enable ? 'primary' : 'danger-solid'" x-text="t.enable ? 'Yes, enable' : 'Yes, disable'"></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</template>
+</div>
 
 @if ($liveData)
     <details class="ui-card explain">

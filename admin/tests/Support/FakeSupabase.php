@@ -30,6 +30,9 @@ class FakeSupabase extends SupabaseGateway
     public array $drivers = [];
     /** uid => customer_profiles row with its order figures (owner_all_users shape) */
     public array $customers = [];
+
+    /** owner_set_customer_active(): firebase uid => is_active. */
+    public array $customerActive = [];
     /** uid => overview metrics merged into owner_staff_overview rows */
     public array $activity = [];
     /** business_settings row (get_business_settings shape, without branches); null values = Not set */
@@ -233,6 +236,9 @@ class FakeSupabase extends SupabaseGateway
             'admin_portal_staff_directory' => $me['role'] === 'owner'
                 ? array_values(array_map(fn ($s) => $s + ['branch_name' => $this->branchName($s['branch_id']), 'is_active' => $s['account_status'] === 'active'], $this->staff))
                 : throw new BackendActionException('Only an active owner can do this.'),
+            'owner_disabled_customers' => $me['role'] === 'owner' ? array_keys(array_filter($this->customerActive, fn ($a) => ! $a)) : throw new BackendActionException('Only an active owner can do this.'),
+            'owner_set_customer_active' => $me['role'] === 'owner' ? ($this->customerActive[$bindings[0]] = $bindings[1] === 'true') : throw new BackendActionException('Only an active owner can do this.'),
+            'owner_set_staff_active' => $me['role'] === 'owner' ? ($this->staff[$bindings[0]]['account_status'] = $bindings[1] === 'true' ? 'active' : 'inactive') : throw new BackendActionException('Only an active owner can do this.'),
             default => throw new BackendUnavailableException("FakeSupabase has no answer for {$fn}()."),
         };
     }

@@ -122,6 +122,7 @@ class UserDirectory
             $login && ! $login->is_active => ['bad', 'Deactivated'],
             $staff && ($staff['account_status'] ?? 'active') !== 'active' => ['bad', 'App '.($staff['account_status'] ?? 'inactive')],
             $staff && array_key_exists('is_active', $staff) && ! $staff['is_active'] => ['bad', 'App inactive'],
+            ! $staff && $customer && ($customer['is_active'] ?? true) === false => ['bad', 'Disabled'],
             $login && ! $login->canUseWebsite() => ['bad', 'No website access'],
             $awaitingApproval => ['warn', 'Needs approval'],
             $login && ! $login->has_access => ['warn', 'Waiting for access'],
