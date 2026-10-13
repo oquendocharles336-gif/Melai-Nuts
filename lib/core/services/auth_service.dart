@@ -761,19 +761,37 @@ class AuthService {
   /// Firebase requires a *recent* sign-in for this; if the session is too
   /// old it throws an [AuthException] asking the person to sign in again.
   /// Changing a password also invalidates the user's other sessions.
-  Future<void> changePassword(String newPassword) async {
+  /// Changes the signed-in user's password. Firebase only allows this shortly
+  /// after a sign-in (`requires-recent-login`), so the person's CURRENT
+  /// password is checked first (re-authentication). That also proves it is
+  /// really them holding the unlocked phone. Nobody has to sign out and in again.
+  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AuthException('You need to be signed in to change your password.');
     }
+    final email = user.email;
+    if (email == null || email.isEmpty || !user.providerData.any((p) => p.providerId == 'password')) {
+      throw const AuthException(
+        'This account signs in with a mobile number (SMS code), so it has no password to change.',
+      );
+    }
+    if (currentPassword == newPassword) {
+      throw const AuthException('Your new password must be different from your current password.');
+    }
+    try {
+      await user.reauthenticateWithCredential(
+        EmailAuthProvider.credential(email: email, password: currentPassword),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential' || e.code == 'invalid-login-credentials') {
+        throw const AuthException('Your current password is not correct.');
+      }
+      throw AuthException(_messageFor(e));
+    }
     try {
       await user.updatePassword(newPassword);
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'requires-recent-login') {
-        throw const AuthException(
-          'For your security, please sign out and sign in again before changing your password.',
-        );
-      }
       throw AuthException(_messageFor(e));
     }
   }

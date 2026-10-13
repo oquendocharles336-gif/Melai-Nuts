@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/password_strength_card.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/services/auth_service.dart';
@@ -24,9 +25,11 @@ class ResetPasswordScreen extends StatefulWidget {
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _currentController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   bool _submitting = false;
+  bool _currentVisible = false;
   bool _passwordVisible = false;
   bool _confirmVisible = false;
 
@@ -56,7 +59,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
     setState(() => _submitting = true);
     try {
-      await AuthService.instance.changePassword(_passwordController.text);
+      await AuthService.instance.changePassword(
+        currentPassword: _currentController.text,
+        newPassword: _passwordController.text,
+      );
       if (!mounted) return;
       setState(() => _submitting = false);
       Navigator.of(context).pushReplacementNamed(AppRoutes.resetSuccess);
@@ -98,6 +104,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   void dispose() {
     _passwordController.removeListener(_onTextChanged);
     _confirmController.removeListener(_onTextChanged);
+    _currentController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
@@ -162,6 +169,35 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 style: AppTextStyles.bodyMd,
               ),
               const SizedBox(height: 16),
+              // Firebase needs a recent sign-in to change a password: the current
+              // password re-confirms it (AuthService.changePassword).
+              Text('Current Password', style: AppTextStyles.labelLg),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _currentController,
+                obscureText: !_currentVisible,
+                autofillHints: const [AutofillHints.password],
+                maxLength: InputLimits.passwordMax,
+                validator: (v) => (v == null || v.isEmpty) ? 'Please enter your current password.' : null,
+                decoration: InputDecoration(
+                  counterText: '',
+                  prefixIcon: const Icon(
+                    Icons.lock_clock_outlined,
+                    size: 20,
+                    color: AppColors.textSecondary,
+                  ),
+                  suffixIcon: IconButton(
+                    tooltip: 'Show or hide password',
+                    icon: Icon(
+                      _currentVisible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      size: 20,
+                      color: AppColors.textSecondary,
+                    ),
+                    onPressed: () => setState(() => _currentVisible = !_currentVisible),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
               Text('New Password', style: AppTextStyles.labelLg),
               const SizedBox(height: 6),
               TextFormField(
@@ -232,56 +268,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.border),
-                  boxShadow: AppShadows.sm,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Password Strength Check', style: AppTextStyles.labelLg),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _score == 4
-                                ? AppColors.successBg
-                                : AppColors.warningBg,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            _score == 4
-                                ? 'Strong ($_score/4)'
-                                : 'Weak ($_score/4)',
-                            style: AppTextStyles.labelMd.copyWith(
-                              color: _score == 4
-                                  ? AppColors.success
-                                  : AppColors.warning,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _CheckRow(ok: _hasLength, label: 'At least 8 characters'),
-                    _CheckRow(ok: _hasUpper, label: 'At least 1 uppercase letter (A-Z)'),
-                    _CheckRow(ok: _hasNumber, label: 'At least 1 number (0-9)'),
-                    _CheckRow(
-                      ok: _hasSpecial,
-                      label: 'At least 1 special character (!@#\$_)',
-                    ),
-                  ],
-                ),
-              ),
+              PasswordStrengthCard(controller: _passwordController),
               const SizedBox(height: 20),
               PrimaryButton(
                 label: 'Reset Password & Update Credentials',
@@ -303,35 +290,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _CheckRow extends StatelessWidget {
-  final bool ok;
-  final String label;
-  const _CheckRow({required this.ok, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: [
-          Icon(
-            ok ? Icons.check_circle : Icons.radio_button_unchecked,
-            size: 16,
-            color: ok ? AppColors.success : AppColors.textSecondary,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: AppTextStyles.bodyMd.copyWith(
-              color: ok ? AppColors.success : AppColors.textMuted,
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -12,6 +12,7 @@ import '../../legal/widgets/terms_consent_field.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
+import '../../../core/widgets/password_strength_card.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import 'email_verification_screen.dart';
@@ -172,13 +173,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       autofillHints: const [AutofillHints.newPassword],
                       textInputAction: TextInputAction.next,
                       maxLength: InputLimits.passwordMax,
-                      helperText: '8–64 characters with an uppercase letter, a number and a symbol.',
                       validator: (v) => ValidationUtils.validatePassword(
                         v,
                         email: _emailController.text,
                         name: _nameController.text,
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    // Live checklist of the password rules (same rules as the validator above).
+                    PasswordStrengthCard(controller: _passwordController),
                     const SizedBox(height: 16),
                     AppTextField(
                       label: 'Confirm Password',
