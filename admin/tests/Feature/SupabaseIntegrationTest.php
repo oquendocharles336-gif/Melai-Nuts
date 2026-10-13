@@ -981,10 +981,13 @@ class SupabaseIntegrationTest extends TestCase
             ->assertRedirect(route('admin.users.index'));
 
         // The owner who created it stays signed in (same browser session).
-        $this->get(route('admin.users.index'))->assertOk()->assertSee($email);
+        $this->get(route('admin.users.index', ['q' => $email]))->assertOk()->assertSee($email)->assertDontSee('e-mail not verified');
         $this->assertAuthenticatedAs($owner);
 
         $u = User::firstWhere('email', $email);
+        // Its row shows the app account only: no website-login badge, no Restrict / Grant access.
+        $this->get(route('admin.users.index', ['q' => $email]))->assertOk()->assertSee('App · Staff')
+            ->assertDontSee('Website · Staff')->assertDontSee(route('admin.users.toggle-access', $u), false);
         $this->assertNotNull($this->fb->account($u->firebase_uid), 'Firebase account created');
         $this->assertSame($u->firebase_uid, $u->staff_uid);
         $this->assertSame('staff', $this->db()->selectOne('select role from public.staff_members where firebase_uid = ?', [$u->firebase_uid])->role);

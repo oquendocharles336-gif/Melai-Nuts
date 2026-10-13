@@ -71,6 +71,10 @@ class UserController extends Controller
             'customersShown' => count($app['customers'] ?? []),
             'customersTotal' => (int) ($app['customers_total'] ?? 0),
             'directory' => collect($app['staff'] ?? [])->keyBy('firebase_uid')->all(),
+            // Logins an admin created on this website (Create account): their row shows only the app account,
+            // without the website-login badge and the Restrict / Grant access button.
+            'createdHere' => \App\Models\ActivityLog::where('action', 'account.created_by_admin')->whereNotNull('user_id')
+                ->pluck('user_id')->flip()->all(),
             'branches' => $branches,
             'directoryError' => $directoryError,
         ]);

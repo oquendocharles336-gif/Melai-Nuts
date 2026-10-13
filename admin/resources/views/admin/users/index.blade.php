@@ -49,7 +49,8 @@
     <x-table stack data-no-paginate>
         <x-slot:head><th>Person</th><th>Accounts</th><th>Branch</th><th>Status</th><th>Activity</th><th class="r"><span class="sr-only">Actions</span></th></x-slot:head>
         @forelse ($people as $p)
-            @php $u = $p['login']; $s = $p['staff']; $c = $p['customer']; @endphp
+            @php $u = $p['login']; $s = $p['staff']; $c = $p['customer'];
+                 $madeHere = $u && $s && isset($createdHere[$u->id]); @endphp
             <tr>
                 <td>
                     <div class="person"><span class="avatar">{{ $p['initials'] }}</span>
@@ -59,9 +60,12 @@
 
                 <td data-label="Accounts">
                     <div class="acct">
-                        @if ($u)
+                        @if ($u && ! $madeHere)   {{-- an account the admin created here shows only its app account --}}
+                            {{-- "e-mail not verified" only matters for a website registration still waiting for approval
+                                 (approving needs a verified e-mail). An account the admin created here is linked to its
+                                 app account at once, so it shows no such note. --}}
                             <div class="acct-line"><x-badge :tone="$u->isAdmin() ? 'accent' : 'info'">Website · {{ $loginRole[$u->role] ?? ucfirst($u->role) }}</x-badge>
-                                @if ($liveData)<span class="cell-sub">{{ $u->firebase_uid ? 'App sign-in'.($u->firebase_email_verified ? ', e-mail verified' : ', e-mail not verified') : 'Local password' }}</span>@endif
+                                @if ($liveData)<span class="cell-sub">{{ $u->firebase_uid ? 'App sign-in'.($u->firebase_email_verified ? ', e-mail verified' : ($u->staff_uid ? '' : ', e-mail not verified')) : 'Local password' }}</span>@endif
                             </div>
                         @endif
                         @if ($s)
@@ -156,9 +160,11 @@
                             if ($appUid && $appUid === $me->staff_uid) { $appUid = null; }
                         @endphp
                         @if ($u && ! $u->isAdmin())
-                            <form method="POST" action="{{ route('admin.users.toggle-access', $u) }}">
-                                @csrf<button class="btn sm" type="submit">{{ $u->has_access ? 'Restrict' : 'Grant access' }}</button>
-                            </form>
+                            @unless ($madeHere)
+                                <form method="POST" action="{{ route('admin.users.toggle-access', $u) }}">
+                                    @csrf<button class="btn sm" type="submit">{{ $u->has_access ? 'Restrict' : 'Grant access' }}</button>
+                                </form>
+                            @endunless
                             @unless ($appUid && $liveData)
                                 <form method="POST" action="{{ route('admin.users.toggle-active', $u) }}"
                                       data-confirm="{{ $u->is_active ? 'Are you sure you want to deactivate the website login of '.$u->email.'? They can no longer sign in to this website.' : 'Are you sure you want to reactivate the website login of '.$u->email.'?' }}"
