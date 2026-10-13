@@ -110,7 +110,6 @@ import '../features/settings/screens/settings_screen.dart';
 import '../features/settings/screens/security_screen.dart';
 import '../features/settings/screens/branch_settings_screen.dart';
 import '../features/settings/screens/logout_confirmation_screen.dart';
-import '../features/settings/screens/logout_success_screen.dart';
 import '../features/settings/screens/permissions_screen.dart';
 import '../features/legal/screens/legal_document_screen.dart';
 import '../core/utils/app_error.dart';
@@ -210,7 +209,6 @@ class AppRoutes {
   static const String accountSecurity = '/settings/security';
   static const String branchSettings = '/settings/branch';
   static const String logoutConfirmation = '/settings/logout';
-  static const String logoutSuccess = '/settings/logout-success';
   static const String appPermissions = '/settings/permissions';
 
   // Legal documents — public, so they can be read before signing up.
@@ -317,7 +315,6 @@ class AppRoutes {
     splash: _public,
     login: _public,
     forgotPassword: _public,
-    logoutSuccess: _public,
     legalTerms: _public,
     legalPrivacy: _public,
     appPermissions: _anySignedIn,
@@ -552,7 +549,6 @@ class AppRoutes {
     accountSecurity: (_) => const SecurityScreen(),
     branchSettings: (_) => const BranchSettingsScreen(),
     logoutConfirmation: (_) => const LogoutConfirmationScreen(),
-    logoutSuccess: (_) => const LogoutSuccessScreen(),
     legalTerms: (_) => const TermsAndConditionsScreen(),
     legalPrivacy: (_) => const PrivacyPolicyScreen(),
     appPermissions: (_) => const PermissionsScreen(),
