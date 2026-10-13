@@ -1071,6 +1071,28 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertAuthenticatedAs($owner);
     }
 
+    public function test_firestore_refusal_says_exactly_what_to_fix_and_creates_nothing(): void
+    {
+        $owner = $this->portalAdmin();
+        $form = fn ($n) => ['name' => 'Fs Staff', 'email' => "fs{$n}-{$this->sfx}@test.local", 'role' => 'staff', 'branch_id' => $this->fx['branch_a'],
+            'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'];
+        $error = fn ($n) => $this->actingAs($owner)->from(route('admin.users.create'))->post(route('admin.users.store'), $form($n))
+            ->assertSessionHasErrors('approve')->getSession()->get('errors')->first('approve');
+
+        // The owner's Firestore profile says "customer" (e.g. promoted only in the database).
+        $this->fb->profiles[$this->fx['owner']]['role'] = 'customer';
+        $this->assertStringContainsString('has role "customer"', $error(1));
+        // No Firestore profile at all.
+        unset($this->fb->profiles[$this->fx['owner']]);
+        $this->assertStringContainsString('has NO profile in Firestore', $error(2));
+        // Firestore rules that refuse everything (not the app's rules).
+        $this->fb->firestoreDenied = true;
+        $this->assertStringContainsString('firebase deploy --only firestore:rules', $error(3));
+
+        $this->assertSame(0, User::where('email', 'like', "fs%-{$this->sfx}@test.local")->count(), 'nothing created');
+        $this->assertAuthenticatedAs($owner);
+    }
+
     public function test_expired_token_is_refreshed_and_revoked_disabled_or_forged_tokens_are_rejected(): void
     {
         $owner = $this->portalAdmin();

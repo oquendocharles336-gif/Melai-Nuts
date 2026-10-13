@@ -15,8 +15,6 @@ use Illuminate\Support\Facades\Log;
  */
 class FirestoreProfiles
 {
-    private const DENIED = 'Firestore refused access to the app profile. Your own app account must be an active owner with a profile in Firestore (users/<your uid>, role "owner", isActive true).';
-
     public function __construct(private FirebaseConfig $config) {}
 
     /**
@@ -56,7 +54,7 @@ class FirestoreProfiles
         throw new FirebaseAuthException(
             $r->serverError() ? FirebaseAuthException::NETWORK : FirebaseAuthException::UNEXPECTED,
             $status === 'PERMISSION_DENIED'
-                ? self::DENIED
+                ? $this->denied($ownerIdToken)
                 : 'Could not create the app profile in Firestore ('.($status ?: 'HTTP '.$r->status()).').',
             $status ?: null);
     }
@@ -69,7 +67,7 @@ class FirestoreProfiles
             return null;
         }
         if ($r->status() === 403) {
-            throw new FirebaseAuthException(FirebaseAuthException::UNEXPECTED, self::DENIED, 'PERMISSION_DENIED');
+            throw new FirebaseAuthException(FirebaseAuthException::UNEXPECTED, $this->denied($ownerIdToken), 'PERMISSION_DENIED');
         }
         if ($r->failed()) {
             throw new FirebaseAuthException($r->serverError() ? FirebaseAuthException::NETWORK : FirebaseAuthException::UNEXPECTED, 'Could not read the app profile in Firestore.');
@@ -97,7 +95,7 @@ class FirestoreProfiles
         }
         Log::warning('[firestore] isActive write refused', ['http' => $r->status(), 'status' => $status]);
         throw new FirebaseAuthException($r->serverError() ? FirebaseAuthException::NETWORK : FirebaseAuthException::UNEXPECTED,
-            $status === 'PERMISSION_DENIED' ? self::DENIED : 'Could not update the app profile in Firestore ('.($status ?: 'HTTP '.$r->status()).').',
+            $status === 'PERMISSION_DENIED' ? $this->denied($ownerIdToken) : 'Could not update the app profile in Firestore ('.($status ?: 'HTTP '.$r->status()).').',
             $status ?: null);
     }
 
@@ -108,6 +106,44 @@ class FirestoreProfiles
         if ($r->failed() && $r->status() !== 404) {
             throw new FirebaseAuthException(FirebaseAuthException::UNEXPECTED, 'Could not delete the app profile in Firestore.');
         }
+    }
+
+    /**
+     * Firestore said PERMISSION_DENIED: find out WHY, by reading the caller's own profile
+     * users/{uid} with the same token, and say exactly what to fix (nothing is changed here).
+     */
+    private function denied(string $ownerIdToken): string
+    {
+        $claims = json_decode((string) base64_decode(strtr(explode('.', $ownerIdToken)[1] ?? '', '-_', '+/')), true) ?: [];
+        $uid = (string) ($claims['sub'] ?? '');
+        $email = (string) ($claims['email'] ?? 'your app account');
+        $project = (string) $this->config->projectId();
+        $doc = "Firebase console > project {$project} > Firestore Database > users > {$uid}";
+        $rules = "Publish the app's rules: from the project folder run \"firebase deploy --only firestore:rules\" (or paste the file firestore.rules into Firebase console > Firestore Database > Rules and click Publish).";
+
+        try {
+            $r = Http::withToken($ownerIdToken)->timeout(10)->acceptJson()->get($this->base().'/users/'.rawurlencode($uid));
+        } catch (\Throwable) {
+            return 'Firestore refused to save the app profile, and your own profile could not be checked. Please try again.';
+        }
+        if ($r->status() === 404) {
+            return "Firestore does not know you as the owner: your app account ({$email}) has NO profile in Firestore. "
+                ."Fix: in {$doc} add a document with ID {$uid} and the fields email = {$email} (string), name = your name (string), "
+                .'role = owner (string), isActive = true (boolean), createdAt = now (timestamp). Then try again.';
+        }
+        if ($r->status() === 403) {
+            return "Firestore refused even to read your own app profile, so the security rules of Firebase project {$project} are not the Melai Nuts app's rules. {$rules}";
+        }
+        $f = collect((array) $r->json('fields', []))->map(fn ($v) => is_array($v) ? reset($v) : $v);
+        if (($f['role'] ?? null) !== 'owner') {
+            return "Firestore does not know you as the owner: your profile ({$doc}) has role \"".($f['role'] ?? 'none')."\". "
+                .'The Melai Nuts database already has you as the owner; change the field role to owner there (and isActive to true), then try again.';
+        }
+        if (array_key_exists('isActive', $f->all()) && $f['isActive'] !== true) {
+            return "Your Firestore profile ({$doc}) has isActive = false. Set it to true, then try again.";
+        }
+
+        return "Your Firestore profile is an active owner, but Firestore still refused to save the new profile: the rules of project {$project} are older than the app's. {$rules}";
     }
 
     private function base(): string

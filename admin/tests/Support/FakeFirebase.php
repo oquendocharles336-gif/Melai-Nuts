@@ -258,7 +258,8 @@ class FakeFirebase
         }
         // Like firestore.rules: the caller (bearer ID token) must be an active owner profile.
         $caller = $this->uidFromToken(substr((string) $r->header('Authorization')[0], 7));
-        if (($this->profiles[$caller]['role'] ?? null) !== 'owner') {
+        $self = $r->method() === 'GET' && rawurldecode(basename((string) parse_url($r->url(), PHP_URL_PATH))) === $caller;   // read own profile
+        if (! $self && (($this->profiles[$caller]['role'] ?? null) !== 'owner' || ($this->profiles[$caller]['isActive'] ?? true) !== true)) {
             return Http::response(['error' => ['code' => 403, 'status' => 'PERMISSION_DENIED', 'message' => 'Missing or insufficient permissions.']], 403);
         }
         if (str_ends_with(parse_url($r->url(), PHP_URL_PATH), ':commit')) {
