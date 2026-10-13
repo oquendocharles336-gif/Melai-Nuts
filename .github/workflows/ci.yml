@@ -103,6 +103,8 @@ jobs:
           cache: npm
           cache-dependency-path: admin/package-lock.json
       - run: npm ci && npm run build
+      - name: Website JavaScript tests (sale key)
+        run: npm run test:js
       - name: Build the throwaway test database (stub roles + schema + migrations)
         env:
           PGADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres

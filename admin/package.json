@@ -5,7 +5,8 @@
     "scripts": {
         "build": "vite build && node scripts/vendor-ocr.mjs",
         "dev": "vite",
-        "vendor:ocr": "node scripts/vendor-ocr.mjs"
+        "vendor:ocr": "node scripts/vendor-ocr.mjs",
+        "test:js": "node --test tests/js/sale-key.test.js"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",

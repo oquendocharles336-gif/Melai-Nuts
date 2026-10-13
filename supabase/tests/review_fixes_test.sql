@@ -235,6 +235,20 @@ select pg_temp.chk_true('carried: a row the branch does not carry is not "carrie
   (pg_temp.stock_item('rv-own', 'bb', 'var') ->> 'carried')::boolean = false, pg_temp.stock_item('rv-own', 'bb', 'var')::text);
 select pg_temp.chk_true('carried: a carried row with 0 is carried (genuinely out of stock)',
   (pg_temp.stock_item('rv-own', 'bb', 'var2') ->> 'carried')::boolean = true);
+-- The other stock counts (20261027010000): branch B holds one row it doesn't
+-- carry (var) and one carried row with 0 (var2) -> exactly ONE out of stock.
+select pg_temp.chk_true('carried: staff dashboard counts only carried rows as out of stock',
+  (pg_temp.try_as('rv-sb', format($q$select public.staff_get_dashboard(%L::uuid)::text$q$, pg_temp.f('bb')))::jsonb
+     ->> 'out_of_stock_count')::int = 1,
+  pg_temp.try_as('rv-sb', format($q$select public.staff_get_dashboard(%L::uuid)::text$q$, pg_temp.f('bb'))));
+select pg_temp.chk_true('carried: analytics_report inventory counts only carried rows as out of stock',
+  (pg_temp.try_as('rv-own', format($q$select public.analytics_report(current_date, current_date, %L::uuid)::text$q$, pg_temp.f('bb')))::jsonb
+     -> 'inventory' ->> 'out_of_stock')::int = 1);
+select public.enqueue_owner_daily_digest(current_date);
+select pg_temp.chk_true('carried: the owners'' daily digest counts only carried rows as out of stock',
+  (select body like '%low, 1 out%' from public.staff_notifications
+    where recipient_uid = 'rv-own' and reference = 'digest:' || current_date),
+  (select body from public.staff_notifications where recipient_uid = 'rv-own' and reference = 'digest:' || current_date));
 select pg_temp.chk_true('carried: new rows are carried by default',
   (select is_carried from public.branch_inventory where branch_id = pg_temp.f('ba')::uuid and variant_id = pg_temp.f('var')::uuid));
 select pg_temp.try_as('rv-own', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'RVW-B1', 5, current_date + 90)::text$q$,

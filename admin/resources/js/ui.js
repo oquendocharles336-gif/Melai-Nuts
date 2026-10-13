@@ -5,6 +5,7 @@
 
 import { lineChart, barChart, sparkPath } from './charts';
 import { peso, int, pct, shortDate, longDate, dateTime, ago, initials } from './format';
+import { noteFailedSale, rotateSaleKey, startNewSale } from './sale-key';
 
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
 const uid = () => document.querySelector('meta[name="melai-user"]')?.content || 'guest';
@@ -497,24 +498,6 @@ function stockComponent(items, { receiveUrl, branch, branchName, live }) {
 // ---------------------------------------------------------------------------------------------
 // New order (in-store sale through the app's POS function)
 // ---------------------------------------------------------------------------------------------
-const newSaleKey = () => (crypto.randomUUID?.() || String(Date.now()) + Math.random());
-
-/**
- * The sale's idempotency key. The database returns the recorded sale for the same key + same
- * details and refuses the same key with different details. So a changed sale (lines, branch,
- * method, cash) gets a new key, EXCEPT after a request whose outcome is unknown (network error,
- * timeout, 5xx): the sale may already be recorded, and only the same key lets the database say so
- * instead of recording a second one.
- */
-export function rotateSaleKey(state) {
-    if (state.outcomeUnknown) return state.key;
-    state.key = newSaleKey();
-    return state.key;
-}
-
-/** True when a failed request may still have been recorded (it never got a clear answer). */
-export const outcomeUnknown = (e) => !e?.status || e.status === 408 || e.status >= 500;
-
 function newOrderComponent({ branches, live, branchesUrl, catalogUrl, storeUrl }) {
     return {
         branches, live, branch: branches[0]?.id || '', catalog: [], loadingCatalog: false, lines: [], method: 'cash', reference: '', cash: '',
@@ -529,8 +512,7 @@ function newOrderComponent({ branches, live, branchesUrl, catalogUrl, storeUrl }
         },
         reset() {
             this.lines = []; this.method = 'cash'; this.reference = ''; this.cash = ''; this.error = null; this.pick = '';
-            this.outcomeUnknown = false;
-            this.key = newSaleKey();
+            startNewSale(this);
             if (this.live && !this.branches.length) {
                 api(branchesUrl).then((list) => { this.branches = list; this.branch = list[0]?.id || ''; }).catch((e) => { this.error = e.message; });
             } else if (this.live && !this.catalog.length) this.loadCatalog();
@@ -569,7 +551,7 @@ function newOrderComponent({ branches, live, branchesUrl, catalogUrl, storeUrl }
                 this.catalog = [];
                 changed('orders');
             } catch (e) {
-                if (outcomeUnknown(e)) this.outcomeUnknown = true;
+                noteFailedSale(this, e);
                 this.error = e.message;
             }
             finally { this.busy = false; }
