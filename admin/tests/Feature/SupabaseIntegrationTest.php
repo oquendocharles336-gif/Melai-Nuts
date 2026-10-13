@@ -980,6 +980,10 @@ class SupabaseIntegrationTest extends TestCase
             'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])
             ->assertRedirect(route('admin.users.index'));
 
+        // The owner who created it stays signed in (same browser session).
+        $this->get(route('admin.users.index'))->assertOk()->assertSee($email);
+        $this->assertAuthenticatedAs($owner);
+
         $u = User::firstWhere('email', $email);
         $this->assertNotNull($this->fb->account($u->firebase_uid), 'Firebase account created');
         $this->assertSame($u->firebase_uid, $u->staff_uid);
@@ -994,6 +998,36 @@ class SupabaseIntegrationTest extends TestCase
         $this->actingAs($owner)->from('/admin/users/create')->post(route('admin.users.store'), ['name' => 'Again', 'email' => $email, 'role' => 'staff',
             'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])->assertSessionHasErrors('email');
         $this->assertSame(1, User::where('email', $email)->count());
+    }
+
+    public function test_owner_signed_in_with_the_website_password_confirms_with_the_app_password_and_stays_signed_in(): void
+    {
+        // Website-password login of the owner: linked to the owner row, no app (Firebase) sign-in in the session.
+        $owner = User::factory()->create(['email' => "owner-{$this->sfx}@test.local", 'role' => 'admin', 'has_access' => true]);
+        $owner->forceFill(['staff_uid' => $this->fx['owner']])->save();
+        $email = "local-made-{$this->sfx}@test.local";
+        $form = ['name' => 'Local Made', 'email' => $email, 'role' => 'staff', 'branch_id' => $this->fx['branch_a'],
+            'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'];
+
+        $this->actingAs($owner)->get(route('admin.users.create'))->assertOk()->assertSee('Your Melai Nuts app password');
+
+        // No app password / a wrong one: a form error, nothing created, and the owner is NOT signed out.
+        $this->actingAs($owner)->from(route('admin.users.create'))->post(route('admin.users.store'), $form)
+            ->assertRedirect(route('admin.users.create'))->assertSessionHasErrors('owner_password');
+        $this->actingAs($owner)->from(route('admin.users.create'))->post(route('admin.users.store'), $form + ['owner_password' => 'nope'])
+            ->assertSessionHasErrors('owner_password')->assertSessionMissing('_old_input.owner_password');
+        $this->assertAuthenticatedAs($owner);
+        $this->assertNull(User::firstWhere('email', $email));
+        $this->assertNull($this->fb->accounts[$email] ?? null, 'no Firebase account was created');
+
+        // With the app password: created, and the owner keeps working.
+        $this->actingAs($owner)->post(route('admin.users.store'), $form + ['owner_password' => 'Owner#Pass1'])
+            ->assertRedirect(route('admin.users.index'))->assertSessionHasNoErrors();
+        $this->get(route('admin.users.index'))->assertOk()->assertSee($email);
+        $this->assertAuthenticatedAs($owner);
+        $u = User::firstWhere('email', $email);
+        $this->assertSame('staff', $this->db()->selectOne('select role from public.staff_members where firebase_uid = ?', [$u->firebase_uid])->role);
+        $this->assertSame('staff', $this->fb->profiles[$u->firebase_uid]['role']);
     }
 
     public function test_expired_token_is_refreshed_and_revoked_disabled_or_forged_tokens_are_rejected(): void

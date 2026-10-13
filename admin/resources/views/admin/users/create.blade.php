@@ -18,7 +18,7 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('admin.users.store') }}">
+    <form method="POST" action="{{ route('admin.users.store') }}" x-data="{ show: false }">
         @csrf
         <div class="field"><label>Full name</label><input class="light-input" name="name" value="{{ old('name') }}"></div>
         <div class="field"><label>Email</label><input class="light-input" type="email" name="email" value="{{ old('email') }}"></div>
@@ -36,8 +36,17 @@
                 </select>
             </div>
         @endif
-        <div class="field"><label>Password</label><input class="light-input" type="password" name="password"></div>
-        <div class="field"><label>Confirm password</label><input class="light-input" type="password" name="password_confirmation"></div>
+        <div class="field"><label for="new-password">Password</label>
+            <input class="light-input" id="new-password" type="password" :type="show ? 'text' : 'password'" name="password" autocomplete="new-password"></div>
+        <div class="field"><label for="new-password-confirm">Confirm password</label>
+            <input class="light-input" id="new-password-confirm" type="password" :type="show ? 'text' : 'password'" name="password_confirmation" autocomplete="new-password"></div>
+        <label class="show-password"><input type="checkbox" x-model="show"> Show password</label>
+        @if ($needsOwnerPassword ?? false)
+            <div class="field"><label for="owner-password">Your Melai Nuts app password</label>
+                <input class="light-input" id="owner-password" type="password" :type="show ? 'text' : 'password'" name="owner_password" autocomplete="current-password" required>
+                <p class="muted" style="font-size:12.5px;margin:.35rem 0 0">You signed in with the website password. The new app account is registered as your app owner account, so confirm with the password you use in the Melai Nuts app. It is used once and not saved.</p>
+            </div>
+        @endif
         <button class="btn-solid" type="submit">Create account</button>
         <a class="btn-outline" href="{{ route('admin.users.index') }}">Cancel</a>
     </form>

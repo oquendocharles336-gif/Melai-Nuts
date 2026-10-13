@@ -65,6 +65,7 @@ class UserController extends Controller
             'counts' => $people->counts($searched),
             'totals' => $people->counts($everyone),
             'liveData' => $platform->isSupabase(),
+            'needsOwnerPassword' => $platform->isSupabase() && app(AccountProvisioner::class)->needsOwnerPassword($request->user()),
             'appLoaded' => $app !== null,
             'partial' => (bool) ($app['partial'] ?? false),
             'customersShown' => count($app['customers'] ?? []),
@@ -93,7 +94,8 @@ class UserController extends Controller
             'role' => ['required', 'in:staff,owner'],
             'branch_id' => ['nullable', 'required_if:role,staff', 'uuid'],
         ]);
-        $profile = $provisioner->approve($user, $data['role'], $data['branch_id'] ?? null, $request->user());
+        $token = $provisioner->ownerToken($request->user(), $request->input('owner_password'));
+        $profile = $provisioner->approve($user, $data['role'], $data['branch_id'] ?? null, $request->user(), $token);
 
         return back()->with('status', "{$user->email} is now registered in the app as {$profile['role']}"
             .(($profile['branch_name'] ?? null) ? " ({$profile['branch_name']})" : '').' and can use the website.');
@@ -108,7 +110,7 @@ class UserController extends Controller
         return back()->with('status', "{$user->email} is no longer linked to an app account.");
     }
 
-    public function create(Platform $platform)
+    public function create(Platform $platform, AccountProvisioner $provisioner)
     {
         $branches = [];
         if ($platform->isSupabase() && auth()->user()->staff_uid) {
@@ -119,7 +121,8 @@ class UserController extends Controller
             }
         }
 
-        return view('admin.users.create', ['liveData' => $platform->isSupabase(), 'branches' => $branches]);
+        return view('admin.users.create', ['liveData' => $platform->isSupabase(), 'branches' => $branches,
+            'needsOwnerPassword' => $platform->isSupabase() && $provisioner->needsOwnerPassword(auth()->user())]);
     }
 
     public function store(AdminCreateUserRequest $request, Platform $platform, AccountProvisioner $provisioner)
@@ -130,7 +133,9 @@ class UserController extends Controller
         // registration + linked login, created together exactly like the app's User Management.
         if ($platform->isSupabase() && $data['role'] === User::ROLE_STAFF) {
             $request->validate(['branch_id' => ['required', 'uuid']]);
-            [$user, $profile] = $provisioner->createStaff($data['name'], $data['email'], $data['password'], $request->input('branch_id'), $request->user());
+            // The owner's app sign-in (or app password) is checked BEFORE anything is created.
+            $token = $provisioner->ownerToken($request->user(), $request->input('owner_password'));
+            [$user, $profile] = $provisioner->createStaff($data['name'], $data['email'], $data['password'], $request->input('branch_id'), $request->user(), $token);
             ActivityLogger::log('account.created_by_admin', "Admin created app staff account: {$user->email}", $user, [
                 'role' => $user->role, 'created_by' => $request->user()->id, 'branch' => $profile['branch_name'] ?? null,
             ]);

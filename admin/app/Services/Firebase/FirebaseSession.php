@@ -54,6 +54,14 @@ class FirebaseSession
         return is_array(session(self::KEY));
     }
 
+    /** This browser session holds an app (Firebase) sign-in of $user (no network call). */
+    public function isFor(User $user): bool
+    {
+        $s = session(self::KEY);
+
+        return is_array($s) && filled($user->firebase_uid) && ($s['uid'] ?? null) === $user->firebase_uid;
+    }
+
     /**
      * Verified claims of the current session's Firebase user, who must be $user's Firebase identity.
      *

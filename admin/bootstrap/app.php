@@ -45,6 +45,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectUsersTo(fn () => route('dashboard')); // logged-in -> dashboard
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        // Never keep a typed password in the session's "old input" after a form error.
+        $exceptions->dontFlash(['current_password', 'password', 'password_confirmation', 'owner_password']);
         // Shared-database (Supabase) problems are shown as clear messages, never as a stack trace.
         $show = function (string $title, string $message, int $status, Request $request) {
             if ($request->expectsJson()) {

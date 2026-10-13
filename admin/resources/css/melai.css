@@ -680,3 +680,7 @@ details.explain p { margin: 10px 0 0; color: var(--ink-2); font-size: 13px; line
 .main-inner.live-updated { animation: live-flash .9s ease-out; }
 @keyframes live-flash { from { box-shadow: inset 0 3px 0 0 var(--accent); } to { box-shadow: inset 0 3px 0 0 transparent; } }
 @media (prefers-reduced-motion: reduce) { .main-inner.live-updated { animation: none; } }
+
+/* "Show password" checkbox under password fields (e.g. All users > Create account). */
+.show-password { display: flex; width: fit-content; align-items: center; gap: 8px; margin: -2px 0 16px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+.show-password input { width: 15px; height: 15px; margin: 0; accent-color: var(--ink); cursor: pointer; }

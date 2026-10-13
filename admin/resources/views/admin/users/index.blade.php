@@ -94,6 +94,10 @@
                                     <select class="light-input" name="branch_id" x-show="role === 'staff'" aria-label="Branch">
                                         @foreach ($branches as $b) <option value="{{ $b['id'] }}">{{ $b['name'] }}</option> @endforeach
                                     </select>
+                                    @if ($needsOwnerPassword)
+                                        <input class="light-input" type="password" name="owner_password" autocomplete="current-password" required
+                                               placeholder="Your app password" aria-label="Your Melai Nuts app password, to confirm" title="You signed in with the website password: confirm with your Melai Nuts app password (used once, not saved).">
+                                    @endif
                                     <button class="btn sm primary" type="submit" @disabled(! $u->firebase_email_verified)
                                             data-confirm="Give {{ $u->email }} OWNER rights in the Melai Nuts app (all branches, user management)?" data-confirm-title="Make this person an owner?" data-confirm-label="Approve as owner" data-confirm-if="role=owner">Approve</button>
                                 </form>

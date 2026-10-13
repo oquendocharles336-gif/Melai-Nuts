@@ -4,6 +4,7 @@ namespace App\Services\Auth;
 
 use App\Exceptions\BackendActionException;
 use App\Exceptions\BackendUnavailableException;
+use App\Exceptions\FirebaseSessionRequiredException;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Firebase\FirebaseAuthClient;
@@ -18,6 +19,7 @@ use App\Services\Supabase\SupabaseGateway;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -47,8 +49,57 @@ class AccountProvisioner
         private StaffLinker $linker,
     ) {}
 
+    /** True when the owner must type their app password to register staff (no app sign-in in this session). */
+    public function needsOwnerPassword(User $owner): bool
+    {
+        return ! $this->session->isFor($owner);
+    }
+
+    /**
+     * The owner's Firebase ID token, needed to write the new person's app profile (firestore.rules
+     * let only an owner do that). From this session's app sign-in, or, when the owner signed in with
+     * the website password, from their Melai Nuts app password typed on the form ($appPassword).
+     * The password is used once and never stored. Problems are form errors: the owner is never
+     * signed out of the website because of this.
+     */
+    public function ownerToken(User $owner, ?string $appPassword): string
+    {
+        if ($this->session->isFor($owner)) {
+            try {
+                return $this->session->idTokenFor($owner);
+            } catch (FirebaseSessionRequiredException) {
+                // app sign-in ended: fall back to the password below
+            }
+        }
+        if (blank($appPassword)) {
+            throw ValidationException::withMessages(['owner_password' => 'Enter your Melai Nuts app password to confirm. Creating or approving app accounts is done as your app owner account.']);
+        }
+        $key = 'owner-app-password:'.$owner->getAuthIdentifier();
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            throw ValidationException::withMessages(['owner_password' => 'Too many wrong passwords. Try again in '.RateLimiter::availableIn($key).' seconds.']);
+        }
+        $ownerUid = $this->requireOwner($owner);
+        try {
+            $tokens = $this->client->signIn($owner->email, (string) $appPassword);
+            $claims = $this->verifier->verify($tokens['id_token']);
+        } catch (FirebaseAuthException $e) {
+            if (in_array($e->reason, [FirebaseAuthException::INVALID_CREDENTIALS, FirebaseAuthException::ACCOUNT_NOT_FOUND], true)) {
+                RateLimiter::hit($key, 300);
+                ActivityLogger::log('auth.password_confirm_failed', 'Wrong app password when registering an app account', $owner);
+                throw ValidationException::withMessages(['owner_password' => "That is not the Melai Nuts app password of {$owner->email}."]);
+            }
+            throw ValidationException::withMessages(['owner_password' => $e->getMessage()]);
+        }
+        if ($claims['sub'] !== $ownerUid) {
+            throw ValidationException::withMessages(['owner_password' => "The app account of {$owner->email} is not the owner account this login acts as."]);
+        }
+        RateLimiter::clear($key);
+
+        return $tokens['id_token'];
+    }
+
     /** Owner approves a website registration (Firebase account created at registration, email verified). */
-    public function approve(User $pending, string $role, ?string $branchId, User $owner): array
+    public function approve(User $pending, string $role, ?string $branchId, User $owner, ?string $ownerToken = null): array
     {
         if (blank($pending->firebase_uid) || filled($pending->staff_uid) || ! $pending->canUseWebsite()) {
             throw ValidationException::withMessages(['approve' => 'Only website registrations that are not linked yet can be approved.']);
@@ -60,16 +111,17 @@ class AccountProvisioner
             throw ValidationException::withMessages(['approve' => "{$pending->email} has not verified their email yet. They must click the link Firebase emailed them and then sign in once (or press \"Check again\" on their waiting page)."]);
         }
 
-        return $this->provision($pending, $role, $branchId, $owner);
+        return $this->provision($pending, $role, $branchId, $owner, $ownerToken);
     }
 
     /**
      * Admin creates a staff account on the website: new Firebase account + app registration + linked
      * login, all or nothing. @return array [User, profile]
      */
-    public function createStaff(string $name, string $email, string $password, ?string $branchId, User $owner): array
+    public function createStaff(string $name, string $email, string $password, ?string $branchId, User $owner, ?string $ownerToken = null): array
     {
         $this->requireOwner($owner); // before anything is created in Firebase
+        $ownerToken ??= $this->ownerToken($owner, null);
         try {
             $tokens = $this->client->signUp($email, $password, $name);
         } catch (FirebaseAuthException $e) {
@@ -88,7 +140,7 @@ class AccountProvisioner
                 'firebase_uid' => $claims['sub'], 'firebase_email_verified' => $claims['email_verified'],
             ]);
             $user->save();
-            $profile = $this->provision($user, 'staff', $branchId, $owner);
+            $profile = $this->provision($user, 'staff', $branchId, $owner, $ownerToken);
 
             return [$user->fresh(), $profile];
         } catch (\Throwable $e) {
@@ -108,7 +160,7 @@ class AccountProvisioner
         }
     }
 
-    private function provision(User $user, string $role, ?string $branchId, User $owner): array
+    private function provision(User $user, string $role, ?string $branchId, User $owner, ?string $ownerToken = null): array
     {
         if (! in_array($role, ['staff', 'owner'], true)) {
             throw ValidationException::withMessages(['role' => 'Choose Staff or Owner.']);
@@ -123,7 +175,7 @@ class AccountProvisioner
             $branchName = $branch['name'];
         }
         $uid = $user->firebase_uid;
-        $ownerToken = $this->session->idTokenFor($owner);
+        $ownerToken ??= $this->ownerToken($owner, null);
 
         $existed = ($this->identity->contextFor($uid)['status'] ?? 'not_provisioned') !== 'not_provisioned';
         $this->identity->forget($uid);
