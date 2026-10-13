@@ -200,6 +200,7 @@
   "stockLow": "Mababa",
   "stockNormal": "Normal",
   "stockOut": "Ubos na",
+  "stockNotSoldHere": "Hindi ibinebenta rito",
   "filterBranch": "Branch",
   "filterCategory": "Kategorya",
   "filterActive": "Aktibo",

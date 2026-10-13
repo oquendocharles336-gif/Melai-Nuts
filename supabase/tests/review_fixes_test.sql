@@ -249,11 +249,23 @@ select pg_temp.chk_true('carried: the owners'' daily digest counts only carried 
   (select body like '%low, 1 out%' from public.staff_notifications
     where recipient_uid = 'rv-own' and reference = 'digest:' || current_date),
   (select body from public.staff_notifications where recipient_uid = 'rv-own' and reference = 'digest:' || current_date));
+create function pg_temp.inv_item(p_uid text, p_branch text, p_var text) returns jsonb language sql as $$
+  select i from jsonb_array_elements(
+    pg_temp.try_as(p_uid, format($q$select public.staff_get_inventory(%L::uuid)::text$q$, pg_temp.f(p_branch)))::jsonb -> 'items') i
+  where i ->> 'variant_id' = pg_temp.f(p_var) $$;
+select pg_temp.chk_true('carried: staff inventory marks an item the branch does not sell as not carried',
+  (pg_temp.inv_item('rv-sb', 'bb', 'var') ->> 'carried')::boolean = false, pg_temp.inv_item('rv-sb', 'bb', 'var')::text);
+select pg_temp.chk_true('carried: staff inventory marks a sold item at 0 as carried (genuinely out of stock)',
+  (pg_temp.inv_item('rv-sb', 'bb', 'var2') ->> 'carried')::boolean = true);
+select pg_temp.chk_true('carried: staff inventory marks a carried item with stock as carried',
+  (pg_temp.inv_item('rv-sa', 'ba', 'var') ->> 'carried')::boolean = true);
 select pg_temp.chk_true('carried: new rows are carried by default',
   (select is_carried from public.branch_inventory where branch_id = pg_temp.f('ba')::uuid and variant_id = pg_temp.f('var')::uuid));
 select pg_temp.try_as('rv-own', format($q$select public.staff_receive_batch(%L::uuid, %L::uuid, 'RVW-B1', 5, current_date + 90)::text$q$,
   pg_temp.f('bb'), pg_temp.f('var')));
 select set_config('app.inventory_managed', '', true);
+select pg_temp.chk_true('carried: after receiving, staff inventory shows the item as carried',
+  (pg_temp.inv_item('rv-sb', 'bb', 'var') ->> 'carried')::boolean = true);
 select pg_temp.chk_true('carried: receiving stock makes the row carried',
   (select is_carried and quantity = 5 from public.branch_inventory where branch_id = pg_temp.f('bb')::uuid and variant_id = pg_temp.f('var')::uuid));
 select pg_temp.chk_true('carried: customers can read the flag (the app''s live stock check)',

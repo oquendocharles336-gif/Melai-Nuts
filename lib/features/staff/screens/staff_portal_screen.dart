@@ -383,7 +383,8 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
         final product = findProductById(item.productId);
         final qty = _cart[item.variantId] ?? 0;
         final isSelected = qty > 0;
-        final out = item.isOutOfStock;
+        // Nothing to sell: out of stock, or not sold at this branch.
+        final out = item.hasNoStock;
 
         return Stack(
           fit: StackFit.expand,
@@ -432,7 +433,7 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                           ),
                           const Spacer(),
                           Text(
-                            out ? 'Out' : '${item.quantity} left',
+                            item.isNotSoldHere ? 'Not sold here' : (out ? 'Out' : '${item.quantity} left'),
                             style: AppTextStyles.labelSm.copyWith(
                               color: out || item.isLowStock ? AppColors.error : AppColors.textSecondary,
                             ),

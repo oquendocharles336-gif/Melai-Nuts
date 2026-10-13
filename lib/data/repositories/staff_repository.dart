@@ -196,6 +196,8 @@ class StaffRepository {
           branch: branchName,
           branchId: resolvedBranch,
           batches: byVariant[r['variant_id'] as String] ?? const [],
+          // Older databases don't send it: treat as carried (old behaviour).
+          isCarried: r['carried'] as bool? ?? true,
         ),
     ];
     return StaffInventorySnapshot(branchId: resolvedBranch, items: items, batches: batches);

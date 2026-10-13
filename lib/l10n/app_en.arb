@@ -319,6 +319,7 @@
   "stockLow": "Low",
   "stockNormal": "Normal",
   "stockOut": "Out of stock",
+  "stockNotSoldHere": "Not sold here",
   "filterBranch": "Branch",
   "filterCategory": "Category",
   "filterActive": "Active",

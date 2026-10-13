@@ -24,6 +24,12 @@ class InventoryItem {
   final String branchId;
   final List<InventoryBatch> batches;
 
+  /// Whether this branch sells the item (`branch_inventory.is_carried`). An
+  /// item the branch doesn't carry is "not sold here", never "out of stock",
+  /// and is left out of the low / out-of-stock counts. Receiving stock for it
+  /// makes it carried.
+  final bool isCarried;
+
   const InventoryItem({
     required this.productId,
     required this.variantId,
@@ -38,6 +44,7 @@ class InventoryItem {
     required this.branchId,
     required this.batches,
     this.branch,
+    this.isCarried = true,
   });
 
   String get displayName =>
@@ -47,13 +54,21 @@ class InventoryItem {
 
   int get batchCount => batches.length;
 
-  bool get isOutOfStock => quantity <= 0;
+  /// The branch doesn't sell this item (shown as "Not sold here").
+  bool get isNotSoldHere => !isCarried;
+
+  /// Nothing on the shelf: can't be sold at the register right now (out of
+  /// stock, or not sold here).
+  bool get hasNoStock => quantity <= 0;
+
+  /// Sold here and empty. Items the branch doesn't sell are not "out of stock".
+  bool get isOutOfStock => isCarried && quantity <= 0;
 
   /// Low but not empty (empty is reported separately as out of stock).
   /// Never true while no restock level is set.
   bool get isLowStock {
     final t = restockThreshold;
-    return t != null && quantity > 0 && quantity <= t;
+    return isCarried && t != null && quantity > 0 && quantity <= t;
   }
 
   /// Out of stock, or at / below its restock level.

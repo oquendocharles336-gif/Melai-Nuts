@@ -40,7 +40,9 @@ class InventoryCard extends StatelessWidget {
     return InventoryCard._(
       productId: item.productId,
       title: item.displayName,
-      subtitle: item.isOutOfStock ? 'Out of stock' : '$batches$unassigned',
+      subtitle: item.isNotSoldHere
+          ? 'Not sold here'
+          : (item.isOutOfStock ? 'Out of stock' : '$batches$unassigned'),
       quantity: item.totalStock,
       priority: item.worstFefoPriority,
       isLowStock: item.needsRestock,

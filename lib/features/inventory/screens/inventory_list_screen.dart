@@ -38,7 +38,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         FilterGroup('stock', t.filterStock, [
           FilterChoice('out', t.stockOut, (i) => i.isOutOfStock),
           FilterChoice('low', t.stockLow, (i) => i.isLowStock && !i.isOutOfStock),
-          FilterChoice('normal', t.stockNormal, (i) => !i.needsRestock),
+          FilterChoice('normal', t.stockNormal, (i) => !i.needsRestock && !i.isNotSoldHere),
+          FilterChoice('notSold', t.stockNotSoldHere, (i) => i.isNotSoldHere),
         ]),
       ];
 
