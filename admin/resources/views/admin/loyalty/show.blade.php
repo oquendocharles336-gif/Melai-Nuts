@@ -7,13 +7,7 @@
     $tone = ['earned' => 'high', 'redeemed' => 'info', 'refunded' => 'low', 'adjusted' => 'average', 'returned' => 'info'];
 @endphp
 
-@if (session('status')) <div class="card" style="border-color:#2E7D4F;background:#f1f8f2">{{ session('status') }}</div> @endif
-@if (session('error')) <div class="card" style="border-color:#C0392B;background:#fdecea">{{ session('error') }}</div> @endif
-@if ($errors->any())
-    <div class="card" style="border-color:#C0392B;background:#fdecea">
-        <ul style="margin:0;padding-left:1.1rem">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
-    </div>
-@endif
+@include('partials.flash')
 
 <a class="btn-outline" style="padding:.3rem .9rem;width:fit-content" href="{{ route('loyalty.index') }}">&larr; Back to members</a>
 

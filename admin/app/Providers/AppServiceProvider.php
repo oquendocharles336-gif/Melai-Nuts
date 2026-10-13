@@ -34,6 +34,16 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // One pager for every list (resources/views/pagination/melai.blade.php).
+        \Illuminate\Pagination\Paginator::defaultView('pagination.melai');
+        \Illuminate\Pagination\Paginator::defaultSimpleView('pagination.melai');
+        // Money and payment-method labels: one definition for every page (App\Support\Format).
+        \Illuminate\Support\Facades\View::share([
+            'peso' => fn ($n) => \App\Support\Format::peso($n),
+            'pesoWhole' => fn ($n) => \App\Support\Format::peso($n, 0),
+            'methodLabel' => fn ($m) => \App\Support\Format::method($m),
+        ]);
+
         // Firebase is how website logins prove who they are; say clearly at start-up what is missing.
         $firebase = $this->app->make(FirebaseConfig::class);
         if (! $this->app->environment('testing') && ! $firebase->ready()) {

@@ -27,7 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(ResetRequestScope::class);
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class); // CSP, nosniff, frame, HSTS (config/melai.php)
         // Set by resources/js/ui.js (plain "1", no secret): lets heavy pages answer with an instant shell.
-        $middleware->encryptCookies(except: ['melai_js']);
+        $middleware->encryptCookies(except: ['melai_js', 'melai_per_page']);
         $middleware->prepend(\App\Http\Middleware\ServerTiming::class); // TEMPORARY: MELAI_TIMING=true
         $middleware->alias([
             'role'       => EnsureRole::class,         // role:admin -> 403 if not allowed

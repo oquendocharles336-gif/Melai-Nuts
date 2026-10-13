@@ -3,7 +3,7 @@
 @section('page-title', 'Receiving — supplier invoices (OCR)')
 @section('panel')
 @include('partials.flash')
-@php $peso = fn ($n) => '₱'.number_format((float) $n, 2); $tone = ['draft' => 'average', 'approved' => 'high', 'cancelled' => 'info']; @endphp
+@php $tone = ['draft' => 'average', 'approved' => 'high', 'cancelled' => 'info']; @endphp
 
 <div style="display:flex;gap:.6rem;flex-wrap:wrap">
     <a class="btn-solid" style="padding:.5rem 1.2rem;width:fit-content" href="{{ route('receipts.create') }}">+ Scan a supplier invoice</a>

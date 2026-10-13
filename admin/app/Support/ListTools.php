@@ -7,7 +7,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Search, pagination and CSV for the list pages (Orders, Payments, Refunds, Activity logs).
+ * Search, pagination and CSV for the list pages (Payments, Refunds, All users, Activity logs).
  * The rows are the ones the page already read (no extra database round trip), so the route
  * budgets in tests/Perf stay the same.
  */
@@ -45,14 +45,65 @@ class ListTools
         }));
     }
 
-    public static function paginate(array $rows, Request $request, int $perPage = 25): LengthAwarePaginator
+    /** Rows per page the person can pick (the pager's "Rows" menu, on every list). */
+    public const PAGE_SIZES = [10, 25, 50, 100];
+
+    public const DEFAULT_PAGE_SIZE = 10;
+
+    /**
+     * Rows per page: ?per_page= (one of PAGE_SIZES), else the choice saved in this browser (cookie
+     * melai_per_page, written by resources/js/ui.js so server and in-page lists use the same size),
+     * else DEFAULT_PAGE_SIZE.
+     */
+    public static function perPage(Request $request): int
     {
+        foreach ([$request->query('per_page'), $request->cookie('melai_per_page')] as $v) {
+            if (is_scalar($v) && in_array((int) $v, self::PAGE_SIZES, true)) {
+                return (int) $v;
+            }
+        }
+
+        return self::DEFAULT_PAGE_SIZE;
+    }
+
+    /** The query string a pager link keeps: everything but the page and the live-refresh flags. */
+    public static function linkQuery(Request $request): array
+    {
+        return $request->except(['page', 'fresh', 'full']);
+    }
+
+    /**
+     * Page numbers to show: first, last, and the current page with one neighbour each side;
+     * null marks a gap ("…"). Same rule as pageWindow() in resources/js/ui.js.
+     *
+     * @return array<int, int|null>
+     */
+    public static function pageWindow(int $current, int $last): array
+    {
+        $out = [];
+        $prev = 0;
+        for ($n = 1; $n <= $last; $n++) {
+            if ($n === 1 || $n === $last || abs($n - $current) <= 1 || ($current <= 3 && $n <= 4) || ($current >= $last - 2 && $n >= $last - 3)) {
+                if ($prev && $n - $prev > 1) {
+                    $out[] = $n - $prev === 2 ? $n - 1 : null;
+                }
+                $out[] = $n;
+                $prev = $n;
+            }
+        }
+
+        return $out;
+    }
+
+    public static function paginate(array $rows, Request $request, ?int $perPage = null): LengthAwarePaginator
+    {
+        $perPage ??= self::perPage($request);
         $page = max(1, (int) $request->query('page', 1));
         $last = max(1, (int) ceil(count($rows) / $perPage));
         $page = min($page, $last);
 
         return new LengthAwarePaginator(array_slice(array_values($rows), ($page - 1) * $perPage, $perPage), count($rows), $perPage, $page,
-            ['path' => $request->url(), 'query' => $request->except('page')]);
+            ['path' => $request->url(), 'query' => self::linkQuery($request)]);
     }
 
     /**

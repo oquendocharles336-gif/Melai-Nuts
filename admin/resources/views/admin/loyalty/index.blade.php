@@ -2,15 +2,8 @@
 @section('title', 'Loyalty · Melai Nuts Admin')
 @section('page-title', 'Loyalty')
 @section('panel')
-@php $peso = fn ($n) => '₱'.number_format($n); @endphp
 
-@if (session('status')) <div class="card" style="border-color:#2E7D4F;background:#f1f8f2">{{ session('status') }}</div> @endif
-@if (session('error')) <div class="card" style="border-color:#C0392B;background:#fdecea">{{ session('error') }}</div> @endif
-@if ($errors->any())
-    <div class="card" style="border-color:#C0392B;background:#fdecea">
-        <ul style="margin:0;padding-left:1.1rem">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
-    </div>
-@endif
+@include('partials.flash')
 
 @if (auth()->user()->isAdmin())
 <div class="block-head"><h2>Settings</h2></div>

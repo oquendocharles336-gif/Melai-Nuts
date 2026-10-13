@@ -5,7 +5,7 @@
 @include('partials.flash')
 <a class="btn-outline" style="padding:.3rem .9rem;width:fit-content" href="{{ route('receipts.index') }}">&larr; Receiving</a>
 
-<form method="POST" action="{{ route('receipts.store') }}" enctype="multipart/form-data" class="card" style="max-width:none" id="scan-form">
+<form data-hard method="POST" action="{{ route('receipts.store') }}" enctype="multipart/form-data" class="card" style="max-width:none" id="scan-form">
     @csrf
     <div style="display:flex;flex-wrap:wrap;gap:1rem">
         <div class="field" style="flex:1 1 14rem"><label for="branch_id">Branch that received the goods</label>

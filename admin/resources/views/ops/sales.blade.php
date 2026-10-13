@@ -3,7 +3,6 @@
 @section('page-title', 'Sales')
 @section('panel')
 @php
-    $peso = fn ($n) => $n === null ? '—' : '₱'.number_format((float) $n, 2);
     $int = fn ($n) => $n === null ? '—' : number_format((int) $n);
     $rate = fn ($n) => $n === null ? '—' : number_format((float) $n * 100, 1).'%';
     $maxDay = max(1, collect($summary['daily'] ?? [])->max(fn ($d) => max(0, (float) ($d['revenue'] ?? 0))) ?? 0);

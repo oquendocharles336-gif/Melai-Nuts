@@ -56,11 +56,7 @@ class UserController extends Controller
         $everyone = $people->people(User::orderBy('name')->get(), $app, $request->user());
         $searched = $people->filter($everyone, 'all', $q);
         $list = $people->filter($searched, $type, null);
-        $perPage = 50;
-        $page = max(1, (int) $request->query('page', 1));
-        $paginator = new \Illuminate\Pagination\LengthAwarePaginator(
-            $list->forPage($page, $perPage)->values(), $list->count(), $perPage, $page,
-            ['path' => $request->url(), 'query' => $request->query()]);
+        $paginator = \App\Support\ListTools::paginate($list->values()->all(), $request);
 
         return view('admin.users.index', [
             'people' => $paginator,

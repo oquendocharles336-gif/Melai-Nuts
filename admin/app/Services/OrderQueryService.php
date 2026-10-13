@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Contracts\DataSource;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Orders for the Payments and Refunds pages, read from the Melai Nuts app's database
@@ -45,10 +44,12 @@ class OrderQueryService
 
     /**
      * The same window, from the per-account stale-while-revalidate cache (App\Support\Swr), shared by
-     * the Orders page, the Overview, the sidebar badges, the search and the dashboard's refund count.
+     * every list page (Orders, Payments, Refunds, Overview, sidebar badges, search, dashboard).
      * ['orders' => allOrders() rows, 'lines' => [order id => [['name', 'qty', 'revenue'], ...]]]
      * ('lines' carries unit prices; only the app's database has them, the test fixtures do not).
-     * Payments, Refunds and every action keep using the live allOrders().
+     * SPEED: the 90-day window is the heaviest read (~2 MB); it is loaded once and shared. It is
+     * dropped after any change on this website and whenever the live pulse sees a change in the app
+     * (OverviewController::pulse). Actions (find()) still read live, and the database re-checks them.
      */
     public function cachedWindow(): array
     {
@@ -82,12 +83,11 @@ class OrderQueryService
         return \App\Support\Swr::has('orders-window') ? [] : [['orders', $this->range()]];
     }
 
-    /** Drop the per-request cache (and the badge count) after an action changed data. */
+    /** Drop the per-request cache after an action changed data. */
     public function refresh(): void
     {
         $this->all = null;
         $this->range = null;
-        Cache::forget($this->badgeKey());
     }
 
     public function find(string $orderId): ?array
@@ -95,78 +95,28 @@ class OrderQueryService
         return collect($this->allOrders())->firstWhere('id', $orderId);
     }
 
-    /** Filters: status, method, branch, from, to (all optional). */
+    /** Filters: status (payment), method, branch, from, to (all optional). */
     public function filter(array $filters): array
     {
-        return collect($this->allOrders())->filter(function ($o) use ($filters) {
-            if (! empty($filters['status']) && $o['effectivePaymentStatus'] !== $filters['status']) {
-                return false;
-            }
-            if (! empty($filters['method']) && $o['paymentMethod'] !== $filters['method']) {
-                return false;
-            }
-            if (! empty($filters['branch']) && $o['branch'] !== $filters['branch']) {
-                return false;
-            }
-            if (! empty($filters['from']) && $o['createdAt']->lt(Carbon::parse($filters['from'])->startOfDay())) {
-                return false;
-            }
-            if (! empty($filters['to']) && $o['createdAt']->gt(Carbon::parse($filters['to'])->endOfDay())) {
-                return false;
-            }
-
-            return true;
-        })->values()->all();
+        return array_values(array_filter($this->cachedOrders(),
+            fn ($o) => $this->matches($o, $filters, $o['effectivePaymentStatus'])));
     }
 
-    /** Refunds queue: orders with a refund request, with the same filters plus refund status. */
+    /** Refunds queue: orders with a refund request, with the same filters (status = refund status). */
     public function refundQueue(array $filters): array
     {
-        return collect($this->allOrders())->filter(function ($o) use ($filters) {
-            if (! $o['effectiveRefundStatus']) {
-                return false;
-            }
-            if (! empty($filters['status']) && $o['effectiveRefundStatus'] !== $filters['status']) {
-                return false;
-            }
-            if (! empty($filters['method']) && $o['paymentMethod'] !== $filters['method']) {
-                return false;
-            }
-            if (! empty($filters['branch']) && $o['branch'] !== $filters['branch']) {
-                return false;
-            }
-
-            return true;
-        })->sortByDesc('createdAt')->values()->all();
+        return collect($this->cachedOrders())
+            ->filter(fn ($o) => $o['effectiveRefundStatus'] && $this->matches($o, $filters, $o['effectiveRefundStatus']))
+            ->sortByDesc('createdAt')->values()->all();
     }
 
-    /**
-     * The "pending refunds" badge in the sidebar, shown on EVERY page. Counting needs the whole
-     * order window, so the count is kept for a short time (melai.dashboard.cache_seconds) instead of
-     * reloading all orders on each page. Pages that load the orders anyway (Payments, Refunds)
-     * refresh it, and every refund / payment action clears it (refresh()).
-     */
-    public function pendingRefundsCount(): int
+    /** One rule for both lists: every filter that is set must match. */
+    private function matches(array $o, array $filters, ?string $status): bool
     {
-        $count = fn () => collect($this->allOrders())->where('effectiveRefundStatus', 'requested')->count();
-        $ttl = (int) config('melai.dashboard.cache_seconds', 45);
-        if ($this->all !== null || $ttl <= 0) {
-            $n = $count();
-            if ($ttl > 0) {
-                Cache::put($this->badgeKey(), $n, $ttl);
-            }
-
-            return $n;
-        }
-
-        return (int) Cache::remember($this->badgeKey(), $ttl, $count);
-    }
-
-    /** Per website login and linked app account: never shared between accounts. */
-    private function badgeKey(): string
-    {
-        $user = auth()->user();
-
-        return 'melai:pending-refunds:'.sha1(($user?->getAuthIdentifier() ?? '-').'|'.($user?->staff_uid ?? '-'));
+        return (empty($filters['status']) || $status === $filters['status'])
+            && (empty($filters['method']) || $o['paymentMethod'] === $filters['method'])
+            && (empty($filters['branch']) || $o['branch'] === $filters['branch'])
+            && (empty($filters['from']) || ! $o['createdAt']->lt(Carbon::parse($filters['from'])->startOfDay()))
+            && (empty($filters['to']) || ! $o['createdAt']->gt(Carbon::parse($filters['to'])->endOfDay()));
     }
 }

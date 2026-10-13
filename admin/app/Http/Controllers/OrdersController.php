@@ -23,19 +23,6 @@ use Illuminate\Support\Str;
  */
 class OrdersController extends Controller
 {
-    // Resolved per call, not held by the controller: Laravel may reuse a controller instance across
-    // requests (test client, Octane), and these services are per request (scoped), so a held one
-    // would keep a previous request's order list and account check.
-    private function orders(): OrderQueryService
-    {
-        return app(OrderQueryService::class);
-    }
-
-    private function platform(): Platform
-    {
-        return app(Platform::class);
-    }
-
     public function index(Request $request)
     {
         // Account check on every request; the rows themselves come from the per-account cache

@@ -3,7 +3,7 @@
 @section('page-title', 'Profit & stock value')
 @section('page-sub', 'Verified sales minus refunds and discounts, against each option\'s current cost. Options without a cost are "Not set", never zero.')
 @php
-    $peso = fn ($n) => $n === null ? 'Not set' : '₱'.number_format((float) $n, 2);
+    $peso = fn ($n) => \App\Support\Format::peso($n, 2, 'Not set');   // here an unknown cost means "not set yet"
     $q = ['from' => $from, 'to' => $to, 'branch' => $branchId];
     $t = $profit['totals'] ?? [];
     $vt = $valuation['totals'] ?? [];

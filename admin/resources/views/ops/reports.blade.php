@@ -2,7 +2,6 @@
 @section('title', 'Reports · Melai Nuts Admin')
 @section('page-title', 'Reports')
 @php
-    $peso = fn ($n) => $n === null ? '—' : '₱'.number_format((float) $n, 2);
     $pct = fn ($n) => $n === null ? '—' : number_format((float) $n * 100, 1).'%';
     $s = $report['summary'] ?? [];
     $ps = $previous['summary'] ?? null;
@@ -210,8 +209,8 @@
     <x-slot:head><th>Staff</th><th>Role</th><th>Branch</th><th class="r">Transactions</th><th class="r">POS sales (after discounts)</th><th class="r">Refunds</th><th class="r">Net</th><th class="r">Shifts</th></x-slot:head>
     @forelse (collect($staff)->filter(fn ($p) => $p['pos_transactions'] > 0 || (float) $p['pos_refunds'] > 0 || $p['shifts_opened'] > 0) as $p)
         <tr><td><span class="who"><span class="avatar sm">{{ mb_strtoupper(mb_substr($p['full_name'] ?: $p['email'], 0, 1)) }}</span>{{ $p['full_name'] ?: $p['email'] }}</span></td><td>{{ ucfirst($p['role']) }}</td><td>{{ $p['branch_name'] ?? '—' }}</td><td class="r num">{{ $p['pos_transactions'] }}</td>
-            <td class="r num">₱{{ number_format((float) $p['pos_sales'], 2) }}</td><td class="r num">₱{{ number_format((float) $p['pos_refunds'], 2) }}</td>
-            <td class="r num"><strong>₱{{ number_format((float) $p['pos_net_sales'], 2) }}</strong></td><td class="r num">{{ $p['shifts_opened'] }}</td></tr>
+            <td class="r num">{{ $peso($p['pos_sales']) }}</td><td class="r num">{{ $peso($p['pos_refunds']) }}</td>
+            <td class="r num"><strong>{{ $peso($p['pos_net_sales']) }}</strong></td><td class="r num">{{ $p['shifts_opened'] }}</td></tr>
     @empty
         <tr><td colspan="8" class="empty">No in-store sales by any staff account in this period.</td></tr>
     @endforelse

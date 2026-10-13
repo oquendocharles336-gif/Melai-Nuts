@@ -7,7 +7,6 @@
 @endsection
 @section('panel')
 @php
-    $peso = fn ($n) => '₱'.number_format((float) $n, 2);
     $chipUrl = fn ($t) => route('admin.users.index', array_filter(['type' => $t === 'all' ? null : $t, 'q' => $q ?: null]));
     $loginRole = ['admin' => 'Admin', 'staff' => 'Staff'];
     $me = auth()->user();
@@ -45,7 +44,7 @@
 </div>
 
 <x-card flush>
-    <x-table stack>
+    <x-table stack data-no-paginate>
         <x-slot:head><th>Person</th><th>Accounts</th><th>Branch</th><th>Status</th><th>Activity</th><th class="r"><span class="sr-only">Actions</span></th></x-slot:head>
         @forelse ($people as $p)
             @php $u = $p['login']; $s = $p['staff']; $c = $p['customer']; @endphp
@@ -165,7 +164,7 @@
             </td></tr>
         @endforelse
     </x-table>
-    @if ($people->hasPages())<div style="padding:12px 16px;border-top:1px solid var(--line)">{{ $people->links() }}</div>@endif
+    {{ $people->links() }}
 </x-card>
 
 @if ($liveData)

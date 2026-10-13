@@ -63,6 +63,12 @@ return [
         'password_confirm_seconds' => (int) env('PASSWORD_CONFIRM_SECONDS', 300),
     ],
 
+    // Live pages: while a tab is open it asks /ui/pulse.json this often (seconds): one tiny database
+    // read that says whether orders, refunds, stock or products changed. Only then is the page re-read
+    // and updated in place (no reload). 0 = off; each person can also switch it off in Settings >
+    // Live refresh. Changes made on this website show at once either way.
+    'live' => ['poll_seconds' => (int) env('MELAI_LIVE_POLL_SECONDS', 15)],
+
     'cache' => [
         'stale_seconds' => (int) env('MELAI_CACHE_STALE_SECONDS', 300),
         'reports_seconds' => (int) env('MELAI_REPORTS_CACHE_SECONDS', 120),

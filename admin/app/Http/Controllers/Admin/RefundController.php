@@ -24,24 +24,11 @@ use Illuminate\Validation\ValidationException;
  */
 class RefundController extends Controller
 {
-    // Per-request (scoped) services are resolved on each use instead of being held by the controller:
-    // Laravel can reuse a controller instance across requests (test client, Octane), and a held one
-    // would keep a previous request's account check and query results.
-    private function orders(): OrderQueryService
-    {
-        return app(OrderQueryService::class);
-    }
-
-    private function platform(): Platform
-    {
-        return app(Platform::class);
-    }
-
     public function index(Request $request)
     {
         $filters = $request->only(['status', 'method', 'branch']);
         $q = ListTools::query($request);
-        $refunds = ListTools::paginate(ListTools::search($this->orders()->refundQueue($filters), $q, [self::class, 'searchText']), $request, 24);
+        $refunds = ListTools::paginate(ListTools::search($this->orders()->refundQueue($filters), $q, [self::class, 'searchText']), $request);
         $hitpay = app(HitPayRefundService::class);
         $attempts = [];
         if ($this->platform()->isSupabase()) {

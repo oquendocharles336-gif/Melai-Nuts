@@ -23,7 +23,7 @@
 
 @if (! $active && ! $blocked)
     <div class="block-head"><h2>Link a card</h2></div>
-    <form method="POST" action="{{ route('cards.register', $member['id']) }}" class="card" style="max-width:32rem" onsubmit="this.querySelector('button[type=submit]').disabled = true">
+    <form data-hard method="POST" action="{{ route('cards.register', $member['id']) }}" class="card" style="max-width:32rem" onsubmit="this.querySelector('button[type=submit]').disabled = true">
         @csrf
         <input type="hidden" name="request_key" value="{{ $requestKey }}">
         <div class="field"><label>Card number (filled in by the reader)</label>
@@ -32,7 +32,7 @@
     </form>
 @else
     <div class="block-head"><h2>Replace card (lost or damaged)</h2></div>
-    <form method="POST" action="{{ route('cards.replace', $member['id']) }}" class="card" style="max-width:32rem" onsubmit="this.querySelector('button[type=submit]').disabled = true">
+    <form data-hard method="POST" action="{{ route('cards.replace', $member['id']) }}" class="card" style="max-width:32rem" onsubmit="this.querySelector('button[type=submit]').disabled = true">
         @csrf
         <input type="hidden" name="request_key" value="{{ $requestKey }}">
         <div class="field"><label>New card number (filled in by the reader)</label>
@@ -55,13 +55,13 @@
             </div>
             <div style="display:flex;gap:.5rem;flex-wrap:wrap">
                 @if ($card['status'] === 'active')
-                    <form method="POST" action="{{ route('cards.block', $card['id']) }}" style="display:flex;gap:.4rem" data-confirm="Block card {{ $card['label'] }}? It will stop working at every branch." data-confirm-title="Block this card?" data-confirm-label="Block card">
+                    <form data-hard method="POST" action="{{ route('cards.block', $card['id']) }}" style="display:flex;gap:.4rem" data-confirm="Block card {{ $card['label'] }}? It will stop working at every branch." data-confirm-title="Block this card?" data-confirm-label="Block card">
                         @csrf
                         <input class="light-input" name="reason" required minlength="3" maxlength="200" placeholder="Reason (e.g. reported lost)" style="max-width:14rem">
                         <button class="btn-outline" style="padding:.3rem .9rem;border-color:#C0392B;color:#C0392B" type="submit">Block</button>
                     </form>
                 @elseif ($card['status'] === 'blocked' && $isOwner)
-                    <form method="POST" action="{{ route('cards.unblock', $card['id']) }}">@csrf
+                    <form data-hard method="POST" action="{{ route('cards.unblock', $card['id']) }}">@csrf
                         <button class="btn-outline" style="padding:.3rem .9rem" type="submit">Unblock (card found)</button></form>
                 @endif
             </div>

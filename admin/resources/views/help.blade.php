@@ -9,7 +9,6 @@
             <div><span>Search pages, orders and products</span><span><kbd class="kbd">⌘</kbd> / <kbd class="kbd">Ctrl</kbd> + <kbd class="kbd">K</kbd></span></div>
             <div><span>Go to Orders</span><span><kbd class="kbd">G</kbd> then <kbd class="kbd">O</kbd></span></div>
             <div><span>Go to Stock</span><span><kbd class="kbd">G</kbd> then <kbd class="kbd">S</kbd></span></div>
-            <div><span>Go to Reports</span><span><kbd class="kbd">G</kbd> then <kbd class="kbd">R</kbd></span></div>
             <div><span>Go to Overview</span><span><kbd class="kbd">G</kbd> then <kbd class="kbd">H</kbd></span></div>
             <div><span>New order</span><span><kbd class="kbd">N</kbd></span></div>
             <div><span>Search the table on this page</span><span><kbd class="kbd">/</kbd></span></div>

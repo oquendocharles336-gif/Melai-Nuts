@@ -13,10 +13,7 @@
             ['overview', 'Overview', route('dashboard'), 'dashboard', 'overview', null],
             ['orders', 'Orders', route('orders.index'), 'orders*', 'orders', 'orders'],
             ['stock', 'Stock', route('section', 'inventory'), 's/inventory', 'stock', 'low'],
-            ['reports', 'Reports', route('section', 'reports'), 's/reports*', 'reports', null],
             ['sales', 'Sales', route('section', 'sales'), 's/sales', 'trending', null],
-            $live ? ['forecast', 'Forecast', route('reports.forecast'), 'reports/forecast*', 'forecast', null] : null,
-            ['cash-drawer', 'Cash drawer', route('section', 'cash-drawer'), 's/cash-drawer', 'banknote', null],
             $isAdmin ? ['payments', 'Payments', route('admin.payments.index'), 'admin/payments*', 'card', null] : null,
             $isAdmin ? ['refunds', 'Refunds', route('admin.refunds.index'), 'admin/refunds*', 'refund', 'refunds'] : null,
         ])),
@@ -24,8 +21,6 @@
             ['products', 'Products', route('section', 'products'), 's/products', 'products', null],
             ['customers', 'Customers / Loyalty', route('loyalty.index'), 'loyalty*', 'users', null],
             $live ? ['cards', 'Loyalty cards', route('cards.index'), 'cards*', 'id-card', null] : null,
-            $live ? ['suppliers', 'Suppliers', route('suppliers.index'), 'suppliers*', 'store', null] : null,
-            $live ? ['receiving', 'Receiving (OCR)', route('receipts.index'), 'receipts*', 'scan', null] : null,
             $isAdmin ? ['team', 'All users', route('admin.users.index'), 'admin/users*', 'shield', null] : null,
             $isAdmin ? ['logs', 'Activity logs', route('admin.logs'), 'admin/activity-logs*', 'scroll', null] : null,
         ])),
@@ -40,19 +35,29 @@
     // Branches for the New order form. The shell must never break a page (e.g. "database unreachable").
     // The New order form loads its branches when it opens: the shell itself makes no database call.
     $fragment = request()->header('X-Melai-Fragment') === '1';
-    $activeKey = collect($groups)->flatten(1)->first(fn ($i) => request()->is($i[3]) && ! ($i[0] === 'reports' && request()->is('reports/forecast*')))[0] ?? null;
+    $activeKey = collect($groups)->flatten(1)->first(fn ($i) => request()->is($i[3]))[0] ?? null;
     $initials = collect(preg_split('/\s+/', trim($user?->name ?? '?')))->filter()->map(fn ($p) => mb_substr($p, 0, 1))->pipe(fn ($c) => mb_strtoupper($c->first().($c->count() > 1 ? $c->last() : '')));
     $flash = array_values(array_filter([
         session('status') ? ['message' => session('status'), 'tone' => 'ok'] : null,
         session('error') ? ['message' => session('error'), 'tone' => 'bad'] : null,
     ]));
 @endphp
-@if ($fragment)
-<div data-fragment data-title="@yield('title', 'Melai Nuts Admin')" data-nav="{{ $activeKey }}">
+@php
+    // The page content, rendered once. Its hash (one-time flash messages left out) lets the live
+    // refresh in resources/js/ui.js swap the content only when the data on it really changed.
+    ob_start();
+@endphp
 @include('layouts._page')
+@php
+    $pageHtml = ob_get_clean();
+    $pageHash = substr(sha1(preg_replace('/<!--flash-->.*?<!--\/flash-->/s', '', $pageHtml)), 0, 16);
+@endphp
+@if ($fragment)
+<div data-fragment data-title="@yield('title', 'Melai Nuts Admin')" data-nav="{{ $activeKey }}" data-hash="{{ $pageHash }}" data-flash="{{ json_encode($flash) }}">
+{!! $pageHtml !!}
 </div>
 @else
-<script>window.MelaiNav = @json($navJs); window.MelaiFlash = @json($flash);</script>
+<script>window.MelaiNav = @json($navJs); window.MelaiFlash = @json($flash); window.MelaiLive = @json(['seconds' => max(0, (int) config('melai.live.poll_seconds', 15))]);</script>
 
 <div class="app" data-app-shell x-data>
     {{-- ============ Sidebar ============ --}}
@@ -69,7 +74,7 @@
                 <div class="side-group">
                     <div class="side-label">{{ $group }}</div>
                     @foreach ($items as [$key, $label, $url, $match, $icon, $badge])
-                        @php $active = request()->is($match) && ! ($key === 'reports' && request()->is('reports/forecast*')); @endphp
+                        @php $active = request()->is($match); @endphp
                         <a href="{{ $url }}" data-key="{{ $key }}" class="nav-item {{ $active ? 'is-active' : '' }}" @if ($active) aria-current="page" @endif>
                             <x-icon :name="$icon" :size="17" /> <span>{{ $label }}</span>
                             @if ($badge === 'orders')
@@ -86,7 +91,7 @@
         </nav>
 
         {{-- Plan / usage card: this month's net sales against the sales target (config) or last month. --}}
-        <a href="{{ route('section', 'reports') }}" class="plan-card" style="text-decoration:none;display:block" x-show="$store.counts.loaded" x-cloak>
+        <a href="{{ route('section', 'sales') }}" class="plan-card" style="text-decoration:none;display:block" x-show="$store.counts.loaded" x-cloak>
             <div style="display:flex;justify-content:space-between;gap:8px"><strong x-text="($store.counts.month?.label || '') + ' sales'"></strong>
                 <span class="tabular" x-text="$store.counts.month?.pct === null ? '' : $store.counts.month?.pct + '%'"></span></div>
             <div class="plan-bar"><span :style="'width:' + ($store.counts.month?.pct ?? 0) + '%'"></span></div>
@@ -118,8 +123,8 @@
             <a href="{{ route('dashboard') }}" class="side-brand"><span class="logo-chip">@include('partials.logo')</span> Melai Nuts</a>
             <button class="btn ghost icon" type="button" style="margin-left:auto" x-on:click="$store.ui.palette = true" aria-label="Search"><x-icon name="search" /></button>
         </div>
-        <div class="main-inner page-enter">
-            @include('layouts._page')
+        <div class="main-inner page-enter" data-hash="{{ $pageHash }}">
+            {!! $pageHtml !!}
         </div>
         <footer class="legal-footer muted" style="padding:1.5rem 0 .5rem;font-size:.8rem;text-align:center">
             <a class="link" href="{{ route('legal.terms') }}">Terms and Conditions</a> ·

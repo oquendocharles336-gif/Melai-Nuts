@@ -11,7 +11,7 @@
     @if ($liveData)<a class="btn-outline" style="padding:.5rem 1rem" href="{{ route('admin.logs.export', ['source' => 'app', 'q' => $q, 'before' => $before]) }}">App audit log CSV (this page)</a>@endif
 </form>
 <x-card title="Admin website" flush>
-    <x-table>
+    <x-table data-no-paginate>
         <x-slot:head><th>When</th><th>User</th><th>Action</th><th>Details</th><th>IP</th></x-slot:head>
         @forelse ($logs as $log)
             <tr><td class="cell-sub" style="white-space:nowrap">{{ $log->created_at }}</td>
@@ -21,7 +21,7 @@
             <tr><td colspan="5" class="empty">{{ $q !== '' ? 'Nothing matches "'.$q.'".' : 'No activity yet.' }}</td></tr>
         @endforelse
     </x-table>
-    @if ($logs->hasPages())<div style="padding:12px 16px;border-top:1px solid var(--line)">{{ $logs->links() }}</div>@endif
+    {{ $logs->links() }}
 </x-card>
 
 @if ($liveData)

@@ -407,6 +407,21 @@ class SupabaseIntegrationTest extends TestCase
         $this->actingAs($admin)->get('/admin/payments?status=pending')->assertOk()->assertSee($order)->assertSee('Mark as paid');
     }
 
+    public function test_the_live_pulse_runs_as_the_staff_member_and_sees_app_changes(): void
+    {
+        $admin = $this->portalAdmin();
+        $staff = $this->portalStaff();
+        foreach ([$admin, $staff] as $u) {   // owner and branch staff: RLS lets both read it
+            $this->actingAs($u)->getJson('/ui/pulse.json')->assertOk()->assertJson(['changed' => false]);
+        }
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::get('melai:pulse-off:'.\App\Support\Swr::scope()) === null);
+
+        $this->placeOrder('a');   // a customer orders in the app
+        $this->actingAs($admin)->getJson('/ui/pulse.json')->assertJson(['changed' => true]);
+        $this->actingAs($admin)->getJson('/ui/pulse.json')->assertJson(['changed' => false]);
+        $this->actingAs($staff)->getJson('/ui/pulse.json')->assertJson(['changed' => true]);
+    }
+
     public function test_marking_cash_paid_writes_to_the_apps_database_once(): void
     {
         $order = $this->placeOrder('a');

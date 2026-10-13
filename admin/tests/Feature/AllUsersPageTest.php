@@ -168,7 +168,8 @@ class AllUsersPageTest extends TestCase
         User::factory()->count(60)->create(['role' => 'staff', 'has_access' => true]);
 
         $first = $this->actingAs($admin)->get('/admin/users')->assertOk();
-        $this->assertCount(50, $first->viewData('people')->items());
-        $this->assertCount(11, $this->actingAs($admin)->get('/admin/users?page=2')->viewData('people')->items());
+        $this->assertCount(10, $first->viewData('people')->items());
+        $this->assertCount(50, $this->actingAs($admin)->get('/admin/users?per_page=50')->viewData('people')->items());
+        $this->assertCount(11, $this->actingAs($admin)->get('/admin/users?per_page=50&page=2')->viewData('people')->items());
     }
 }

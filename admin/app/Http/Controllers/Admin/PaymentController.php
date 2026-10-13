@@ -15,19 +15,6 @@ use Illuminate\Validation\ValidationException;
 /** Payments of the app's orders, from the shared database. Admin can confirm cash payments. */
 class PaymentController extends Controller
 {
-    // Per-request (scoped) services are resolved on each use instead of being held by the controller:
-    // Laravel can reuse a controller instance across requests (test client, Octane), and a held one
-    // would keep a previous request's account check and query results.
-    private function orders(): OrderQueryService
-    {
-        return app(OrderQueryService::class);
-    }
-
-    private function platform(): Platform
-    {
-        return app(Platform::class);
-    }
-
     public function index(Request $request, \App\Contracts\DataSource $data)
     {
         $filters = $request->only(['status', 'method', 'branch', 'from', 'to']);
@@ -44,7 +31,7 @@ class PaymentController extends Controller
         $sales = $to >= $from ? $data->salesOverview($from, $to, $branch) : null;
 
         return view('admin.payments.index', [
-            'orders' => ListTools::paginate($orders, $request, 25),
+            'orders' => ListTools::paginate($orders, $request),
             'q' => $q,
             'totals' => $sales === null ? null : ($sales['by_method'] ?? []),
             'totalsRange' => [$from, $to],

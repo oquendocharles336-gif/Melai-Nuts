@@ -2,7 +2,6 @@
 @section('title', 'Products · Melai Nuts Admin')
 @section('page-title', 'Products')
 @section('panel')
-@php $peso = fn ($n) => $n === null ? '—' : '₱'.number_format((float) $n, 2); @endphp
 @include('partials.flash')
 
 <p class="muted">The catalog customers see in the Melai Nuts app. Prices, variants and photos are edited in the app's product management screen; here you can hide or show a product. Stock is the total across the branches you can see.</p>

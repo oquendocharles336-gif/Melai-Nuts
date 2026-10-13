@@ -160,6 +160,11 @@ class FakeSupabase extends SupabaseGateway
 
     public function call(string $firebaseUid, string $sql, array $bindings = [], array $verified = []): mixed
     {
+        if (! $this->offline && str_contains($sql, "'o', (select max(updated_at) from public.orders)")) {   // SupabaseRepository::pulse()
+            $this->calls[] = ['uid' => $firebaseUid, 'fn' => 'pulse', 'bindings' => [], 'claims' => $verified];
+
+            return ['o' => sha1(json_encode($this->orders)), 'm' => sha1(json_encode($this->stock))];
+        }
         if (($parts = $this->splitBatch($sql, $bindings)) !== null) {
             $out = [];
             foreach ($parts as [$alias, $one, $b]) {

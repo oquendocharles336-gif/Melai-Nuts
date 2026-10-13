@@ -19,8 +19,8 @@
 @section('panel')
 @include('partials.flash')
 
-<div x-data="stockPage(@js($items), { receiveUrl: @js(route('stock.receive')), branch: @js($branchId), branchName: @js($branchName), live: true })"
-     x-on:stock-receive.window="openReceive()" x-on:stock-count-sheet.window="window.print()" class="stack">
+<div id="stock-page" data-keep="tab,category,q,page" x-data="stockPage(@js($items), { receiveUrl: @js(route('stock.receive')), branch: @js($branchId), branchName: @js($branchName), live: true })"
+     x-on:stock-receive.window="openReceive()" x-on:stock-count-sheet.window="printSheet()" class="stack">
 
     <div class="cols-4 stagger">
         <x-card><div class="kpi-top"><span class="icon-chip"><x-icon name="stock" :size="16" /></span>Products</div>
@@ -38,7 +38,7 @@
             <x-segmented :options="['all' => 'All', 'low' => 'Running low', 'out' => 'Out of stock']" model="tab" light label="Stock filter" />
             <div style="display:flex;gap:8px;flex-wrap:wrap">
                 @if (count($branches) > 1)
-                    <form method="GET"><select class="select" name="branch" onchange="this.form.submit()" aria-label="Branch" style="width:auto;height:34px">
+                    <form method="GET"><select class="select" name="branch" onchange="this.form.requestSubmit()" aria-label="Branch" style="width:auto;height:34px">
                         @foreach ($branches as $b)<option value="{{ $b['id'] }}" @selected($branchId === $b['id'])>{{ $b['name'] }}</option>@endforeach
                     </select></form>
                 @endif
@@ -53,7 +53,7 @@
         </div>
         <x-table stack>
             <x-slot:head><th>Product</th><th>SKU</th><th>Category</th><th style="min-width:220px">Level</th><th>Status</th><th></th></x-slot:head>
-            <template x-for="i in filtered" :key="i.variant_id">
+            <template x-for="i in pageRowsAll" :key="i.variant_id">
                 <tr :style="flash === i.variant_id && 'background:var(--accent-soft)'">
                     <td><span class="cell-strong" x-text="i.product"></span><div class="cell-sub" x-text="i.variant + (i.batched !== i.qty ? ' · ' + i.batched + ' in batches' : '')"></div></td>
                     <td data-label="SKU" class="cell-sub" x-text="i.sku || '—'"></td>
@@ -67,6 +67,7 @@
             </template>
             <tr x-show="!filtered.length"><td colspan="6" class="empty">Nothing matches.</td></tr>
         </x-table>
+        <x-pager-alpine list="filtered" />
         <noscript>
             <table class="table"><thead><tr><th>Product</th><th>Variant</th><th>In stock</th><th>Restock at</th></tr></thead><tbody>
             @foreach ($inventory['items'] ?? [] as $i)<tr><td>{{ $i['product_name'] }}</td><td>{{ $i['variant_label'] ?: 'Regular' }}</td><td><strong>{{ $i['quantity'] }}</strong></td><td>{{ $i['restock_threshold'] ?? 'Not set' }}</td></tr>@endforeach

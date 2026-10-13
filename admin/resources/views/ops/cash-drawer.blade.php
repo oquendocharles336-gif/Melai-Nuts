@@ -2,7 +2,7 @@
 @section('title', 'Cash Drawer · Melai Nuts Admin')
 @section('page-title', 'Cash Drawer')
 @section('panel')
-@php $peso = fn ($n) => $n === null ? '—' : '₱'.number_format((float) $n, 2); $t = $summary['totals'] ?? []; @endphp
+@php $t = $summary['totals'] ?? []; @endphp
 @include('partials.flash')
 
 <form method="GET" class="card" style="max-width:none;display:flex;flex-wrap:wrap;gap:1rem;align-items:end">

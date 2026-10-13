@@ -119,6 +119,25 @@ class SupabaseRepository
 
     // ---- reads ------------------------------------------------------------------------
 
+    /**
+     * SPEED / live pages: a tiny fingerprint of the latest changes this account can see (orders,
+     * refund requests, stock movements, products), as the signed-in staff member (RLS applies).
+     * One round trip, a few bytes. App\Http\Controllers\OverviewController::pulse() compares it with
+     * the last one seen and only then lets the pages reload their data.
+     */
+    public function pulse(): string
+    {
+        $r = $this->call("select json_build_object(
+            'o', (select max(updated_at) from public.orders),
+            'n', (select count(*) from public.orders where created_at > now() - interval '2 days'),
+            'r', (select max(updated_at) from public.refund_requests),
+            'm', (select max(created_at) from public.stock_movements),
+            'p', (select max(updated_at) from public.products)
+        )::text as r") ?? [];
+
+        return sha1(json_encode($r));
+    }
+
     public function orders(CarbonInterface $from, CarbonInterface $to, ?string $branchId = null): array
     {
         // Microsecond precision: a second-precision "to" would hide orders placed in the current second.

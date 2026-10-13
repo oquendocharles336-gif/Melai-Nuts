@@ -106,6 +106,7 @@ Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(functi
         // Redesigned admin UI: range-aware Overview numbers and the sidebar badges (read-only JSON).
         Route::get('/dashboard/overview.json', [OverviewController::class, 'overview'])->name('dashboard.overview');
         Route::get('/ui/counts.json', [OverviewController::class, 'counts'])->name('ui.counts');
+        Route::get('/ui/pulse.json', [OverviewController::class, 'pulse'])->name('ui.pulse')->middleware('throttle:240,1');
         Route::get('/ui/search.json', [OverviewController::class, 'search'])->name('ui.search')->middleware('throttle:120,1');
 
         // Orders: list + drawer, "Move to next stage" and "New order" (the app's own staff functions).

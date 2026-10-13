@@ -8,7 +8,7 @@
 @section('panel')
 @include('partials.flash')
 
-<div x-data="ordersPage(@js($orders), { advanceUrl: @js(route('orders.advance', '__ID__')), live: @js($liveData), open: @js($open) })" class="stack">
+<div id="orders-page" data-keep="status,q,branch,page" x-data="ordersPage(@js($orders), { advanceUrl: @js(route('orders.advance', '__ID__')), live: @js($liveData), open: @js($open) })" class="stack">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
         <div class="chips" role="group" aria-label="Filter by stage">
             @foreach (['all' => 'All', 'new' => 'New', 'packing' => 'Packing', 'shipped' => 'Shipped', 'delivered' => 'Delivered', 'other' => 'Cancelled & refunds'] as $k => $v)
@@ -46,10 +46,7 @@
             </template>
             <tr x-show="!filtered.length"><td colspan="7" class="empty">No orders match.</td></tr>
         </x-table>
-        <div style="padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px" x-show="filtered.length">
-            <span class="cell-sub" x-text="'Showing ' + visible.length + ' of ' + filtered.length"></span>
-            <button class="btn sm" type="button" x-show="filtered.length > visible.length" x-on:click="limit += 60">Show more</button>
-        </div>
+        <x-pager-alpine list="filtered" />
     </x-card>
 
     {{-- Detail drawer --}}

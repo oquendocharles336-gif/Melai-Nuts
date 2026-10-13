@@ -45,10 +45,16 @@ class ListPagesTest extends TestCase
         $this->manyOrders(30);
         $owner = $this->linkedLogin('uid-owner');
 
-        $page = $this->signedIn($owner)->get('/admin/payments')->assertOk()->assertSee('30 match(es), page 1 of 2', false);
-        $this->assertCount(25, $page->viewData('orders')->items());
-        $this->signedIn($owner)->get('/admin/payments?page=2')->assertOk()->assertSee('ORD-001');
-        $this->signedIn($owner)->get('/admin/payments?q=GC-REF-777')->assertOk()->assertSee('1 match(es)', false);
+        $page = $this->signedIn($owner)->get('/admin/payments')->assertOk()->assertSee('1–10 of 30', false)->assertSee('data-pager', false);
+        $this->assertCount(10, $page->viewData('orders')->items());
+        $this->signedIn($owner)->get('/admin/payments?page=3')->assertOk()->assertSee('ORD-001');
+        $this->assertSame(1, $this->signedIn($owner)->get('/admin/payments?q=GC-REF-777')->assertOk()->viewData('orders')->total());
+
+        // "Rows" per page: ?per_page= or the size saved in this browser (cookie), never an odd value.
+        $this->assertCount(25, $this->signedIn($owner)->get('/admin/payments?per_page=25')->viewData('orders')->items());
+        $this->assertCount(10, $this->signedIn($owner)->get('/admin/payments?per_page=7')->viewData('orders')->items());
+        $this->signedIn($owner)->get('/admin/payments?page=2&fresh=1')->assertDontSee('fresh=1', false);
+        $this->assertCount(30, $this->signedIn($owner)->withUnencryptedCookie('melai_per_page', '50')->get('/admin/payments')->viewData('orders')->items());
 
         $csv = $this->signedIn($owner)->get('/admin/payments/export?q=ORD-00')->assertOk()->streamedContent();
         $this->assertSame(9, substr_count($csv, "\nORD-00"), 'all matches, not only one page');

@@ -4,7 +4,6 @@
 @section('panel')
 @include('partials.flash')
 @php
-    $peso = fn ($n) => $n === null ? '—' : '₱'.number_format((float) $n, 2);
     $draft = $r['status'] === 'draft';
     $tone = ['draft' => 'average', 'approved' => 'high', 'cancelled' => 'info'];
     $when = fn ($t) => $t ? \Carbon\Carbon::parse($t)->setTimezone(config('app.timezone'))->format('M j, Y g:i A') : '—';
@@ -43,7 +42,7 @@
 
 <div style="flex:3 1 36rem;min-width:0">
 @if ($draft)
-<form method="POST" action="{{ route('receipts.update', $r['id']) }}" class="card" style="max-width:none" id="receipt-form">
+<form data-hard method="POST" action="{{ route('receipts.update', $r['id']) }}" class="card" style="max-width:none" id="receipt-form">
     @csrf
     <input type="hidden" name="request_key" value="{{ $requestKey }}">
     <div style="display:flex;flex-wrap:wrap;gap:1rem">
@@ -62,7 +61,7 @@
     </div>
 
     <div style="overflow-x:auto">
-    <table class="table" id="lines">
+    <table class="table" id="lines" data-no-paginate>
         <thead><tr><th>#</th><th style="min-width:12rem">Product (check!)</th><th>Qty</th><th>Unit cost · total</th><th>Expiry · batch</th><th></th></tr></thead>
         <tbody>
         @foreach ($lines as $i => $l)
@@ -118,7 +117,7 @@
     </tr>
 </template>
 
-<form method="POST" action="{{ route('receipts.cancel', $r['id']) }}" class="card" style="max-width:none;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center" data-confirm="Cancel this draft receipt? Nothing is added to stock." data-confirm-title="Cancel this draft?" data-confirm-label="Cancel draft">
+<form data-hard method="POST" action="{{ route('receipts.cancel', $r['id']) }}" class="card" style="max-width:none;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center" data-confirm="Cancel this draft receipt? Nothing is added to stock." data-confirm-title="Cancel this draft?" data-confirm-label="Cancel draft">
     @csrf
     <span class="muted">Wrong scan or duplicate?</span>
     <input class="light-input" name="reason" required minlength="3" maxlength="200" placeholder="Reason" style="max-width:18rem">

@@ -8,6 +8,7 @@ use App\Services\Platform;
 use App\Services\Supabase\SupabaseRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * JSON for the redesigned Overview (range-aware: 7 / 30 / 90 days) and the sidebar badges.
@@ -49,6 +50,43 @@ class OverviewController extends Controller
         }
 
         return response()->json($found->values());
+    }
+
+    /**
+     * Live pages ask this every few seconds instead of reloading themselves: one tiny database
+     * read (SupabaseRepository::pulse). When it differs from the last one seen for this account,
+     * every cached answer is dropped (AdminActions::bump) and 'changed' tells the page to reload
+     * its content once. Changes made on this website change 'sig' through the data version.
+     * Without the database (or if the read fails) the version plus the current minute is used,
+     * so pages still refresh about once a minute, from the cache.
+     */
+    public function pulse(Platform $platform): JsonResponse
+    {
+        $changed = false;
+        $data = null;
+        $off = 'melai:pulse-off:'.\App\Support\Swr::scope();
+        if ($platform->isSupabase() && ! Cache::has($off)) {
+            try {
+                $data = app(SupabaseRepository::class)->pulse();
+            } catch (\Throwable $e) {
+                report($e);
+                Cache::put($off, true, 600);   // e.g. a missing permission: don't retry every few seconds
+            }
+        }
+        if ($data !== null) {
+            $key = 'melai:pulse:'.\App\Support\Swr::scope();
+            $seen = Cache::get($key);
+            if ($seen !== $data) {
+                Cache::put($key, $data, 86400);
+                if ($seen !== null) {
+                    \App\Services\AdminActions::bump();
+                    $changed = true;
+                }
+            }
+        }
+        $sig = substr(sha1(($data ?? 't'.intdiv(time(), 60)).'|v'.\App\Services\AdminActions::version()), 0, 16);
+
+        return response()->json(['sig' => $sig, 'changed' => $changed])->header('Cache-Control', 'no-store, private');
     }
 
     public function counts(Request $request, OverviewService $overview): JsonResponse

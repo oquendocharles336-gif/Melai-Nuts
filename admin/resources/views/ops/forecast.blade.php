@@ -3,7 +3,7 @@
 @section('page-title', 'Sales Forecast')
 @section('panel')
 @php
-    $fmt = fn ($n) => $n === null ? '—' : ($metric === 'revenue' ? '₱'.number_format((float) $n, 2) : number_format((float) $n, 1));
+    $fmt = fn ($n) => $n === null ? '—' : ($metric === 'revenue' ? \App\Support\Format::peso($n) : number_format((float) $n, 1));
     $ok = ($result['status'] ?? null) === 'ok';
 @endphp
 @include('partials.flash')

@@ -8,7 +8,7 @@
 <div id="tap-result" class="card" style="max-width:none;display:none"></div>
 
 <div class="block-head"><h2>Find a customer</h2></div>
-<form method="POST" action="{{ route('cards.find') }}" class="card" style="max-width:none;display:flex;flex-wrap:wrap;gap:.8rem;align-items:end">
+<form data-hard method="POST" action="{{ route('cards.find') }}" class="card" style="max-width:none;display:flex;flex-wrap:wrap;gap:.8rem;align-items:end">
     @csrf
     <div style="flex:1 1 18rem"><label for="query"><strong>Exact phone, e-mail or printed card label (GK-…)</strong></label><br>
         <input class="light-input" id="query" name="query" value="{{ old('query') }}" required minlength="4" maxlength="120" placeholder="09171234567 or juan@email.com"></div>
@@ -25,7 +25,7 @@
     </section>
 
     <div class="block-head"><h2>All cards</h2></div>
-    <form method="GET" class="card" style="max-width:none;display:flex;flex-wrap:wrap;gap:.8rem;align-items:end">
+    <form data-hard method="GET" class="card" style="max-width:none;display:flex;flex-wrap:wrap;gap:.8rem;align-items:end">
         <div><label for="q"><strong>Search</strong></label><br><input class="light-input" id="q" name="q" value="{{ $q }}" placeholder="Name, e-mail, phone or GK-…"></div>
         <div><label for="status"><strong>Status</strong></label><br>
             <select class="light-input" id="status" name="status">

@@ -63,7 +63,7 @@
         <x-card title="Notifications" subtitle="Saved in this browser">
             <div class="setting-row"><div><b>Toasts after actions</b><span>A short note bottom-left when something is saved. Errors always show.</span></div>
                 <button type="button" class="switch-ui" role="switch" :aria-checked="$store.ui.toastsOn.toString()" x-on:click="$store.ui.setToasts(!$store.ui.toastsOn)" aria-label="Toasts after actions"></button></div>
-            <div class="setting-row"><div><b>Live refresh</b><span>Re-read the Overview numbers every minute while the tab is open</span></div>
+            <div class="setting-row"><div><b>Live refresh</b><span>Keep every page up to date while it is open: new orders, payments, refunds and stock changes appear without reloading</span></div>
                 <button type="button" class="switch-ui" role="switch" :aria-checked="$store.ui.liveRefresh.toString()" x-on:click="$store.ui.setLive(!$store.ui.liveRefresh)" aria-label="Live refresh"></button></div>
             <div class="setting-row"><div><b>Sidebar badges</b><span>Active orders, items running low{{ $user->isAdmin() ? ' and pending refunds' : '' }}; always on</span></div>
                 <button type="button" class="switch-ui" role="switch" aria-checked="true" disabled aria-label="Sidebar badges (always on)" style="opacity:.5"></button></div>

@@ -82,10 +82,15 @@ final class Swr
     /** melai:swr:<login+account+database hash>:<data version>:<name> */
     public static function key(string $name): string
     {
-        $user = auth()->user();
-        $scope = sha1(($user?->getAuthIdentifier() ?? '-').'|'.($user?->staff_uid ?? '-').'|'.self::target());
+        return 'melai:swr:'.self::scope().':v'.AdminActions::version().':'.$name;
+    }
 
-        return 'melai:swr:'.$scope.':v'.AdminActions::version().':'.$name;
+    /** Hash of the signed-in login, its linked app account and the database answering. */
+    public static function scope(): string
+    {
+        $user = auth()->user();
+
+        return sha1(($user?->getAuthIdentifier() ?? '-').'|'.($user?->staff_uid ?? '-').'|'.self::target());
     }
 
     /**

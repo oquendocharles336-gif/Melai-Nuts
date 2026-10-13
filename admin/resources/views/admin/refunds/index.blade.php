@@ -2,28 +2,21 @@
 @section('title', 'Refunds · Melai Nuts Admin')
 @section('page-title', 'Refunds')
 @section('panel')
-@php $peso = fn ($n) => '₱'.number_format($n, 2);
-$methodLabel = fn ($m) => ['cod' => 'COD', 'cash' => 'Cash', 'gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card'][$m] ?? strtoupper($m);
+@php
 $labels = ['requested' => 'Requested', 'approved_processing' => 'Approved · send money back', 'rejected' => 'Rejected', 'refunded' => 'Refunded', 'failed' => 'Failed'];
 $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' => 'low', 'refunded' => 'high', 'failed' => 'low'];
 @endphp
 
-@if (session('status')) <div class="card" style="border-color:#2E7D4F;background:#f1f8f2">{{ session('status') }}</div> @endif
-@if (session('error')) <div class="card" style="border-color:#C0392B;background:#fdecea">{{ session('error') }}</div> @endif
-@if ($errors->any())
-    <div class="card" style="border-color:#C0392B;background:#fdecea">
-        <ul style="margin:0;padding-left:1.1rem">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
-    </div>
-@endif
+@include('partials.flash')
 
 <p class="muted">Refund requests made in the Melai Nuts app. The amount is fixed by the request (partial refunds cover only the returned items) and can never be more than what was paid minus refunds already completed on the order. Once completed it is deducted from net sales on the day it completed, everywhere (dashboard, reports, the app). Cash refunds are completed in one step. Online (GCash / Maya / card) refunds are approved here, then sent back with "Send via HitPay" (needs HITPAY_API_KEY), or refunded from the HitPay dashboard and marked refunded with the reference.</p>
 
 <form method="GET" class="card filter-row">
-    <select class="light-input" name="status" onchange="this.form.submit()">
+    <select class="light-input" name="status" onchange="this.form.requestSubmit()">
         <option value="">All statuses</option>
         @foreach ($labels as $k => $label) <option value="{{ $k }}" @selected(($filters['status'] ?? '') === $k)>{{ $label }}</option> @endforeach
     </select>
-    <select class="light-input" name="branch" onchange="this.form.submit()">
+    <select class="light-input" name="branch" onchange="this.form.requestSubmit()">
         <option value="">All branches</option>
         @foreach ($branches as $b) <option value="{{ $b['id'] }}" @selected(($filters['branch'] ?? '') === $b['id'])>{{ $b['name'] }}</option> @endforeach
     </select>
@@ -124,5 +117,5 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
     <div class="card">No refund requests match these filters.</div>
 @endforelse
 </div>
-@if ($refunds->hasPages())<div style="margin-top:12px">{{ $refunds->links() }}</div>@endif
+{{ $refunds->links() }}
 @endsection

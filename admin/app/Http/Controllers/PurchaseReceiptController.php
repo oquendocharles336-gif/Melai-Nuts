@@ -25,24 +25,6 @@ use Illuminate\Support\Str;
  */
 class PurchaseReceiptController extends Controller
 {
-    // Per-request (scoped) services are resolved on each use instead of being held by the controller:
-    // Laravel can reuse a controller instance across requests (test client, Octane), and a held one
-    // would keep a previous request's account check and query results.
-    private function repo(): SupabaseRepository
-    {
-        return app(SupabaseRepository::class);
-    }
-
-    private function identity(): StaffIdentity
-    {
-        return app(StaffIdentity::class);
-    }
-
-    private function platform(): Platform
-    {
-        return app(Platform::class);
-    }
-
     /** [['id' => variant uuid, 'label' => 'Product · Variant'], ...] */
     private function variants(): array
     {

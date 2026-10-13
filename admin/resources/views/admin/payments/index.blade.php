@@ -2,34 +2,26 @@
 @section('title', 'Payments · Melai Nuts Admin')
 @section('page-title', 'Payments')
 @section('panel')
-@php $peso = fn ($n) => '₱'.number_format($n, 2);
-$methodLabel = fn ($m) => ['cod' => 'COD', 'cash' => 'Cash', 'gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card'][$m] ?? strtoupper($m);
-$branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id', $o['branch'])['name'] ?? '—'); @endphp
+@php $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id', $o['branch'])['name'] ?? '—'); @endphp
 
-@if (session('status')) <div class="card" style="border-color:#2E7D4F;background:#f1f8f2">{{ session('status') }}</div> @endif
-@if (session('error')) <div class="card" style="border-color:#C0392B;background:#fdecea">{{ session('error') }}</div> @endif
-@if ($errors->any())
-    <div class="card" style="border-color:#C0392B;background:#fdecea">
-        <ul style="margin:0;padding-left:1.1rem">@foreach ($errors->all() as $e) <li>{{ $e }}</li> @endforeach</ul>
-    </div>
-@endif
+@include('partials.flash')
 <p class="muted">Live from the Melai Nuts app (last {{ config('melai.supabase.order_window_days') }} days). Customers pay in cash (online payment is off by the owner's decision); only cash can be marked paid here. Past online payments were confirmed by HitPay.</p>
 
 <form method="GET" class="card filter-row">
-    <select class="light-input" name="status" onchange="this.form.submit()">
+    <select class="light-input" name="status" onchange="this.form.requestSubmit()">
         <option value="">All statuses</option>
         @foreach (['paid', 'pending', 'failed', 'refunded'] as $s) <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst($s) }}</option> @endforeach
     </select>
-    <select class="light-input" name="method" onchange="this.form.submit()">
+    <select class="light-input" name="method" onchange="this.form.requestSubmit()">
         <option value="">All methods</option>
         @foreach ($methods as $m) <option value="{{ $m }}" @selected(($filters['method'] ?? '') === $m)>{{ $methodLabel($m) }}</option> @endforeach
     </select>
-    <select class="light-input" name="branch" onchange="this.form.submit()">
+    <select class="light-input" name="branch" onchange="this.form.requestSubmit()">
         <option value="">All branches</option>
         @foreach ($branches as $b) <option value="{{ $b['id'] }}" @selected(($filters['branch'] ?? '') === $b['id'])>{{ $b['name'] }}</option> @endforeach
     </select>
-    <input class="light-input" type="date" name="from" value="{{ $filters['from'] ?? '' }}" onchange="this.form.submit()">
-    <input class="light-input" type="date" name="to" value="{{ $filters['to'] ?? '' }}" onchange="this.form.submit()">
+    <input class="light-input" type="date" name="from" value="{{ $filters['from'] ?? '' }}" onchange="this.form.requestSubmit()">
+    <input class="light-input" type="date" name="to" value="{{ $filters['to'] ?? '' }}" onchange="this.form.requestSubmit()">
     <input class="light-input" type="search" name="q" value="{{ $q }}" placeholder="Order, customer, reference" aria-label="Search payments" maxlength="100">
     <button class="btn-outline" type="submit" style="padding:.5rem 1rem">Search</button>
     @if (array_filter($filters) || $q !== '') <a href="{{ route('admin.payments.index') }}" class="btn-outline" style="padding:.5rem 1rem">Clear</a> @endif
@@ -80,7 +72,7 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
 
 <div class="block-head"><h2>All payments</h2></div>
 <div class="card" style="max-width:none;overflow-x:auto">
-    <table class="table">
+    <table class="table" data-no-paginate>
         <thead><tr><th>Order</th><th>Branch</th><th>Method</th><th>Amount</th><th>Refunded</th><th>Status</th><th>Paid at</th></tr></thead>
         <tbody>
         @forelse ($orders as $o)
@@ -96,7 +88,6 @@ $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id
         @endforelse
         </tbody>
     </table>
-    <p class="muted">{{ $orders->total() }} match(es){{ $orders->hasPages() ? ', page '.$orders->currentPage().' of '.$orders->lastPage() : '' }}.</p>
-    @if ($orders->hasPages()){{ $orders->links() }}@endif
+    {{ $orders->links() }}
 </div>
 @endsection

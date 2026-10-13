@@ -8,10 +8,8 @@
 @endsection
 @section('panel')
 @php $label = ['low' => 'Low', 'average' => 'Average', 'high' => 'High', 'normal' => 'Normal', 'plenty' => 'Plenty', 'none' => 'No data', 'unrated' => 'Not rated'];
-     $peso = fn ($n) => '₱'.number_format($n); $peso2 = fn ($n) => $n === null ? '—' : '₱'.number_format($n, 2);
      $int = fn ($n) => $n === null ? '—' : number_format($n); $rate = fn ($n) => $n === null ? '—' : number_format($n * 100, 1).'%';
      $periodLabel = ['today' => 'today', 'week' => 'this week', 'month' => 'this month'][$period];
-     $methodLabel = ['gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card', 'cash' => 'Cash', 'cod' => 'Cash on delivery'];
      $scopeLabel = $branchId ? (collect($branches)->first()['name'] ?? '') : (count($allBranches) > 1 ? 'all branches' : (collect($allBranches)->first()['name'] ?? ''));
      $q = fn (array $o) => '?'.http_build_query(array_filter(array_merge(['period' => $period, 'branch' => $branchId], $o), fn ($v) => $v !== null));
      $tone = ['low' => 'bad', 'average' => 'warn', 'normal' => 'warn', 'high' => 'ok', 'plenty' => 'ok', 'none' => 'info', 'info' => 'info', 'unrated' => 'info']; @endphp
@@ -19,7 +17,7 @@
 @include('partials.flash')
 
 {{-- ===================== Live overview (range-aware JSON: /dashboard/overview.json) ===================== --}}
-<div x-data="overview({ url: @js(route('dashboard.overview')), range: 30, branch: @js($branchId) })" x-on:overview-export.window="exportCsv()"
+<div id="overview-live" data-keep="range,branch,filter" x-data="overview({ url: @js(route('dashboard.overview')), range: 30, branch: @js($branchId) })" x-on:overview-export.window="exportCsv()"
      :class="loading && 'is-loading'" class="grid" style="gap:16px">
 
     @if (count($allBranches) > 1)
@@ -64,7 +62,7 @@
                     <template x-for="i in (k.low?.items || [])" :key="i.name"><li><span x-text="i.name"></span><b x-text="i.qty <= 0 ? 'Out' : i.qty + ' left'"></b></li></template>
                 </ul>
             </x-card>
-            <x-kpi label="Average order" icon="coins" :href="route('section', 'reports')" x-value="k.average?.value ?? null" format="peso" x-delta="k.average?.delta ?? null" x-spark="k.average?.spark" loading="!data" delta-note="vs before" />
+            <x-kpi label="Average order" icon="coins" :href="route('section', 'sales')" x-value="k.average?.value ?? null" format="peso" x-delta="k.average?.delta ?? null" x-spark="k.average?.spark" loading="!data" delta-note="vs before" />
         </div>
     </div>
 
@@ -137,10 +135,10 @@
     </x-card>
 </div>
 
-{{-- ===================== Branches and staff (server-rendered, refreshed every minute) ===================== --}}
+{{-- ===================== Branches and staff (server-rendered, updated live) ===================== --}}
 <div class="section-title"><h2>Branches &amp; team</h2><p>Per-branch sales, stock and staff</p></div>
 
-<div id="live-dashboard" x-data="liveRefresh(60)" class="stack">
+<div id="live-dashboard" class="stack">
 <section class="block">
     <div class="block-head">
         <h2>Overview {{ $periodLabel }} · {{ $scopeLabel }}</h2>
@@ -149,7 +147,7 @@
                 <form method="GET" data-branch-filter style="display:flex;gap:8px;align-items:center">
                     <input type="hidden" name="period" value="{{ $period }}">
                     <label class="muted" for="branch-filter" style="font-size:13px">Branch</label>
-                    <select class="select" id="branch-filter" name="branch" onchange="this.form.submit()" style="width:auto;height:32px;font-size:13px">
+                    <select class="select" id="branch-filter" name="branch" onchange="this.form.requestSubmit()" style="width:auto;height:32px;font-size:13px">
                         <option value="" @selected(! $branchId)>All branches</option>
                         @foreach ($allBranches as $b)<option value="{{ $b['id'] }}" @selected($branchId === $b['id'])>{{ $b['name'] }}</option>@endforeach
                     </select>
@@ -157,24 +155,24 @@
                 </form>
             @endif
             <div class="tabs">@foreach (['today' => 'Today', 'week' => 'This week', 'month' => 'This month'] as $k => $v)
-                <a href="{{ $q(['period' => $k]) }}" class="{{ $period === $k ? 'active' : '' }}">{{ $v }}</a>@endforeach</div>
+                <a data-soft href="{{ $q(['period' => $k]) }}" class="{{ $period === $k ? 'active' : '' }}">{{ $v }}</a>@endforeach</div>
         </div>
     </div>
     @if ($period !== 'today')
     <section class="stat-row">
-        <div class="stat"><span>Net sales today</span><strong>{{ $peso2($today['net_sales']) }}</strong></div>
-        <div class="stat"><span>Refunds today ({{ $int($today['refund_count']) }})</span><strong>{{ $peso2($today['refunds']) }}</strong></div>
+        <div class="stat"><span>Net sales today</span><strong>{{ $peso($today['net_sales']) }}</strong></div>
+        <div class="stat"><span>Refunds today ({{ $int($today['refund_count']) }})</span><strong>{{ $peso($today['refunds']) }}</strong></div>
         <div class="stat"><span>Paid orders today</span><strong>{{ $int($today['paid_orders']) }}</strong></div>
         <div class="stat"><span>Orders placed today</span><strong>{{ number_format($today['orders']) }}</strong></div>
     </section>
     @endif
     <section class="stat-row" data-sales-figures>
-        <div class="stat"><span>Net sales</span><strong>{{ $peso2($kpis['net_sales']) }}</strong></div>
-        <div class="stat"><span>Gross paid sales</span><strong>{{ $peso2($kpis['gross_sales']) }}</strong></div>
-        <div class="stat"><span>Discounts</span><strong>{{ $peso2($kpis['discounts']) }}</strong></div>
-        <div class="stat"><span>Refunded ({{ $int($kpis['refund_count']) }})</span><strong>{{ $peso2($kpis['refunds']) }}</strong></div>
+        <div class="stat"><span>Net sales</span><strong>{{ $peso($kpis['net_sales']) }}</strong></div>
+        <div class="stat"><span>Gross paid sales</span><strong>{{ $peso($kpis['gross_sales']) }}</strong></div>
+        <div class="stat"><span>Discounts</span><strong>{{ $peso($kpis['discounts']) }}</strong></div>
+        <div class="stat"><span>Refunded ({{ $int($kpis['refund_count']) }})</span><strong>{{ $peso($kpis['refunds']) }}</strong></div>
         <div class="stat"><span>Refund rate</span><strong>{{ $rate($kpis['refund_rate']) }}</strong></div>
-        <div class="stat"><span>Average order value</span><strong>{{ $peso2($kpis['average_order_value']) }}</strong></div>
+        <div class="stat"><span>Average order value</span><strong>{{ $peso($kpis['average_order_value']) }}</strong></div>
     </section>
     <section class="stat-row">
         <div class="stat"><span>Orders placed</span><strong>{{ number_format($kpis['orders']) }}</strong></div>
@@ -198,7 +196,7 @@
             <div class="card-b">
                 <div class="card-top"><strong>Net sales by payment method</strong></div>
                 @forelse ($kpis['payment_methods'] as $m)
-                    <div class="muted" style="display:flex;justify-content:space-between;padding:3px 0"><span>{{ $methodLabel[$m['method']] ?? ucfirst($m['method']) }} ({{ $m['orders'] }}){{ $m['refunds'] > 0 ? ' · refunds '.$peso2($m['refunds']) : '' }}</span><strong class="tabular" style="color:var(--ink)">{{ $peso2($m['amount']) }}</strong></div>
+                    <div class="muted" style="display:flex;justify-content:space-between;padding:3px 0"><span>{{ $methodLabel($m['method']) }} ({{ $m['orders'] }}){{ $m['refunds'] > 0 ? ' · refunds '.$peso($m['refunds']) : '' }}</span><strong class="tabular" style="color:var(--ink)">{{ $peso($m['amount']) }}</strong></div>
                 @empty <div class="muted">No sales recorded {{ $periodLabel }}.</div> @endforelse
             </div>
         </div>
@@ -207,7 +205,7 @@
 </section>
 
 <section class="stat-row">
-    <div class="stat"><span>Pending refunds (not deducted)</span><strong>{{ $int($pendingRefunds) }}</strong>@if ($pendingRefundAmount !== null)<span>{{ $peso2($pendingRefundAmount) }}</span>@endif</div>
+    <div class="stat"><span>Pending refunds (not deducted)</span><strong>{{ $int($pendingRefunds) }}</strong>@if ($pendingRefundAmount !== null)<span>{{ $peso($pendingRefundAmount) }}</span>@endif</div>
     <div class="stat"><span>Low / out of stock items</span><strong>{{ number_format($kpis['low_stock']) }} / {{ number_format($kpis['out_of_stock']) }}</strong></div>
     <div class="stat"><span>Active loyalty members</span><strong>{{ number_format($loyalty['members']) }}</strong></div>
 </section>
@@ -225,7 +223,7 @@
         <div class="card-b" data-top-branches>
             <div class="card-top"><strong>Top branches (net sales)</strong></div>
             @foreach ($topBranches as $i => $b)
-                <div class="muted" style="display:flex;justify-content:space-between;padding:3px 0"><span>{{ $i + 1 }}. {{ $b['name'] }} ({{ $int($b['paid_orders']) }} paid)</span><strong class="tabular" style="color:var(--ink)">{{ $peso2($b['net']) }}</strong></div>
+                <div class="muted" style="display:flex;justify-content:space-between;padding:3px 0"><span>{{ $i + 1 }}. {{ $b['name'] }} ({{ $int($b['paid_orders']) }} paid)</span><strong class="tabular" style="color:var(--ink)">{{ $peso($b['net']) }}</strong></div>
             @endforeach
         </div>
         @endif
@@ -233,7 +231,7 @@
         <div class="card-b" data-top-staff>
             <div class="card-top"><strong>Top cashiers (POS net sales)</strong></div>
             @forelse ($topStaff as $i => $p)
-                <div class="muted" style="display:flex;justify-content:space-between;padding:3px 0"><span>{{ $i + 1 }}. {{ $p['full_name'] ?: $p['email'] }}{{ $p['branch_name'] ? ' · '.$p['branch_name'] : '' }} ({{ $p['pos_transactions'] }})</span><strong class="tabular" style="color:var(--ink)">{{ $peso2((float) $p['pos_net_sales']) }}</strong></div>
+                <div class="muted" style="display:flex;justify-content:space-between;padding:3px 0"><span>{{ $i + 1 }}. {{ $p['full_name'] ?: $p['email'] }}{{ $p['branch_name'] ? ' · '.$p['branch_name'] : '' }} ({{ $p['pos_transactions'] }})</span><strong class="tabular" style="color:var(--ink)">{{ $peso((float) $p['pos_net_sales']) }}</strong></div>
             @empty <div class="muted">No in-store sales {{ $periodLabel }}.</div> @endforelse
         </div>
         @endif
@@ -248,7 +246,7 @@
         <div class="stat"><span>Staff accounts (active)</span><strong>{{ $staffSummary['accounts'] }} ({{ $staffSummary['active'] }})</strong></div>
         <div class="stat"><span>Open cash drawers now</span><strong>{{ $staffSummary['open_shifts'] ?? '—' }}</strong></div>
         <div class="stat"><span>POS transactions {{ $periodLabel }}</span><strong>{{ $staffSummary['pos_transactions'] === null ? '—' : number_format($staffSummary['pos_transactions']) }}</strong></div>
-        <div class="stat"><span>POS net sales {{ $periodLabel }}</span><strong>{{ $peso2($staffSummary['pos_net_sales']) }}</strong></div>
+        <div class="stat"><span>POS net sales {{ $periodLabel }}</span><strong>{{ $peso($staffSummary['pos_net_sales']) }}</strong></div>
     </section>
     <div class="ui-card flush">
         <x-table>
@@ -258,9 +256,9 @@
                     <td>{{ ucfirst($p['role']) }}</td><td>{{ $p['branch_name'] ?? ($p['role'] === 'owner' ? 'All branches' : '—') }}</td>
                     <td><x-badge :tone="$p['account_status'] === 'active' ? 'ok' : 'bad'">{{ ucfirst($p['account_status'] ?? 'unknown') }}</x-badge></td>
                     @if ($staffActivity)
-                    <td class="num">{{ number_format($p['pos_transactions']) }} · {{ $peso2((float) $p['pos_sales']) }}</td>
-                    <td class="num">{{ $peso2((float) $p['pos_refunds']) }}@if (isset($p['pos_refund_count']) && $p['pos_refund_count'] > 0) ({{ $p['pos_refund_count'] }})@endif</td>
-                    <td class="num"><strong>{{ $peso2((float) $p['pos_net_sales']) }}</strong></td>
+                    <td class="num">{{ number_format($p['pos_transactions']) }} · {{ $peso((float) $p['pos_sales']) }}</td>
+                    <td class="num">{{ $peso((float) $p['pos_refunds']) }}@if (isset($p['pos_refund_count']) && $p['pos_refund_count'] > 0) ({{ $p['pos_refund_count'] }})@endif</td>
+                    <td class="num"><strong>{{ $peso((float) $p['pos_net_sales']) }}</strong></td>
                     <td class="num">{{ $p['shifts_opened'] }}</td><td>{{ $p['open_shift'] ? 'Open' : '—' }}</td>
                     @else <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td> @endif
                     <td class="cell-sub">{{ $p['last_activity_at'] ? \Carbon\Carbon::parse($p['last_activity_at'])->setTimezone(config('app.timezone'))->diffForHumans() : 'No activity yet' }}</td></tr>
@@ -281,10 +279,10 @@
         @foreach ($sales as $s)
             <div class="card-b">
                 <div class="card-top"><strong>{{ $s['name'] }}</strong>@if ($s['target'])<span class="status {{ $s['status'] }}">{{ $label[$s['status']] }}</span>@endif</div>
-                <div class="big">{{ $peso2($s['net']) }}</div>
-                @if ($s['gross'] !== null)<div class="muted" style="font-size:12.5px">Gross {{ $peso2($s['gross']) }} · refunds {{ $peso2($s['refunds']) }}@if ($s['pending_refund_amount'] > 0) · {{ $peso2($s['pending_refund_amount']) }} pending @endif</div>@endif
+                <div class="big">{{ $peso($s['net']) }}</div>
+                @if ($s['gross'] !== null)<div class="muted" style="font-size:12.5px">Gross {{ $peso($s['gross']) }} · refunds {{ $peso($s['refunds']) }}@if ($s['pending_refund_amount'] > 0) · {{ $peso($s['pending_refund_amount']) }} pending @endif</div>@endif
                 @if ($s['target'])
-                    <div class="muted" style="font-size:12.5px">{{ $s['pct'] }}% of {{ $peso($s['target']) }} target</div>
+                    <div class="muted" style="font-size:12.5px">{{ $s['pct'] }}% of {{ $pesoWhole($s['target']) }} target</div>
                     <div class="bar"><span class="{{ $s['status'] }}" style="width: {{ min(100, $s['pct'] / $maxPct * 100) }}%"></span></div>
                 @else
                     <div class="muted" style="font-size:12.5px">No target set</div>
@@ -314,8 +312,8 @@
     </div>
 </section>
 
-<p class="note">Updated <span x-text="updatedLabel">{{ now()->format('g:i:s A') }}</span> · refreshes every minute<span x-show="failed" x-cloak> · <strong style="color:var(--bad)">last refresh failed, showing the previous numbers</strong> <a class="link" href="" @click.prevent="refresh()">retry</a></span></p>
+<p class="note">This page updates by itself when orders, refunds or stock change (Settings &gt; Live refresh).</p>
 </div>{{-- #live-dashboard --}}
 
-{{-- liveRefresh: resources/js/ui.js. --}}
+{{-- Live updates: the pulse in resources/js/ui.js. --}}
 @endsection

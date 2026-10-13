@@ -56,7 +56,7 @@ class ActivityLogController extends Controller
         }
 
         return view('admin.logs', [
-            'logs' => $this->websiteLogs($q)->paginate(25)->withQueryString(),
+            'logs' => $this->websiteLogs($q)->paginate(ListTools::perPage($request))->appends(ListTools::linkQuery($request)),
             'q' => $q, 'olderCursor' => $olderCursor, 'before' => $this->before($request),
             'appLogs' => $appLogs, 'appLogsError' => $appLogsError, 'liveData' => $platform->isSupabase(),
         ]);

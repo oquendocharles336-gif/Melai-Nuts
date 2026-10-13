@@ -53,24 +53,6 @@ class ReportsController extends Controller
         return $this->repo()->staffOverview(Carbon::parse($from, 'Asia/Manila')->startOfDay(), Carbon::parse($to, 'Asia/Manila')->addDay()->startOfDay(), $branchId);
     }
 
-    // Per-request (scoped) services are resolved on each use instead of being held by the controller:
-    // Laravel can reuse a controller instance across requests (test client, Octane), and a held one
-    // would keep a previous request's account check and query results.
-    private function repo(): SupabaseRepository
-    {
-        return app(SupabaseRepository::class);
-    }
-
-    private function identity(): StaffIdentity
-    {
-        return app(StaffIdentity::class);
-    }
-
-    private function platform(): Platform
-    {
-        return app(Platform::class);
-    }
-
     /** @return array{0: string, 1: string, 2: ?string} [from, to, branchId] */
     private function filters(Request $request): array
     {

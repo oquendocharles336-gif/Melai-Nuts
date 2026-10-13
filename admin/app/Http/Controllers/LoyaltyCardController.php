@@ -22,19 +22,6 @@ class LoyaltyCardController extends Controller
 {
     private const UID_RULE = ['required', 'string', 'max:64', 'regex:/^[0-9A-Fa-f:\-\s\.]{8,64}$/'];
 
-    // Per-request (scoped) services are resolved on each use instead of being held by the controller:
-    // Laravel can reuse a controller instance across requests (test client, Octane), and a held one
-    // would keep a previous request's account check and query results.
-    private function repo(): SupabaseRepository
-    {
-        return app(SupabaseRepository::class);
-    }
-
-    private function identity(): StaffIdentity
-    {
-        return app(StaffIdentity::class);
-    }
-
     public function index(Request $request)
     {
         $isOwner = $this->identity()->isOwner();

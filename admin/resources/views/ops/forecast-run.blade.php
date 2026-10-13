@@ -2,7 +2,7 @@
 @section('title', 'Saved Forecast · Melai Nuts Admin')
 @section('page-title', 'Saved Forecast')
 @section('panel')
-@php $fmt = fn ($n) => $n === null ? '—' : ($run['metric'] === 'revenue' ? '₱'.number_format((float) $n, 2) : number_format((float) $n, 1)); @endphp
+@php $fmt = fn ($n) => $n === null ? '—' : ($run['metric'] === 'revenue' ? \App\Support\Format::peso($n) : number_format((float) $n, 1)); @endphp
 @include('partials.flash')
 
 <section class="stat-row">
