@@ -1,0 +1,13 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", ".git", "test", "*.local", "backfill-role-claim.js", "deactivate-user.js"]
+    }
+  ],
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}
