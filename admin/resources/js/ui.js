@@ -60,7 +60,7 @@ export async function api(url, { method = 'GET', body } = {}) {
 }
 
 /** Tells every listening component (Overview, badges, tables) that data changed on the server. */
-export const changed = (what) => { ssClear(); fragments.clear(); window.dispatchEvent(new CustomEvent('melai:changed', { detail: what })); };
+export const changed = (what) => { ssClear(); fragments.clear(); pages.clear(); window.dispatchEvent(new CustomEvent('melai:changed', { detail: what })); };
 
 function animateNumber(el, to, fmt) {
     const from = Number(el.dataset.countFrom ?? 0);
@@ -602,6 +602,35 @@ function liveRefreshComponent(seconds) {
 // ---------------------------------------------------------------------------------------------
 const fragments = new Map(); // url -> { at, promise }   (started on pointerdown, ~15 s)
 const FRAG_TTL = 15000;
+
+// SPEED: page memory. Every page fragment the server sends is kept (in memory, plus sessionStorage so a
+// reload keeps it). Opening a tab you already visited shows that copy AT ONCE, then asks the server in
+// the background and swaps in the new version if it changed and you have not started using the page.
+// Any change made on the website (changed() / a form that came back with a message) forgets them all.
+const PAGE_TTL = 5 * 60 * 1000;      // older copies are not shown (the page loads normally)
+const PAGE_MAX = 12;                 // pages kept in memory
+const PAGE_MAX_BYTES = 400000;       // bigger pages are kept in memory only
+const pages = new Map();             // url -> { at, html }
+const pageKey = (url) => 'page:' + new URL(url, location.href).href;
+
+function rememberPage(url, frag) {
+    const href = new URL(url, location.href);
+    href.searchParams.delete('fresh');
+    const entry = { at: Date.now(), html: frag.outerHTML };
+    pages.delete(href.href);
+    pages.set(href.href, entry);
+    while (pages.size > PAGE_MAX) pages.delete(pages.keys().next().value);
+    if (entry.html.length <= PAGE_MAX_BYTES) ssSet(pageKey(href.href), entry);
+}
+
+function recallPage(url) {
+    const href = new URL(url, location.href).href;
+    let entry = pages.get(href);
+    if (!entry) { const kept = ssGet(pageKey(href)); entry = kept?.data; if (entry) pages.set(href, entry); }
+    if (!entry || Date.now() - entry.at > PAGE_TTL) return null;
+    const frag = new DOMParser().parseFromString(entry.html, 'text/html').querySelector('[data-fragment]');
+    return frag ? { frag, at: entry.at } : null;
+}
 let navToken = 0;
 let lastInteraction = 0;
 
@@ -614,6 +643,7 @@ async function fetchFragment(url, fresh = false) {
     const frag = doc.querySelector('[data-fragment]');
     if (!frag) throw new Error('not a page fragment');          // e.g. redirected to the login page
     if (frag.querySelector('script')) throw new Error('page has its own scripts');
+    rememberPage(url, frag);
     return { frag, stale: r.headers.get('X-Melai-Stale') === '1' };
 }
 
@@ -647,6 +677,32 @@ export async function navigate(url, { push = true, fromShell = false } = {}) {
     const token = ++navToken;
     const main = document.querySelector('.main-inner');
     if (!main) { location.assign(url); return; }
+
+    // Visited before (within PAGE_TTL): show the kept copy now, refresh it in the background.
+    const kept = recallPage(url);
+    if (kept) {
+        if (push) history.pushState({ soft: true }, '', url);
+        swap(kept.frag, { animate: !fromShell });
+        if (!fromShell) document.getElementById('main')?.scrollTo({ top: 0 });
+        Alpine.store('ui').nav = false;
+        const shownAt = Date.now();
+        const shownHtml = kept.frag.innerHTML;
+        const here = () => token === navToken && new URL(url, location.href).href === location.href;
+        const apply = (r) => {
+            if (!r || !here() || lastInteraction >= shownAt || r.frag.innerHTML === shownHtml) return;
+            const scroller = document.getElementById('main');
+            const top = scroller?.scrollTop ?? 0;
+            swap(r.frag, { animate: false });
+            scroller?.scrollTo({ top });
+        };
+        fragments.delete(url);
+        fetchFragment(url).then((r) => {
+            apply(r);
+            if (r?.stale && here()) fetchFragment(url, true).then(apply).catch(() => {});
+        }).catch(() => {});
+        return;
+    }
+
     progress(true);
     if (!fromShell) main.classList.add('is-swapping');
     let res = null;
@@ -709,5 +765,7 @@ function bootSoftNavigation() {
     });
     window.addEventListener('popstate', () => navigate(location.href, { push: false }));
     ['pointerdown', 'keydown'].forEach(t => document.addEventListener(t, () => { lastInteraction = Date.now(); }, true));
-    window.addEventListener('melai:changed', () => fragments.clear());
+    window.addEventListener('melai:changed', () => { fragments.clear(); pages.clear(); });
+    // A form just came back with a message (saved, approved, error...): kept pages may be out of date.
+    if ((window.MelaiFlash || []).length) { pages.clear(); ssClear(); }
 }

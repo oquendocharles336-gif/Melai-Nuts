@@ -72,6 +72,7 @@ Cold `overview.json` is mostly the SQL function `admin_portal_orders` (the 90-da
 | Cache keys include which Supabase database answered (local copy and real data never mix) | `app/Support/Swr.php` | revert `key()` / `target()` |
 | Local Supabase copy plus sample data (never touches Supabase; refuses a `supabase` URL) | `database/local-supabase/*` | `drop database melai_local` on your local Postgres |
 | `.env.example` notes (local switch, `--no-reload`, quote passwords that contain `#`) | `.env.example` | revert |
+| Instant tab switching: pages you already opened (last 5 min) appear at once from browser memory, then refresh in the background; any change made on the website clears them | `resources/js/ui.js` (then `npm run build`) | revert `ui.js` and rebuild |
 | Tests for the above | `tests/Feature/LocalSpeedSettingsTest.php` | delete |
 
 No Supabase migration, data or production setting was changed. All 268 tests pass (215 + 53 Supabase
