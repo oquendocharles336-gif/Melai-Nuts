@@ -1,7 +1,7 @@
 {{-- Pager for an Alpine list that uses withPager() (resources/js/pager.js). `list` is the component's
-     full filtered list (e.g. "filtered"); the bar shows once it is longer than the smallest page. --}}
+     full filtered list (e.g. "filtered"); the bar shows whenever the list has rows. --}}
 @props(['list'])
-<nav class="pager" aria-label="Pages" x-show="{{ $list }}.length > 10" x-cloak>
+<nav class="pager" aria-label="Pages" x-show="{{ $list }}.length > 0" x-cloak>
     <span class="pager-info" x-text="pageInfo"></span>
     <div class="pager-pages">
         <button type="button" class="pager-btn" aria-label="Previous page" :disabled="curPage <= 1" x-on:click="goPage(curPage - 1)">‹</button>

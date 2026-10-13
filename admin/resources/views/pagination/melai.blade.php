@@ -9,7 +9,7 @@
     $last = $paginator->lastPage();
     $sizeUrl = fn ($n) => request()->fullUrlWithQuery(['per_page' => $n, 'page' => null, 'fresh' => null, 'full' => null]);
 @endphp
-@if ($paginator->total() > $sizes[0])
+@if ($paginator->total() > 0)
 <nav class="pager" aria-label="Pages" data-pager>
     <span class="pager-info">{{ number_format($from) }}–{{ number_format($to) }} of {{ number_format($paginator->total()) }}</span>
     <div class="pager-pages">

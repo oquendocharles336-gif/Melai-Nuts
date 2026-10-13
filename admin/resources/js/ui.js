@@ -332,7 +332,7 @@ function paletteComponent() {
 // Overview
 // ---------------------------------------------------------------------------------------------
 function overviewComponent({ url, range = 30, branch = null }) {
-    return {
+    return withPager({
         range, branch, data: null, loading: true, error: null, filter: 'all',
         get rev() { return this.data?.revenue || { total: null, delta: null, series: [] }; },
         get k() { return this.data?.kpis || {}; },
@@ -341,6 +341,7 @@ function overviewComponent({ url, range = 30, branch = null }) {
         get channelMax() { return Math.max(1, ...(this.data?.channels || []).map(c => Math.abs(c.amount))); },
         init() {
             restoreKept(this);
+            this.$watch('filter', () => { this.page = 1; });
             this.load();
             // Something changed (live pulse or an action here): re-read, keeping the numbers on screen.
             this.onChange = () => this.load(true, true);
@@ -380,7 +381,7 @@ function overviewComponent({ url, range = 30, branch = null }) {
             download(`melai-overview-${this.data.from}-to-${this.data.to}.csv`, rows);
             Alpine.store('ui').toast('Exported the last ' + this.range + ' days');
         },
-    };
+    }, 'activity');
 }
 
 function download(name, rows) {

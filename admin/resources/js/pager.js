@@ -57,15 +57,17 @@ function pageableTables(root) {
         && !t.tBodies[0].querySelector('template'));          // Alpine-drawn rows page themselves
 }
 
-/** Adds (or refreshes) a pager under every long server-rendered table inside root. */
+/** Adds (or refreshes) a pager under every server-rendered table with rows inside root. */
 export function enhanceTables(root) {
     if (!root) return;
     pageableTables(root).forEach((table, i) => {
         const key = location.pathname + location.search + '#' + i;
-        const rows = [...table.tBodies[0].rows].filter(r => !r.hasAttribute('data-pin') && !r.querySelector('td.empty'));
+        // Data rows only: not pinned rows, not "Nothing here" / loading rows (one cell spanning the table).
+        const rows = [...table.tBodies[0].rows].filter(r => !r.hasAttribute('data-pin') && !r.querySelector('td.empty')
+            && !(r.cells.length === 1 && r.cells[0].colSpan > 1));
         const box = table.closest('.ui-table-wrap, .table-wrap') || table;
         let bar = table._pager;
-        if (rows.length <= PAGE_SIZES[0]) {
+        if (!rows.length) {
             rows.forEach(r => r.classList.remove('pg-hide'));
             bar?.remove(); table._pager = null;
             return;

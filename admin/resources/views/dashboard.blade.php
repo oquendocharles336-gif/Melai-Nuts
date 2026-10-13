@@ -17,7 +17,7 @@
 @include('partials.flash')
 
 {{-- ===================== Live overview (range-aware JSON: /dashboard/overview.json) ===================== --}}
-<div id="overview-live" data-keep="range,branch,filter" x-data="overview({ url: @js(route('dashboard.overview')), range: 30, branch: @js($branchId) })" x-on:overview-export.window="exportCsv()"
+<div id="overview-live" data-keep="range,branch,filter,page" x-data="overview({ url: @js(route('dashboard.overview')), range: 30, branch: @js($branchId) })" x-on:overview-export.window="exportCsv()"
      :class="loading && 'is-loading'" class="grid" style="gap:16px">
 
     @if (count($allBranches) > 1)
@@ -120,7 +120,7 @@
         </x-slot:actions>
         <x-table stack>
             <x-slot:head><th>When</th><th>What happened</th><th>Area</th><th>By</th><th>Status</th></x-slot:head>
-            <template x-for="(a, i) in activity" :key="i + a.when + a.what">
+            <template x-for="(a, i) in pageRows" :key="i + a.when + a.what">
                 <tr class="is-click" x-on:click="a.href && (window.location.href = a.href)">
                     <td class="cell-sub" style="white-space:nowrap" x-text="$ago(a.when)" :title="$datetime(a.when)"></td>
                     <td class="cell-strong" x-text="a.what"></td>
@@ -132,6 +132,7 @@
             <tr x-show="!loading && !activity.length"><td colspan="5" class="empty">Nothing here yet.</td></tr>
             <template x-if="!data"><tr><td colspan="5"><div class="skel" style="height:120px"></div></td></tr></template>
         </x-table>
+        <x-pager-alpine list="activity" />
     </x-card>
 </div>
 
