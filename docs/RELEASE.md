@@ -54,7 +54,8 @@ flutter build appbundle --release \
 * `--obfuscate --split-debug-info` obfuscates the Dart side. **Keep `build/symbols/`** for each
   release (never ship it): it is needed to read crash stack traces
   (`flutter symbolize -i <trace> -d build/symbols/app.android-arm64.symbols`).
-* `ONLINE_PAYMENT_ENABLED` must stay `false` (owner decision; it is `false` in the example file).
+* `ONLINE_PAYMENT_ENABLED` is `true` (HitPay online payment; it is `true` in the example file). Set it to
+  `false` only for a cash-only build.
 
 iOS: open `ios/Runner.xcworkspace` in Xcode, set the Team under Signing & Capabilities for the
 Runner target (bundle id `ph.melainuts.app`), then

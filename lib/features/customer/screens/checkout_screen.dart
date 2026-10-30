@@ -82,8 +82,8 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
   _FulfillmentMethod _fulfillment = _FulfillmentMethod.pickup;
-  // Online payment is OFF by the owner's decision (PaymentConfig + the
-  // database switch): start on the cash option of the default fulfillment.
+  // Start on the cash option of the default fulfillment; online payment
+  // (when PaymentConfig and the database switch allow it) is never preselected.
   _PaymentMethod _payment = _PaymentMethod.cash;
 
   /// The database's online-payment switch and message; [PaymentSettings.unknown]
@@ -242,7 +242,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
 
-    // Online payment is off (owner decision; the database refuses it too).
+    // Online payment is switched off (the database refuses it too).
     if (_payment == _PaymentMethod.online && !_onlineAllowed) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -766,8 +766,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: AppSpacing.lg),
               Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
               const SizedBox(height: AppSpacing.sm),
-              // Online payment (HitPay) is hidden while it is off; the notice text
-              // comes from payment_settings.online_payment_disabled_message.
+              // Online payment (HitPay) is shown when both switches are on; while
+              // it is off the notice text comes from
+              // payment_settings.online_payment_disabled_message.
               if (_onlineAllowed) ...[
                 _PaymentTile(
                   icon: Icons.account_balance_wallet_rounded,

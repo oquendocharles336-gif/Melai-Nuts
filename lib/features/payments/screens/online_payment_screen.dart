@@ -29,11 +29,16 @@ class OnlinePaymentScreen extends StatefulWidget {
   /// order; the screen then starts with a "Pay now" retry.
   final String? startError;
 
+  /// Opened from the order details to pay an order placed earlier: the screen
+  /// starts with "Pay now" instead of assuming the payment page is open.
+  final bool resume;
+
   const OnlinePaymentScreen({
     super.key,
     required this.order,
     required this.itemCount,
     this.startError,
+    this.resume = false,
   });
 
   @override
@@ -58,7 +63,7 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _pageOpened = widget.startError == null;
+    _pageOpened = widget.startError == null && !widget.resume;
     _message = widget.startError;
     _txn = CustomerDataStore.instance.paymentForOrder(widget.order.id);
     _refresh();
@@ -141,6 +146,11 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
   }
 
   void _continueToConfirmation() {
+    // Paying an earlier order: go back to its details.
+    if (widget.resume) {
+      Navigator.of(context).pop();
+      return;
+    }
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => OrderConfirmationScreen(

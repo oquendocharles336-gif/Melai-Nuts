@@ -5,12 +5,21 @@ import 'package:melai_nuts/data/repositories/payment_settings_repository.dart';
 import 'package:melai_nuts/data/repositories/payments_repository.dart';
 
 void main() {
-  test('online payment is disabled for customers by default (owner decision)', () {
-    expect(PaymentConfig.onlinePaymentEnabled, isFalse);
+  test('online payment (HitPay) is enabled in the build by default', () {
+    expect(PaymentConfig.onlinePaymentEnabled, isTrue);
     expect(PaymentConfig.onlinePaymentDisabledMessage, contains('temporarily unavailable'));
   });
 
-  test('the HitPay payment page is never opened while online payment is disabled', () async {
+  test('online payment labels are recognised, cash labels are not', () {
+    expect(PaymentConfig.isOnlinePayment('Online Payment (GCash, Maya, Card)'), isTrue);
+    expect(PaymentConfig.isOnlinePayment('GCash E-Wallet'), isTrue);
+    expect(PaymentConfig.isOnlinePayment('Maya / Credit Card'), isTrue);
+    expect(PaymentConfig.isOnlinePayment('Cash on Delivery'), isFalse);
+    expect(PaymentConfig.isOnlinePayment('Cash on Counter Pickup'), isFalse);
+  });
+
+  test('the HitPay payment page is never opened in a build where online payment is disabled', () async {
+    if (PaymentConfig.onlinePaymentEnabled) return; // only meaningful with ONLINE_PAYMENT_ENABLED=false
     await expectLater(
       PaymentsRepository.instance.startHitpayCheckout('ORD-TEST-1'),
       throwsA(isA<AppError>().having((e) => e.message, 'message', PaymentConfig.onlinePaymentDisabledMessage)),
@@ -40,10 +49,10 @@ void main() {
       expect(PaymentSettings.unknown.onlineAllowed, isFalse);
     });
 
-    test('the database switch alone cannot turn it on in a build where it is off', () {
+    test('online payment is offered when the database switch and the build switch are on', () {
       final s = PaymentSettings.fromRow({'online_payment_enabled': true});
       expect(s.onlinePaymentEnabled, isTrue);
-      expect(s.onlineAllowed, PaymentConfig.onlinePaymentEnabled); // false in every default build
+      expect(s.onlineAllowed, PaymentConfig.onlinePaymentEnabled); // the build switch still has the last word
     });
   });
 }

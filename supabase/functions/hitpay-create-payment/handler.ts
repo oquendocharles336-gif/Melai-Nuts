@@ -1,5 +1,5 @@
-// Request handler of hitpay-create-payment (see index.ts). DORMANT while online
-// payment is off by the owner's decision: it refuses before touching HitPay.
+// Request handler of hitpay-create-payment (see index.ts). While online payment
+// is switched off it refuses before touching HitPay.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -54,8 +54,8 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // OWNER DECISION: online payment is OFF (public.payment_settings, migrations
-  // 20261017000000 + 20261018000000). Checked FIRST and fail-closed: unless the
+  // The online-payment switch (public.payment_settings, migrations
+  // 20261017000000 + 20261018000000 + 20261030000000). Checked FIRST and fail-closed: unless the
   // database answers exactly `true`, no payment page is opened, whatever else is
   // configured. The text shown is the database's own message.
   const { data: onlineEnabled, error: switchError } = await userClient.rpc("online_payment_enabled");
