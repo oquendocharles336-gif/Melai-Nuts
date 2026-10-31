@@ -1,5 +1,5 @@
 // Maps HitPay's payment_type onto payments.method codes (the check constraint in
-// supabase/migrations/20261031050000_hitpay_payment_method_codes.sql lists them).
+// supabase/migrations/20261031045119_hitpay_payment_method_codes.sql lists them).
 //
 // The names come from HitPay's Philippines list:
 // https://docs.hitpayapp.com/apis/guide/payment-methods-reference

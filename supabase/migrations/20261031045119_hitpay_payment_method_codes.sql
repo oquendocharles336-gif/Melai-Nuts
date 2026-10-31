@@ -1,5 +1,5 @@
 -- =============================================================================
--- Melai Nuts — Migration 20261031050000: real HitPay payment methods
+-- Melai Nuts — Migration 20261031045119: real HitPay payment methods
 -- =============================================================================
 -- Run after 20261031034858_enable_online_payment.sql. Idempotent.
 --
