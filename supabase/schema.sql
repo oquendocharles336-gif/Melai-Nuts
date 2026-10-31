@@ -556,30 +556,7 @@ create table if not exists public.loyalty_transactions (
   created_at timestamptz not null default now()
 );
 
--- Award points automatically whenever a paid order is created.
-create or replace function public.award_order_points()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if new.points_earned > 0 then
-    insert into public.loyalty_accounts (firebase_uid, points_balance, lifetime_points)
-    values (new.firebase_uid, new.points_earned, new.points_earned)
-    on conflict (firebase_uid) do update
-      set points_balance = public.loyalty_accounts.points_balance + excluded.points_balance,
-          lifetime_points = public.loyalty_accounts.lifetime_points + excluded.lifetime_points;
-
-    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id)
-    values (new.firebase_uid, 'earn', new.points_earned, 'Order ' || new.id, new.id);
-  end if;
-  return new;
-end;
-$$;
-drop trigger if exists orders_award_points on public.orders;
-create trigger orders_award_points after insert on public.orders
-  for each row execute function public.award_order_points();
+-- Points are earned when an order is completed (see the migrations), never when it is placed.
 
 create table if not exists public.rewards (
   id uuid primary key default gen_random_uuid(),
