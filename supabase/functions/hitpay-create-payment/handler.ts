@@ -55,7 +55,7 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
   });
 
   // The online-payment switch (public.payment_settings, migrations
-  // 20261017000000 + 20261018000000 + 20261030000000). Checked FIRST and fail-closed: unless the
+  // 20261017000000 + 20261018000000 + 20261031034858). Checked FIRST and fail-closed: unless the
   // database answers exactly `true`, no payment page is opened, whatever else is
   // configured. The text shown is the database's own message.
   const { data: onlineEnabled, error: switchError } = await userClient.rpc("online_payment_enabled");

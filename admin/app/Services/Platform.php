@@ -48,7 +48,10 @@ class Platform
     /** Payment method keys as the app stores them. */
     public function paymentMethods(): array
     {
-        return ['gcash', 'maya', 'card', 'cash'];
+        return [
+            'gcash', 'maya', 'card', 'cash', 'qrph', 'grabpay', 'shopeepay', 'spaylater', 'billease', 'wechat',
+            'unionbank', 'instapay', 'pesonet', 'bayad', 'ecpay', 'palawan', 'online',
+        ];
     }
 
     /** The method an admin may mark paid by hand (cash collected at the counter / on delivery). */

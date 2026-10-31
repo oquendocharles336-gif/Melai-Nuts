@@ -1,6 +1,6 @@
 /// Which payment methods customers may use right now.
 ///
-/// Customers can pay online through HitPay's hosted checkout (GCash, Maya,
+/// Customers can pay online through HitPay's hosted checkout (GCash, QR Ph,
 /// card), by Cash on Delivery, or by Cash on Counter Pickup; in-store POS
 /// sales (cash, in-store GCash / card reference) are not affected.
 ///
@@ -8,7 +8,7 @@
 ///  * this build switch — `--dart-define=ONLINE_PAYMENT_ENABLED=...`
 ///    (default true; env/firebase.example.json sets it to "true"), and
 ///  * the database switch `payment_settings.online_payment_enabled`
-///    (migrations 20261017000000 / 20261030000000, read by
+///    (migrations 20261017000000 / 20261031034858, read by
 ///    PaymentSettingsRepository).
 /// While either is off, checkout hides the option and shows the database's
 /// `online_payment_disabled_message`; the database refuses online orders and
@@ -27,6 +27,7 @@ class PaymentConfig {
   /// The `orders.payment_method` labels paid through HitPay (the current
   /// checkout label and the older ones the database still accepts).
   static const Set<String> onlinePaymentLabels = {
+    'Online Payment (GCash, QR Ph, Card)',
     'Online Payment (GCash, Maya, Card)',
     'GCash E-Wallet',
     'Maya / Credit Card',

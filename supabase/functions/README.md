@@ -1,8 +1,8 @@
 # Supabase Edge Functions
 
-> **Online payment (HitPay) is ON.** Customers can pay online (GCash, Maya, card) or by Cash on
+> **Online payment (HitPay) is ON.** Customers can pay online (GCash, QR Ph, card) or by Cash on
 > Delivery / Cash on Counter Pickup. Set the secrets and deploy the functions below (§2–3) **before**
-> applying migration `20261030000000_enable_online_payment.sql`, which turns on
+> applying migration `20261031034858_enable_online_payment.sql`, which turns on
 > `payment_settings.online_payment_enabled` (the app build flag `ONLINE_PAYMENT_ENABLED` defaults to
 > `true`). While the switch is off — or cannot be read — `hitpay-create-payment` refuses with the
 > database's `online_payment_disabled_message` before it reads an order or calls HitPay (tests:
@@ -60,7 +60,7 @@ Run `supabase/migrations/20261007010000_cod_and_hitpay.sql` (it is idempotent) w
 ## 2. HitPay account (sandbox first)
 
 1. Create a sandbox account at https://dashboard.sandbox.hit-pay.com (the live one is https://dashboard.hit-pay.com).
-2. Set the business currency/country to the Philippines (PHP) and, under Payment Methods, enable what your account offers (GCash, Maya, cards). The hosted page shows only the methods enabled on the account; the sandbox may offer fewer methods than live.
+2. Set the business currency/country to the Philippines (PHP) and, under Payment Methods, enable what your account offers (GCash, QRPH / InstaPay, cards). The hosted page shows only the methods enabled on the account; HitPay marks the Philippine methods as not available in sandbox, so test them with a small live payment.
 3. Developers > API Keys: copy the **API Key**.
 4. Developers > Webhook Endpoints > add an endpoint:
    - URL: `https://<project-ref>.supabase.co/functions/v1/hitpay-webhook`
@@ -90,7 +90,7 @@ supabase functions deploy hitpay-refund --no-verify-jwt
 
 ## 4. Test the flow
 
-1. In the app, add items, choose **Online Payment (GCash, Maya, Card)**, and place the order. The HitPay page opens in the browser.
+1. In the app, add items, choose **Online Payment (GCash, QR Ph, Card)**, and place the order. The HitPay page opens in the browser.
 2. Pay with a HitPay sandbox test method (see HitPay's sandbox docs for test card numbers).
 3. Return to the app. The payment screen should change to **Paid** within a few seconds.
 4. If it stays on "Waiting for payment", check the webhook delivery log in the HitPay dashboard and `supabase functions logs hitpay-webhook`. A `401` means the salt is wrong.

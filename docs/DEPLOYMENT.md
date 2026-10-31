@@ -4,9 +4,9 @@ One page for putting the whole platform live: database, Edge Functions, Firebase
 website and the mobile app. Each step says where the details are. Do **staging first**, then
 production in the same order.
 
-> **Online payment (HitPay: GCash, Maya, card) is ON.** Set the HitPay secrets and deploy
+> **Online payment (HitPay: GCash, QR Ph, card) is ON.** Set the HitPay secrets and deploy
 > `hitpay-create-payment` + `hitpay-webhook` (`supabase/functions/README.md` §2–3) **before** applying
-> migration `20261030000000_enable_online_payment.sql`. Customers can also pay Cash on Delivery or Cash
+> migration `20261031034858_enable_online_payment.sql`. Customers can also pay Cash on Delivery or Cash
 > on Counter Pickup; in-store POS sales work as before. To run cash-only, set
 > `payment_settings.online_payment_enabled = false` and build with `ONLINE_PAYMENT_ENABLED=false`.
 

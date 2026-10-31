@@ -41,7 +41,7 @@ import '../../../core/utils/format_utils.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
 
-/// `online` is HitPay's hosted checkout (GCash, Maya, cards). `cod` is only
+/// `online` is HitPay's hosted checkout (GCash, QR Ph, cards). `cod` is only
 /// valid for delivery and `cash` (pay at the counter) only for pickup.
 enum _PaymentMethod { online, cod, cash }
 
@@ -299,7 +299,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     final payOnline = _payment == _PaymentMethod.online;
     final paymentLabel = switch (_payment) {
-      _PaymentMethod.online => 'Online Payment (GCash, Maya, Card)',
+      _PaymentMethod.online => 'Online Payment (GCash, QR Ph, Card)',
       _PaymentMethod.cod => 'Cash on Delivery',
       _PaymentMethod.cash => 'Cash on Counter Pickup',
     };
@@ -803,7 +803,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               if (_onlineAllowed) ...[
                 _PaymentTile(
                   icon: Icons.account_balance_wallet_rounded,
-                  title: 'Online Payment (GCash, Maya, Card)',
+                  title: 'Online Payment (GCash, QR Ph, Card)',
                   subtitle: 'Pay securely on the HitPay payment page',
                   selected: _payment == _PaymentMethod.online,
                   onTap: () => setState(() => _payment = _PaymentMethod.online),
