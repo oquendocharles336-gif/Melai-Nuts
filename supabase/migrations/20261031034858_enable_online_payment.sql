@@ -1,7 +1,7 @@
 -- =============================================================================
--- Melai Nuts — Migration 20261030000000: turn online payment (HitPay) on
+-- Melai Nuts — Migration 20261031034858: turn online payment (HitPay) on
 -- =============================================================================
--- Run after 20261029000000_admin_portal_account_status.sql. Idempotent.
+-- Run after 20261030111500_branch_coordinates.sql. Idempotent.
 --
 -- Switches payment_settings.online_payment_enabled on, so customers can pay
 -- online through HitPay's hosted checkout (GCash, Maya, card) besides Cash on

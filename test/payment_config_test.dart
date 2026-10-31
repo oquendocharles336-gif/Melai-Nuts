@@ -11,6 +11,7 @@ void main() {
   });
 
   test('online payment labels are recognised, cash labels are not', () {
+    expect(PaymentConfig.isOnlinePayment('Online Payment (GCash, QR Ph, Card)'), isTrue);
     expect(PaymentConfig.isOnlinePayment('Online Payment (GCash, Maya, Card)'), isTrue);
     expect(PaymentConfig.isOnlinePayment('GCash E-Wallet'), isTrue);
     expect(PaymentConfig.isOnlinePayment('Maya / Credit Card'), isTrue);

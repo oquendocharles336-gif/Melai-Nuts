@@ -91,6 +91,8 @@ select pg_temp.chk_true('the switch is still off', not public.online_payment_ena
 -- 2. Online orders refused, cash orders fine --------------------------------------
 select pg_temp.chk('online payment order is refused', 'pay-c1',
   format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, Maya, Card)', '', 'pay-key-1')$q$, pg_temp.cart()), 'error');
+select pg_temp.chk('the current checkout label is refused too', 'pay-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, QR Ph, Card)', '', 'pay-key-1b')$q$, pg_temp.cart()), 'error');
 select pg_temp.chk('older app label GCash E-Wallet is refused too', 'pay-c1',
   format($q$select public.place_order(%L::uuid, false, null, 'GCash E-Wallet', '', 'pay-key-2')$q$, pg_temp.cart()), 'error');
 select pg_temp.chk('older app label Maya / Credit Card is refused too', 'pay-c1',
@@ -107,6 +109,22 @@ select pg_temp.chk('in-store GCash sale at the POS is not affected', 'pay-sa',
 update public.payment_settings set online_payment_enabled = true where id = 'default';
 select pg_temp.chk('with the switch on, an online order is accepted again', 'pay-c1',
   format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, Maya, Card)', '', 'pay-key-5')$q$, pg_temp.cart()), 'ok');
+select pg_temp.chk_true('an older build''s online label keeps the card placeholder it can read',
+  (select p.method = 'card' from public.payments p join public.orders o on o.id = p.order_id
+   where o.payment_method = 'Online Payment (GCash, Maya, Card)' and o.firebase_uid = 'pay-c1'));
+select pg_temp.chk('the current checkout label is accepted', 'pay-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, QR Ph, Card)', '', 'pay-key-6')$q$, pg_temp.cart()), 'ok');
+
+-- 4. The method actually used is recorded ------------------------------------------
+select pg_temp.chk_true('a new online order starts as online, not card',
+  (select p.method = 'online' from public.payments p join public.orders o on o.id = p.order_id
+   where o.payment_method = 'Online Payment (GCash, QR Ph, Card)' and o.firebase_uid = 'pay-c1'));
+select pg_temp.chk_true('a QR Ph payment is recorded as qrph',
+  public.hitpay_apply_payment(
+    (select id from public.orders where payment_method = 'Online Payment (GCash, QR Ph, Card)' and firebase_uid = 'pay-c1'),
+    'success', 'qrph', 'pay-qr-1', null) = 'success'
+  and (select p.method = 'qrph' from public.payments p join public.orders o on o.id = p.order_id
+       where o.payment_method = 'Online Payment (GCash, QR Ph, Card)' and o.firebase_uid = 'pay-c1'));
 
 -- Report -------------------------------------------------------------------------
 select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;

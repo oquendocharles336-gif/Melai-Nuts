@@ -294,6 +294,6 @@ class OverviewService
 
     public static function methodLabel(string $m): string
     {
-        return ['gcash' => 'GCash', 'maya' => 'Maya', 'card' => 'Card', 'cash' => 'Cash', 'cod' => 'Cash on delivery'][$m] ?? ucfirst($m);
+        return (['cod' => 'Cash on delivery'] + \App\Support\Format::METHODS)[$m] ?? ucfirst($m);
     }
 }

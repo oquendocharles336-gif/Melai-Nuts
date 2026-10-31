@@ -66,7 +66,7 @@
         <div class="setting-row"><div><b>Earn rate</b><span>{{ ($loyalty['earn_pesos_per_point'] ?? null) === null ? 'Not set: customers earn no points yet' : '1 point per ₱'.$num($loyalty['earn_pesos_per_point']) }}</span></div>
             <a class="btn sm" href="{{ route('loyalty.index') }}">Loyalty</a></div>
         <div class="setting-row"><div><b>Redeem rule</b><span>{{ ($loyalty['points_per_peso'] ?? null) === null ? 'Not set: points cannot be redeemed yet' : $num($loyalty['points_per_peso']).' point(s) per ₱1 off, up to '.$num($loyalty['max_discount_percent']).'% of an order' }}</span></div></div>
-        <div class="setting-row"><div><b>Online payment (GCash, Maya, card)</b><span>{{ ($s['online_payment_enabled'] ?? false) ? 'On. Customers can pay through HitPay, by Cash on Delivery or Cash on Counter Pickup.' : 'Off. Customers pay by Cash on Delivery or Cash on Counter Pickup.' }}</span></div>
+        <div class="setting-row"><div><b>Online payment (GCash, QR Ph, card)</b><span>{{ ($s['online_payment_enabled'] ?? false) ? 'On. Customers can pay through HitPay, by Cash on Delivery or Cash on Counter Pickup.' : 'Off. Customers pay by Cash on Delivery or Cash on Counter Pickup.' }}</span></div>
             <x-badge :tone="($s['online_payment_enabled'] ?? false) ? 'ok' : 'info'">{{ ($s['online_payment_enabled'] ?? false) ? 'On' : 'Off' }}</x-badge></div>
         <div class="setting-row"><div><b>Message shown at checkout</b><span>{{ $s['online_payment_disabled_message'] ?? 'Not set' }}</span></div></div>
     </x-card>

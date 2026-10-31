@@ -307,7 +307,7 @@ server (OSM tile policy). Address search uses Nominatim (free, rate-limited); pi
 
 Customers choose at checkout:
 
-- **Online Payment (GCash, Maya, Card)** — HitPay's hosted checkout. The app asks the
+- **Online Payment (GCash, QR Ph, Card)** — HitPay's hosted checkout. The app asks the
   `hitpay-create-payment` Edge Function for a payment link (the amount always comes from the
   database), opens it, and waits on the *Online Payment* screen. Only the signed `hitpay-webhook`
   can mark the payment paid. An unpaid online order can be paid later from *Order details → Pay Now*.
@@ -317,7 +317,7 @@ Customers choose at checkout:
 In-store POS sales keep cash, and in-store GCash / card with a reference number.
 
 Online payment needs BOTH switches on — `payment_settings.online_payment_enabled` (migration
-`20261030000000` turns it on) and the build flag `ONLINE_PAYMENT_ENABLED` (default `true`) — plus the
+`20261031034858` turns it on) and the build flag `ONLINE_PAYMENT_ENABLED` (default `true`) — plus the
 HitPay secrets described in [`supabase/functions/README.md`](supabase/functions/README.md). While either
 switch is off, checkout hides it and shows `payment_settings.online_payment_disabled_message`, the
 database refuses online-paid orders, and `hitpay-create-payment` refuses (fail-closed).
