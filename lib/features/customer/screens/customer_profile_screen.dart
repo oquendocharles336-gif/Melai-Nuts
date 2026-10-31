@@ -6,6 +6,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/person_name.dart';
+import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../notifications/screens/notification_center_screen.dart';
@@ -20,6 +22,8 @@ import 'favorites_screen.dart';
 class CustomerProfileScreen extends StatelessWidget {
   const CustomerProfileScreen({super.key});
 
+  static String _orNotSet(String value) => value.isEmpty ? 'Not set' : value;
+
   /// 50 -> "50", 12.5 -> "12.50".
   static String _peso(double v) => v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
 
@@ -27,7 +31,7 @@ class CustomerProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: CustomerDataStore.instance,
-      builder: (context, _) => _buildBody(context),
+      builder: (context, _) => LuxeBackground(child: _buildBody(context)),
     );
   }
 
@@ -39,6 +43,7 @@ class CustomerProfileScreen extends StatelessWidget {
     final name = (profile?.fullName.isNotEmpty ?? false)
         ? profile!.fullName
         : (AuthService.instance.currentProfile?.name ?? '—');
+    final personName = PersonName.parse(profile?.fullName ?? '');
     final phone = profile?.phone ?? '';
     final points = CustomerDataStore.instance.pointsBalance;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
@@ -50,9 +55,9 @@ class CustomerProfileScreen extends StatelessWidget {
     final defaultAddress = CustomerDataStore.instance.defaultAddress;
 
     return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text('Account & Settings'),
+      backgroundColor: Colors.transparent,
+      appBar: LuxeAppBar(
+        title: 'Account & Settings',
         actions: [
           Stack(
             alignment: Alignment.center,
@@ -100,96 +105,116 @@ class CustomerProfileScreen extends StatelessWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                border: Border.all(color: AppColors.border),
-                boxShadow: AppShadows.sm,
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        initial,
-                        style: AppTextStyles.headlineSm.copyWith(color: Colors.white),
-                      ),
-                    ),
+            // Membership card. The loyalty program has no tiers in the database,
+            // so none are invented here; it shows the real point balance.
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+                ),
+                child: CustomPaint(
+                  painter: LatticePainter(color: AppColors.gold.withValues(alpha: 0.08)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: AppTextStyles.titleMd),
-                        Text('Kernel Member', style: AppTextStyles.bodySm),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    // The loyalty program has no tiers in the database, so none
-                    // are invented here; the badge shows the real point balance.
-                    child: Text(
-                      '$points pts',
-                      style: AppTextStyles.labelMd.copyWith(color: AppColors.textMuted),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.primaryContainer.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                boxShadow: AppShadows.sm,
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.workspace_premium_rounded, color: AppColors.primaryDark),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Golden Kernel Rewards', style: AppTextStyles.titleMd),
-                        Text(
-                          store.earnPesosPerPoint == null
-                              ? '$points pts • Earn rate not set yet'
-                              : '$points pts • Earn 1 pt per ₱${_peso(store.earnPesosPerPoint!)} spent',
-                          style: AppTextStyles.bodySm,
+                        Row(
+                          children: [
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: AppColors.gold, width: 1.5),
+                              ),
+                              child: Center(
+                                child: Text(initial, style: AppTextStyles.headlineLg.copyWith(color: AppColors.gold)),
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(name, style: AppTextStyles.headlineMd.copyWith(color: Colors.white)),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'KERNEL MEMBER',
+                                    style: AppTextStyles.labelSm.copyWith(color: AppColors.gold, letterSpacing: 1.8),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        // Points the database took back because an order was (partly) refunded.
-                        Builder(builder: (context) {
-                          final reversed = store.loyaltyTransactions
-                              .where((t) => t.isRefundReversal)
-                              .fold<int>(0, (sum, t) => sum + t.points);
-                          return reversed > 0
-                              ? Text('$reversed pts reversed by refunds', style: AppTextStyles.bodySm)
-                              : const SizedBox.shrink();
-                        }),
+                        const SizedBox(height: AppSpacing.md),
+                        Divider(height: 1, color: AppColors.gold.withValues(alpha: 0.35)),
+                        const SizedBox(height: AppSpacing.md),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.end,
+                                    spacing: 6,
+                                    children: [
+                                      Text('$points', style: AppTextStyles.headlineLg.copyWith(color: AppColors.gold)),
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: Text(
+                                          'Golden Kernel pts',
+                                          style: AppTextStyles.bodySm.copyWith(color: AppColors.surfaceContainerHigh),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    store.earnPesosPerPoint == null
+                                        ? 'Earn rate not set yet'
+                                        : 'Earn 1 pt per ₱${_peso(store.earnPesosPerPoint!)} spent',
+                                    style: AppTextStyles.bodySm.copyWith(color: AppColors.surfaceContainerHigh),
+                                  ),
+                                  // Points the database took back because an order was (partly) refunded.
+                                  Builder(builder: (context) {
+                                    final reversed = store.loyaltyTransactions
+                                        .where((t) => t.isRefundReversal)
+                                        .fold<int>(0, (sum, t) => sum + t.points);
+                                    return reversed > 0
+                                        ? Text(
+                                            '$reversed pts reversed by refunds',
+                                            style: AppTextStyles.bodySm.copyWith(color: AppColors.surfaceContainerHigh),
+                                          )
+                                        : const SizedBox.shrink();
+                                  }),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            FilledButton(
+                              onPressed: () => Navigator.pushNamed(context, '/customer/loyalty'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.gold,
+                                foregroundColor: AppColors.ink,
+                                minimumSize: const Size(0, 44),
+                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                              ),
+                              child: const Text('Redeem'),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
-                  OutlinedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/customer/loyalty'),
-                    child: const Text('Redeem'),
-                  ),
-                ],
+                ),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -224,7 +249,9 @@ class CustomerProfileScreen extends StatelessWidget {
                     ],
                   ),
                   const Divider(height: 20),
-                  _FieldRow(label: 'FULL NAME', value: name.isEmpty ? 'Not set' : name),
+                  _FieldRow(label: 'FIRST NAME', value: _orNotSet(personName.first)),
+                  _FieldRow(label: 'MIDDLE INITIAL', value: _orNotSet(personName.middleInitial)),
+                  _FieldRow(label: 'LAST NAME', value: _orNotSet(personName.last)),
                   _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
                   // Masked: the full number is only needed when editing it.
                   _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : maskPhone(phone)),
@@ -244,7 +271,7 @@ class CustomerProfileScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            Text('SETTINGS', style: AppTextStyles.labelSm),
+            Text('SETTINGS', style: AppTextStyles.labelSm.copyWith(letterSpacing: 1.6)),
             const SizedBox(height: AppSpacing.xs),
             Container(
               decoration: BoxDecoration(
@@ -358,7 +385,7 @@ class _SettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon, color: AppColors.darkBrown),
+      leading: Icon(icon, color: AppColors.primary),
       title: Text(title, style: AppTextStyles.labelLg),
       subtitle: Text(subtitle, style: AppTextStyles.bodySm),
       trailing: const Icon(Icons.chevron_right_rounded),

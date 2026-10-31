@@ -49,36 +49,26 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
       ),
       bottomNavigationBar: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: const Border(top: BorderSide(color: AppColors.border)),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.darkBrown.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -6),
-            ),
-          ],
+          color: AppColors.noir,
+          border: Border(top: BorderSide(color: AppColors.gold.withValues(alpha: 0.45))),
         ),
         child: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          height: 68,
-          indicatorColor: AppColors.primaryContainer.withValues(alpha: 0.7),
-          surfaceTintColor: Colors.transparent,
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppTextStyles.labelMd.copyWith(color: AppColors.primary);
-            }
-            return AppTextStyles.labelMd;
-          }),
-          iconTheme: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const IconThemeData(color: AppColors.primary, size: 26);
-            }
-            return const IconThemeData(color: AppColors.textSecondary, size: 24);
-          }),
-        ),
+          data: NavigationBarThemeData(
+            backgroundColor: AppColors.noir,
+            elevation: 0,
+            height: 68,
+            surfaceTintColor: Colors.transparent,
+            indicatorColor: AppColors.gold,
+            labelTextStyle: WidgetStateProperty.resolveWith((states) {
+              final selected = states.contains(WidgetState.selected);
+              return AppTextStyles.labelMd.copyWith(color: selected ? AppColors.gold : AppColors.surfaceContainerHigh);
+            }),
+            iconTheme: WidgetStateProperty.resolveWith((states) {
+              return states.contains(WidgetState.selected)
+                  ? const IconThemeData(color: AppColors.darkBrown, size: 24)
+                  : const IconThemeData(color: AppColors.surfaceContainerHigh, size: 24);
+            }),
+          ),
         child: NavigationBar(
           selectedIndex: _index,
           onDestinationSelected: (i) {
@@ -116,7 +106,7 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
             ),
           ],
         ),
-      ),
+        ),
       ),
     );
   }

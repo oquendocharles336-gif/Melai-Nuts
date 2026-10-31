@@ -27,8 +27,9 @@ class DeviceLocationResult {
   bool get ok => latitude != null && longitude != null;
 }
 
-/// Reads the device's position ONCE, when the person asks (a "use my current
-/// location" button). Nothing is tracked, repeated or stored.
+/// Reads the device's position ONCE: when the person asks (a "use my current
+/// location" button), to pin a delivery order, and on opening the Store to
+/// find the nearest branch. Nothing is tracked, repeated or stored.
 ///
 /// geolocator has no Linux implementation, so on Linux (and any platform it
 /// does not support) this answers with a friendly problem instead of throwing:
@@ -50,7 +51,10 @@ class DeviceLocation {
     }
   }
 
-  static Future<DeviceLocationResult> current({Duration timeout = const Duration(seconds: 20)}) async {
+  static Future<DeviceLocationResult> current({
+    Duration timeout = const Duration(seconds: 20),
+    LocationAccuracy accuracy = LocationAccuracy.high,
+  }) async {
     if (!supported) {
       return const DeviceLocationResult.failed(
           'This device cannot share its location here. Move the map to place the pin by hand.');
@@ -75,7 +79,7 @@ class DeviceLocation {
             'Location permission was not given. You can still move the map to place the pin by hand.');
       }
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: LocationSettings(accuracy: accuracy),
       ).timeout(timeout);
       return DeviceLocationResult.found(pos.latitude, pos.longitude);
     } on TimeoutException {

@@ -2,18 +2,19 @@ import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/auth_service.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/widgets/app_logo.dart';
-import '../../../data/catalog_store.dart';
-import '../../../data/models/user_role.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/luxe.dart';
+import '../../../core/widgets/page_transitions.dart';
 import 'email_verification_screen.dart';
+import 'welcome_screen.dart';
 import '../../../core/utils/app_error.dart';
 
-/// First screen shown on launch. Runs a short "connecting to branch
-/// network" animation while, in parallel, checking whether someone is
-/// already signed in (Firebase persists sessions across app restarts) so
-/// returning users land straight back in their portal instead of Login.
+/// First screen shown on launch: a short logo reveal while checking whether
+/// someone is already signed in (Firebase persists sessions across app
+/// restarts), so returning users land straight back in their portal and
+/// everyone else on the Welcome screen. It waits only for that check and the
+/// reveal itself.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -21,163 +22,117 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
-  bool _resolving = false;
+class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController _reveal =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+  late final Animation<double> _logo = CurvedAnimation(
+    parent: _reveal,
+    curve: const Interval(0, 0.7, curve: Curves.easeOutCubic),
+  );
+  late final Animation<double> _wordmark = CurvedAnimation(
+    parent: _reveal,
+    curve: const Interval(0.35, 1, curve: Curves.easeOut),
+  );
 
-  Future<void> _proceed() async {
-    if (_resolving) return;
-    setState(() => _resolving = true);
+  /// Set once the session check knows where to go; runs when the reveal ends.
+  VoidCallback? _destination;
+
+  @override
+  void initState() {
+    super.initState();
+    _reveal.addStatusListener((status) {
+      if (status == AnimationStatus.completed) _goIfReady();
+    });
+    _reveal.forward();
+    _resolveSession();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // "Reduce motion": no reveal to wait for.
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) _reveal.value = 1;
+  }
+
+  @override
+  void dispose() {
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  void _goIfReady() {
+    if (!mounted || !_reveal.isCompleted) return;
+    final destination = _destination;
+    _destination = null;
+    destination?.call();
+  }
+
+  Future<void> _resolveSession() async {
+    VoidCallback destination = () {
+      Navigator.of(context).pushReplacement(FadeSlideRoute.fade(builder: (_) => const WelcomeScreen()));
+    };
     try {
       final profile = await AuthService.instance.loadCurrentProfile(
         allowVerificationResume: true,
       );
       if (!mounted) return;
       if (profile != null) {
-        final destination = profile.role == UserRole.customer
-            ? AppRoutes.homeFor(UserRole.customer)
-            : AppRoutes.homeFor(profile.role);
-        Navigator.of(context).pushReplacementNamed(destination);
-        return;
+        final route = AppRoutes.homeFor(profile.role);
+        destination = () => Navigator.of(context).pushReplacementNamed(route);
       }
     } on EmailVerificationRequiredException {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
-      );
-      return;
+      destination = () => Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
+          );
     } on AuthException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'splash_screen:50');
-      // Ignore — e.g. no network on first launch. Fall through to Login,
-      // which will surface a clearer error on the actual sign-in attempt.
+      // Ignore — e.g. no network on first launch. Fall through to Welcome;
+      // Sign In will surface a clearer error on the actual attempt.
     }
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+    _destination = destination;
+    _goIfReady();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [AppColors.primaryContainer, AppColors.surface, AppColors.canvas],
-            stops: [0.0, 0.45, 1.0],
-          ),
-        ),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
+    return LuxeDarkBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    children: [
-                      const Spacer(flex: 3),
-                      Container(
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(alpha: 0.25),
-                              blurRadius: 32,
-                              offset: const Offset(0, 14),
-                            ),
-                          ],
-                        ),
-                        child: const AppLogo(size: 104),
-                      ),
-                      const SizedBox(height: 28),
-                      Text(
-                        AppConstants.appName,
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.headlineLg.copyWith(
-                          color: AppColors.darkBrown,
-                          fontSize: 32,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        AppConstants.appTagline,
-                        style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Fresh-roasted nuts from your Melai Nuts branch.',
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
-                      ),
-                      const SizedBox(height: 24),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          // Real branch names, only once they have loaded (nothing is shown otherwise).
-                          for (final b in kBranches.where((b) => b.servesCustomers).map((b) => b.name))
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: AppColors.border),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.storefront_rounded, size: 14, color: AppColors.primary),
-                                  const SizedBox(width: 6),
-                                  Text(b.split(' ').first, style: AppTextStyles.labelMd),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                      const Spacer(flex: 4),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: _resolving ? null : _proceed,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          ),
-                          child: _resolving
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text('Get Started'),
-                                    SizedBox(width: 8),
-                                    Icon(Icons.arrow_forward_rounded, size: 20),
-                                  ],
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Melai Nuts Retailing',
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.bodySm,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FadeTransition(
+                    opacity: _logo,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.86, end: 1).animate(_logo),
+                      child: const LuxeCrest(size: 128),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 24),
+                  FadeTransition(
+                    opacity: _wordmark,
+                    child: Column(
+                      children: [
+                        Text(
+                          AppConstants.appName,
+                          textAlign: TextAlign.center,
+                          style: AppTextStyles.headlineLg.copyWith(color: Colors.white),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        const LuxeDivider(),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

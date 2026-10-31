@@ -27,6 +27,13 @@ class PhoneUtils {
     return result;
   }
 
+  /// [input] as the 11 digits people type (`09171234567`), for filling a form
+  /// from a stored `+639171234567`. Anything else comes back unchanged.
+  static String toLocal(String input) {
+    final e164 = tryFormatPhilippineMobile(input);
+    return e164 == null ? input : '0${e164.substring(3)}';
+  }
+
   /// Form-field validator: `null` when valid, otherwise [invalidMessage].
   static String? validatePhilippineMobile(String? value) {
     if (value == null || value.trim().isEmpty) {

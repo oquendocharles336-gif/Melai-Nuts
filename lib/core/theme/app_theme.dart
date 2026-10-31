@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 
 /// Material 3 ThemeData for the whole app.
+///
+/// Espresso and champagne gold: champagne canvas, white cards with gold
+/// hairlines, espresso main buttons with gold labels, and serif headings.
 class AppTheme {
   AppTheme._();
 
@@ -17,6 +21,7 @@ class AppTheme {
         onPrimary: AppColors.onPrimary,
         secondary: AppColors.secondaryBrown,
         surface: AppColors.canvas,
+        onSurface: AppColors.textPrimary,
         error: AppColors.error,
         brightness: Brightness.light,
       ),
@@ -24,22 +29,34 @@ class AppTheme {
       fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
     );
 
+    final buttonText = GoogleFonts.plusJakartaSans(
+      fontSize: 15,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.1,
+    );
+    final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
+    OutlineInputBorder inputBorder([BorderSide side = BorderSide.none]) =>
+        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: side);
+
     return base.copyWith(
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.darkBrown,
+        backgroundColor: AppColors.noir,
+        foregroundColor: Colors.white,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: GoogleFonts.plusJakartaSans(
-          fontSize: 18,
+        systemOverlayStyle: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
+        titleTextStyle: GoogleFonts.playfairDisplay(
+          fontSize: 20,
           fontWeight: FontWeight.w700,
-          color: AppColors.darkBrown,
+          color: Colors.white,
         ),
-        iconTheme: const IconThemeData(color: AppColors.darkBrown),
+        iconTheme: const IconThemeData(color: AppColors.gold),
+        actionsIconTheme: const IconThemeData(color: AppColors.gold),
       ),
       cardTheme: CardThemeData(
-        color: AppColors.surfaceContainer,
+        color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -49,57 +66,42 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
-        ),
-        hintStyle: GoogleFonts.plusJakartaSans(
-          color: AppColors.textSecondary,
-          fontSize: 14,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.border, width: 1.5),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.border, width: 1.5),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.8),
-        ),
+        fillColor: AppColors.inputFill,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        hintStyle: GoogleFonts.plusJakartaSans(color: AppColors.textSecondary, fontSize: 14),
+        border: inputBorder(const BorderSide(color: AppColors.border)),
+        enabledBorder: inputBorder(const BorderSide(color: AppColors.border)),
+        disabledBorder: inputBorder(const BorderSide(color: AppColors.border)),
+        focusedBorder: inputBorder(const BorderSide(color: AppColors.primary, width: 1.4)),
+        errorBorder: inputBorder(const BorderSide(color: AppColors.error, width: 1.2)),
+        focusedErrorBorder: inputBorder(const BorderSide(color: AppColors.error, width: 1.4)),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.onPrimary,
-          minimumSize: const Size(64, 52),
+          backgroundColor: AppColors.darkBrown,
+          foregroundColor: AppColors.gold,
+          minimumSize: const Size(64, 54),
           elevation: 0,
-          textStyle: GoogleFonts.plusJakartaSans(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.2,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          textStyle: buttonText,
+          shape: buttonShape,
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.darkBrown,
+          foregroundColor: AppColors.gold,
+          minimumSize: const Size(64, 54),
+          textStyle: buttonText,
+          shape: buttonShape,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          minimumSize: const Size(64, 52),
-          side: const BorderSide(color: AppColors.primary, width: 1.8),
-          textStyle: GoogleFonts.plusJakartaSans(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.2,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          foregroundColor: AppColors.ink,
+          minimumSize: const Size(64, 54),
+          side: const BorderSide(color: AppColors.outlineButton, width: 1.2),
+          textStyle: buttonText,
+          shape: buttonShape,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -107,11 +109,38 @@ class AppTheme {
           // 48 x 48 minimum tap target (Material / WCAG 2.5.8).
           minimumSize: const Size(48, 48),
           foregroundColor: AppColors.primary,
-          textStyle: GoogleFonts.plusJakartaSans(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600),
         ),
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        backgroundColor: AppColors.inputFill,
+        selectedColor: AppColors.primary.withValues(alpha: 0.12),
+        side: BorderSide.none,
+        shape: const StadiumBorder(),
+        labelStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: AppColors.ink,
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: AppColors.primaryContainer,
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return GoogleFonts.plusJakartaSans(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? AppColors.ink : AppColors.textSecondary,
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          return states.contains(WidgetState.selected)
+              ? const IconThemeData(color: AppColors.primaryDark, size: 24)
+              : const IconThemeData(color: AppColors.textSecondary, size: 24);
+        }),
       ),
       dividerTheme: const DividerThemeData(
         color: AppColors.border,

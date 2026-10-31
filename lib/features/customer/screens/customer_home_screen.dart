@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/format_utils.dart';
 import 'package:flutter/services.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/motion.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../core/services/branch_controller.dart';
@@ -48,20 +50,42 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     // state is read from ProductsRepository in build().
     final catalog = ProductsRepository.instance;
     if (!catalog.hasLoaded && !catalog.isLoading) _retryCatalog();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) BranchController.instance.autoSelectNearest();
+    });
   }
 
   Future<void> _retryCatalog() => ProductsRepository.instance.loadCatalog(
         branchId: BranchController.instance.selectedBranch?.id,
       );
 
-  /// The dashboard's "Popular Near You" strip, ranked by real sales
-  /// ([kPopularProducts]; falls further back inside the repository), then
-  /// narrowed to the selected category chip, if any.
+  /// The dashboard's product strip. With no category chosen: "Popular Near
+  /// You", ranked by real sales ([kPopularProducts]; falls further back inside
+  /// the repository). With a category chosen: every product in it, best sellers
+  /// first, because the ranking only holds the top few products.
   List<Product> get _visiblePopularProducts {
-    final source = kPopularProducts.isNotEmpty ? kPopularProducts : kProducts;
     final categoryId = _selectedCategoryId;
-    if (categoryId == null) return source.take(8).toList();
-    return source.where((p) => p.categoryId == categoryId).take(8).toList();
+    if (categoryId == null) {
+      final source = kPopularProducts.isNotEmpty ? kPopularProducts : kProducts;
+      return source.take(8).toList();
+    }
+    final rank = {for (var i = 0; i < kPopularProducts.length; i++) kPopularProducts[i].id: i};
+    final inCategory = kProducts.where((p) => p.categoryId == categoryId).toList();
+    final original = {for (var i = 0; i < inCategory.length; i++) inCategory[i].id: i};
+    inCategory.sort((a, b) {
+      final ra = rank[a.id] ?? 1 << 30;
+      final rb = rank[b.id] ?? 1 << 30;
+      return ra != rb ? ra.compareTo(rb) : original[a.id]!.compareTo(original[b.id]!);
+    });
+    return inCategory;
+  }
+
+  /// The chosen category's name, for the section title.
+  String? get _selectedCategoryName {
+    for (final category in kProductCategories) {
+      if (category.id == _selectedCategoryId) return category.name;
+    }
+    return null;
   }
 
   /// Staff/owner-curated picks (`products.is_featured`), shown as their own
@@ -100,7 +124,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         CustomerDataStore.instance,
         ProductsRepository.instance,
       ]),
-      builder: (context, _) => _buildScaffold(context),
+      builder: (context, _) => LuxeBackground(child: _buildScaffold(context)),
     );
   }
 
@@ -117,7 +141,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             Icon(icon, size: 20, color: AppColors.primary),
             const SizedBox(width: 6),
           ],
-          Expanded(child: Text(title, style: AppTextStyles.headlineSm.copyWith(color: AppColors.darkBrown))),
+          Expanded(child: Text(title, style: AppTextStyles.headlineSm)),
           if (action != null)
             TextButton(
               onPressed: onAction,
@@ -155,10 +179,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         child: Badge(
       label: Text(badgeCount.toString()),
       isLabelVisible: badgeCount > 0,
-      backgroundColor: AppColors.warning,
-      textColor: Colors.white,
+      backgroundColor: AppColors.honey,
+      textColor: AppColors.ink,
       child: Material(
-        color: Colors.white.withValues(alpha: 0.18),
+        color: Colors.white.withValues(alpha: 0.16),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
@@ -174,185 +198,173 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
-  /// Warm gradient hero: greeting, cart / notifications, branch pill, search.
+  /// Espresso-to-caramel hero: greeting, cart / notifications, branch, search.
   Widget _buildHeader(BuildContext context, String greeting, int unreadCount) {
     final top = MediaQuery.paddingOf(context).top;
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-      child: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.heroGradientStart, AppColors.primary, AppColors.heroGradientEnd],
-          ),
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd],
         ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -40,
-              top: -30,
-              child: Container(
-                width: 170,
-                height: 170,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.07),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+        boxShadow: AppShadows.lg,
+      ),
+      child: CustomPaint(
+        painter: LatticePainter(color: AppColors.gold.withValues(alpha: 0.07)),
+        child: Padding(
+      padding: EdgeInsets.fromLTRB(AppSpacing.md, top + 14, AppSpacing.md, 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'MELAI NUTS LAGUNA',
+                      style: AppTextStyles.labelSm.copyWith(color: AppColors.gold, letterSpacing: 1.6),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      greeting,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.headlineMd.copyWith(color: Colors.white),
+                    ),
+                  ],
                 ),
               ),
-            ),
-            Positioned(
-              left: -50,
-              bottom: -60,
-              child: Container(
-                width: 160,
-                height: 160,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.06),
+              ListenableBuilder(
+                listenable: CartController.instance,
+                builder: (context, _) => _headerIconButton(tooltip: 'Cart',
+                  icon: Icons.shopping_bag_outlined,
+                  badgeCount: CartController.instance.itemCount,
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CartScreen()),
+                  ),
                 ),
               ),
+              const SizedBox(width: AppSpacing.xs),
+              _headerIconButton(tooltip: 'Notifications',
+                icon: Icons.notifications_none_rounded,
+                badgeCount: unreadCount,
+                onPressed: () => Navigator.of(context).pushNamed(AppRoutes.notificationCenter),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ListenableBuilder(
+            listenable: BranchController.instance,
+            builder: (context, _) {
+              final controller = BranchController.instance;
+              final branch = controller.selectedBranch;
+              final label = branch?.name ??
+                  (controller.isLocating ? 'Finding your nearest branch...' : 'Choose your branch');
+              return Semantics(
+                button: true,
+                label: branch != null ? 'Branch: ${branch.name}. Change' : label,
+                excludeSemantics: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on_rounded, size: 18, color: AppColors.gold),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.labelLg.copyWith(color: Colors.white),
+                          ),
+                        ),
+                        if (branch != null && controller.isAutoSelected) ...[
+                          const SizedBox(width: AppSpacing.xs),
+                          Text('NEAREST', style: AppTextStyles.labelSm.copyWith(color: AppColors.gold, letterSpacing: 1.2)),
+                        ],
+                        const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: Colors.white),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          TextField(
+            textInputAction: TextInputAction.search,
+            onSubmitted: (q) => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => SearchResultsScreen(query: q)),
             ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(AppSpacing.md, top + 14, AppSpacing.md, 22),
+            decoration: const InputDecoration(
+              fillColor: Colors.white,
+              prefixIcon: Icon(Icons.search_rounded, color: AppColors.primary),
+              hintText: 'Search for garlic, spicy, or sweet...',
+            ),
+          ),
+        ],
+      ),
+        ),
+      ),
+    );
+  }
+
+  /// Shortcuts to the main customer areas. Orders and Rewards ask a guest to
+  /// sign in (route policy), like the My Orders tab does.
+  Widget _quickActions(BuildContext context) {
+    Widget tile(String label, IconData icon, VoidCallback onTap) => Expanded(
+          child: Semantics(
+            button: true,
+            label: label,
+            excludeSemantics: true,
+            child: Pressable(
+              onTap: onTap,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'MELAI NUTS LAGUNA',
-                              style: AppTextStyles.labelSm.copyWith(
-                                color: Colors.white.withValues(alpha: 0.75),
-                                letterSpacing: 1.6,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              greeting,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTextStyles.headlineMd.copyWith(color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
-                      ListenableBuilder(
-                        listenable: CartController.instance,
-                        builder: (context, _) => _headerIconButton(tooltip: 'Cart', 
-                          icon: Icons.shopping_bag_outlined,
-                          badgeCount: CartController.instance.itemCount,
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const CartScreen()),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      _headerIconButton(tooltip: 'Notifications', 
-                        icon: Icons.notifications_none_rounded,
-                        badgeCount: unreadCount,
-                        onPressed: () => Navigator.of(context).pushNamed(AppRoutes.notificationCenter),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  ListenableBuilder(
-                    listenable: BranchController.instance,
-                    builder: (context, _) {
-                      final branch = BranchController.instance.selectedBranch;
-                      return Material(
-                        color: Colors.white.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(16),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(7),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.location_on_rounded, size: 18, color: AppColors.primary),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        branch != null ? branch.name : 'Choose your branch',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: AppTextStyles.labelLg.copyWith(color: Colors.white),
-                                      ),
-                                      Text(
-                                        branch != null ? branch.address : 'Pick one to see what\'s in stock',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: AppTextStyles.bodySm.copyWith(
-                                          color: Colors.white.withValues(alpha: 0.8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  'Change',
-                                  style: AppTextStyles.labelLg.copyWith(color: Colors.white),
-                                ),
-                                const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
                   Container(
+                    width: 58,
+                    height: 58,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: AppShadows.md,
+                      color: AppColors.ivory,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.honeyDeep),
+                      boxShadow: AppShadows.sm,
                     ),
-                    child: TextField(
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (q) => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => SearchResultsScreen(query: q)),
-                      ),
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search_rounded, color: AppColors.primary),
-                        hintText: 'Search for garlic, spicy, or sweet...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: const BorderSide(color: AppColors.primaryContainer, width: 2),
-                        ),
-                      ),
-                    ),
+                    child: Icon(icon, color: AppColors.primary, size: 24),
                   ),
+                  const SizedBox(height: 6),
+                  Text(label, textAlign: TextAlign.center, maxLines: 2, style: AppTextStyles.labelMd.copyWith(color: AppColors.ink)),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        );
+    return _pad(
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          tile('Shop All', Icons.storefront_rounded, () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ProductCatalogScreen()),
+              )),
+          tile('Categories', Icons.grid_view_rounded, () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ProductCategoriesScreen()),
+              )),
+          tile('My Orders', Icons.receipt_long_rounded,
+              () => Navigator.pushNamed(context, AppRoutes.customerOrderHistory)),
+          tile('Rewards', Icons.workspace_premium_rounded,
+              () => Navigator.pushNamed(context, AppRoutes.customerLoyaltyDashboard)),
+        ],
       ),
     );
   }
@@ -392,7 +404,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     Text('Order #$shortId', style: AppTextStyles.labelLg),
                     const SizedBox(height: 2),
                     Text(
-                      '${order.itemCount} item${order.itemCount == 1 ? '' : 's'}  •  ₱${order.total.toStringAsFixed(0)}',
+                      '${order.itemCount} item${order.itemCount == 1 ? '' : 's'}  •  ${pesoWhole(order.total)}',
                       style: AppTextStyles.bodySm,
                     ),
                   ],
@@ -419,7 +431,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           colors: [AppColors.primary, AppColors.primaryDeep],
         ),
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        boxShadow: AppShadows.md,
       ),
       child: Stack(
         children: [
@@ -429,7 +440,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             child: Icon(
               promo.icon,
               size: 150,
-              color: Colors.white.withValues(alpha: 0.10),
+              color: Colors.white.withValues(alpha: 0.05),
             ),
           ),
           Padding(
@@ -441,12 +452,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppColors.warning,
+                    color: AppColors.honey,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     promo.badgeLabel,
-                    style: AppTextStyles.labelSm.copyWith(color: Colors.white),
+                    style: AppTextStyles.labelSm.copyWith(color: AppColors.ink),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -521,51 +532,42 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   Widget _rewardsCard(BuildContext context, int points) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColors.darkBrown, AppColors.loyaltyGradientEnd],
+          colors: [AppColors.gold, AppColors.honey, AppColors.honeyDeep],
         ),
         boxShadow: AppShadows.md,
       ),
       child: Row(
         children: [
           Container(
-            width: 52,
-            height: 52,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.14),
+              color: Colors.white.withValues(alpha: 0.35),
             ),
-            child: const Icon(Icons.workspace_premium_rounded, color: AppColors.gold, size: 30),
+            child: const Icon(Icons.workspace_premium_rounded, color: AppColors.darkBrown, size: 28),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Golden Kernel Rewards',
-                  style: AppTextStyles.labelLg.copyWith(color: Colors.white.withValues(alpha: 0.85)),
-                ),
+                Text('Golden Kernel Rewards', style: AppTextStyles.labelLg),
                 const SizedBox(height: 2),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  spacing: 4,
                   children: [
-                    Text(
-                      '$points',
-                      style: AppTextStyles.headlineLg.copyWith(color: Colors.white, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(width: 4),
+                    Text('$points', style: AppTextStyles.headlineLg.copyWith(fontWeight: FontWeight.w800)),
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        'pts available',
-                        style: AppTextStyles.bodySm.copyWith(color: Colors.white.withValues(alpha: 0.75)),
-                      ),
+                      child: Text('pts available', style: AppTextStyles.bodySm.copyWith(color: AppColors.ink)),
                     ),
                   ],
                 ),
@@ -575,11 +577,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           FilledButton(
             onPressed: () => Navigator.pushNamed(context, AppRoutes.customerLoyaltyDashboard),
             style: FilledButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: AppColors.darkBrown,
+              backgroundColor: AppColors.darkBrown,
+              foregroundColor: AppColors.gold,
               minimumSize: const Size(0, 42),
               padding: const EdgeInsets.symmetric(horizontal: 18),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
             child: const Text('View'),
           ),
@@ -601,7 +602,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
       child: Scaffold(
-        backgroundColor: AppColors.canvas,
+        backgroundColor: Colors.transparent,
+        // Zero-height bar: keeps the status bar black while the page scrolls.
+        appBar: AppBar(toolbarHeight: 0, automaticallyImplyLeading: false),
         body: ListView(
           padding: const EdgeInsets.only(bottom: AppSpacing.xl),
           children: [
@@ -618,6 +621,14 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                 ),
               ),
+            const SizedBox(height: AppSpacing.md),
+            // Rewards teaser
+            FadeSlideIn(
+              delay: next(),
+              child: _pad(_rewardsCard(context, store.pointsBalance)),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            FadeSlideIn(delay: next(), child: _quickActions(context)),
             // Customer records (orders / notifications / points) failed to
             // load: say so, with a retry, instead of hiding the sections.
             if (store.error != null && !store.isLoading)
@@ -774,7 +785,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             // Featured Section — staff/owner-curated picks
             // (`products.is_featured`), always shown when any exist,
             // independent of the sales-ranked "Popular" row below.
-            if (_featuredProducts.isNotEmpty) ...[
+            if (_selectedCategoryId == null && _featuredProducts.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.lg),
               FadeSlideIn(
                 delay: next(),
@@ -800,8 +811,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _sectionHeader(
-                    'Popular Near You',
-                    icon: Icons.local_fire_department_rounded,
+                    _selectedCategoryName ?? 'Popular Near You',
+                    icon: _selectedCategoryName == null ? Icons.local_fire_department_rounded : Icons.category_rounded,
                     action: 'See all',
                     onAction: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const ProductCatalogScreen()),
@@ -841,12 +852,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            // Rewards teaser
-            FadeSlideIn(
-              delay: next(),
-              child: _pad(_rewardsCard(context, store.pointsBalance)),
             ),
           ],
         ),

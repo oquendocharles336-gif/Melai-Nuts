@@ -13,6 +13,7 @@ class InputLimits {
   static const int passwordMin = 8;
   static const int passwordMax = 64;
   static const int phone = 16; // "+63 917 123 4567"
+  static const int mobileDigits = 11; // "09171234567"
   static const int address = 200;
   static const int addressLabel = 40;
   static const int productName = 100;
@@ -317,6 +318,21 @@ class ValidationUtils {
   static String? validateOptionalPhone(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     return PhoneUtils.validatePhilippineMobile(value);
+  }
+
+  /// A mobile number field: exactly 11 digits, starting with 09.
+  static String? validateMobile(String? value, [String fieldName = 'Mobile number']) {
+    final requiredError = validateRequired(value, fieldName);
+    if (requiredError != null) return requiredError;
+    return RegExp(r'^09\d{9}$').hasMatch(value!.trim())
+        ? null
+        : 'Enter your 11-digit mobile number, e.g. 09171234567.';
+  }
+
+  /// Same as [validateMobile] but an empty value is allowed (optional fields).
+  static String? validateOptionalMobile(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    return validateMobile(value);
   }
 
   /// The one stored format for phone numbers: E.164 (`+639171234567`).

@@ -270,6 +270,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         ),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.gold),
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),

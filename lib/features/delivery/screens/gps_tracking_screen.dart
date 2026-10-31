@@ -94,8 +94,8 @@ class _GpsTrackingScreenState extends State<GpsTrackingScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('LIVE TRACKING', style: AppTextStyles.labelSm),
-            Text('Delivery ${delivery.id}', style: AppTextStyles.titleMd),
+            Text('LIVE TRACKING', style: AppTextStyles.labelSm.copyWith(color: Colors.white)),
+            Text('Delivery ${delivery.id}', style: AppTextStyles.titleMd.copyWith(color: Colors.white)),
           ],
         ),
         actions: [

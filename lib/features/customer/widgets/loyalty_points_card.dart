@@ -29,12 +29,11 @@ class LoyaltyPointsCard extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [AppColors.darkBrown, AppColors.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
+            colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd],
           ),
           borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          boxShadow: AppShadows.md,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

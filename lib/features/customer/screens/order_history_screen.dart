@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/luxe.dart';
+import '../../../core/utils/format_utils.dart';
 
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -90,11 +92,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LuxeBackground(child: _buildScaffold(context));
+
+  Widget _buildScaffold(BuildContext context) {
     final t = AppLocalizations.of(context);
     return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('My Orders')),
+      backgroundColor: Colors.transparent,
+      appBar: const LuxeAppBar(title: 'My Orders'),
       body: SafeArea(
         child: ListenableBuilder(
           listenable: Listenable.merge([CustomerDataStore.instance, _paged]),
@@ -164,10 +168,9 @@ class _ActiveOrderBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.successBg,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-          boxShadow: AppShadows.sm,
+          border: Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,7 +196,7 @@ class _ActiveOrderBanner extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.inputFill,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
@@ -222,7 +225,7 @@ class _ActiveOrderBanner extends StatelessWidget {
                   children: [
                     Text('TOTAL AMOUNT', style: AppTextStyles.bodySm),
                     Text(
-                      '₱${active.total.toStringAsFixed(0)}',
+                      pesoWhole(active.total),
                       style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
                     ),
                   ],
@@ -233,7 +236,6 @@ class _ActiveOrderBanner extends StatelessWidget {
                   ),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                   label: const Text('Track Live Delivery'),
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
                 ),
               ],
             ),
@@ -257,7 +259,7 @@ class _PastOrderCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
         border: Border.all(color: AppColors.border),
-        boxShadow: AppShadows.sm,
+        boxShadow: AppShadows.md,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -287,7 +289,7 @@ class _PastOrderCard extends StatelessWidget {
             children: [
               Text('Paid via ${order.paymentMethod}', style: AppTextStyles.bodySm),
               Text(
-                'Total ₱${order.total.toStringAsFixed(0)}',
+                'Total ${pesoWhole(order.total)}',
                 style: AppTextStyles.labelLg.copyWith(color: AppColors.primary),
               ),
             ],

@@ -200,8 +200,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         leading: const BackButton(),
         title: Column(
           children: [
-            Text('MELAI NUTS DELIVERY', style: AppTextStyles.labelSm),
-            Text('Track Order ${order.id}', style: AppTextStyles.titleMd),
+            Text('MELAI NUTS DELIVERY', style: AppTextStyles.labelSm.copyWith(color: Colors.white)),
+            Text('Track Order ${order.id}', style: AppTextStyles.titleMd.copyWith(color: Colors.white)),
           ],
         ),
         centerTitle: true,

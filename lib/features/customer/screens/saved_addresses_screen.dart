@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/phone_utils.dart';
 import '../../../core/widgets/delivery_map.dart';
 import '../../../core/widgets/location_picker.dart';
 import '../../../core/services/auth_service.dart';
@@ -350,7 +351,7 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
   final _formKey = GlobalKey<FormState>();
   late final _labelController = TextEditingController(text: widget.existing?.label ?? 'Home');
   late final _recipientController = TextEditingController(text: widget.existing?.recipientName ?? '');
-  late final _phoneController = TextEditingController(text: widget.existing?.phone ?? '');
+  late final _phoneController = TextEditingController(text: PhoneUtils.toLocal(widget.existing?.phone ?? ''));
   late final _line1Controller = TextEditingController(text: widget.existing?.line1 ?? '');
   late final _cityController = TextEditingController(text: widget.existing?.city ?? '');
   late final _provinceController =
@@ -525,8 +526,8 @@ class _AddressFormSheetState extends State<_AddressFormSheet> {
                     autofillHints: const [AutofillHints.telephoneNumber],
                     inputFormatters: InputRules.phone(),
                     textInputAction: TextInputAction.next,
-                    hint: '0917 123 4567',
-                    validator: ValidationUtils.validatePhone,
+                    hint: '09171234567',
+                    validator: ValidationUtils.validateMobile,
                   ),
                   const SizedBox(height: 12),
                   AppTextField(

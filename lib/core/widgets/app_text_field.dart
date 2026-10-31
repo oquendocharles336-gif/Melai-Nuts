@@ -65,7 +65,7 @@ class _AppTextFieldState extends State<AppTextField> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: AppTextStyles.labelLg),
+        Text(widget.label, style: AppTextStyles.labelMd),
         const SizedBox(height: 6),
         TextFormField(
           controller: widget.controller,

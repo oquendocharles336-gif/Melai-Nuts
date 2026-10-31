@@ -400,8 +400,8 @@ class _AddUserSheetState extends State<_AddUserSheet> {
                   keyboardType: TextInputType.phone,
                   inputFormatters: InputRules.phone(),
                   textInputAction: TextInputAction.next,
-                  hint: '0917 123 4567',
-                  validator: ValidationUtils.validateOptionalPhone,
+                  hint: '09171234567',
+                  validator: ValidationUtils.validateOptionalMobile,
                 ),
                 const SizedBox(height: 14),
                 AppTextField(

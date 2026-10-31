@@ -67,10 +67,10 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Staff Portal', style: AppTextStyles.labelLg),
+                      Text('Staff Portal', style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
                       Text(
                         branchLabel.isEmpty ? profile.roleLabel : '${profile.roleLabel} • $branchLabel',
-                        style: AppTextStyles.bodySm,
+                        style: AppTextStyles.bodySm.copyWith(color: Colors.white),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],

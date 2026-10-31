@@ -162,8 +162,8 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Driver', style: AppTextStyles.labelLg),
-                  Text(_context?.branchName ?? '—', style: AppTextStyles.bodySm, overflow: TextOverflow.ellipsis),
+                  Text('Driver', style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
+                  Text(_context?.branchName ?? '—', style: AppTextStyles.bodySm.copyWith(color: Colors.white), overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),

@@ -55,8 +55,6 @@ class _LoyaltyHistoryScreenState extends State<LoyaltyHistoryScreen> {
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
         title: const Text('Points History'),
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.textPrimary,
         elevation: 0,
       ),
       body: ListenableBuilder(

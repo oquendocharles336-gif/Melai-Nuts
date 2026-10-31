@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
 
 /// The Melai Nuts peanut-and-leaf brand mark.
 ///
@@ -11,7 +10,10 @@ class AppLogo extends StatelessWidget {
   final double size;
   final bool showRing;
 
-  const AppLogo({super.key, this.size = 88, this.showRing = true});
+  /// Empty space around the mark, as a fraction of [size].
+  final double inset;
+
+  const AppLogo({super.key, this.size = 88, this.showRing = true, this.inset = 0.16});
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +26,8 @@ class AppLogo extends StatelessWidget {
         border: showRing
             ? Border.all(color: AppColors.border, width: 2)
             : null,
-        boxShadow: showRing ? AppShadows.sm : null,
       ),
-      padding: EdgeInsets.all(size * 0.16),
+      padding: EdgeInsets.all(size * inset),
       child: SvgPicture.asset('assets/images/logo/melai_nuts_logo.svg'),
     );
   }

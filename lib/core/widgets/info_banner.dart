@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
 import '../theme/app_text_styles.dart';
 
 /// A soft rounded callout box used for policy notices / hints
@@ -29,8 +28,6 @@ class InfoBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: background ?? AppColors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-        boxShadow: AppShadows.sm,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

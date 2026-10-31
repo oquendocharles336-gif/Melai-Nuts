@@ -22,19 +22,25 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: ElevatedButton.icon(
+      child: ElevatedButton(
         onPressed: loading ? null : onPressed,
-        icon: loading
-            ? const SizedBox(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (loading) ...[
+              const SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : Icon(icon ?? Icons.arrow_forward_rounded, size: 18),
-        label: Text(label),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 8),
+            ] else if (icon != null) ...[
+              Icon(icon, size: 18),
+              const SizedBox(width: 8),
+            ],
+            Flexible(child: Text(label, textAlign: TextAlign.center)),
+          ],
+        ),
       ),
     );
   }
