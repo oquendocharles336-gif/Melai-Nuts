@@ -1,5 +1,5 @@
 -- =============================================================================
--- Melai Nuts — Migration 20261031060000: points are only earned on completion
+-- Melai Nuts — Migration 20261031052943: points are only earned on completion
 -- =============================================================================
 -- Run after 20261031045119_hitpay_payment_method_codes.sql. Idempotent.
 --

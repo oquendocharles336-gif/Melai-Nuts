@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Melai Nuts — one-time repair: remove points wrongly credited at order placement
 -- =============================================================================
--- Run once, by hand, after migration 20261031060000 and after the owner has
+-- Run once, by hand, after migration 20261031052943 and after the owner has
 -- approved the corrections. Running it again changes nothing.
 --
 -- Every 'earn' row with no source came from the award-at-placement trigger and was
