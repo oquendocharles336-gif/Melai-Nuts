@@ -25,6 +25,19 @@ fresh_db() {
   done
 }
 
+# A failed suite's report can be long: print every FAIL row first, then the end of
+# the output, which holds the error when a suite stops before its report.
+show_failure() {
+  local rows
+  rows="$(printf '%s\n' "$1" | grep -E '(^|[^[:alnum:]_])FAIL([^[:alnum:]_]|$)' || true)"
+  if [ -n "$rows" ]; then
+    echo "  --- failing rows ---"
+    printf '%s\n' "$rows"
+    echo "  --- end of output ---"
+  fi
+  printf '%s\n' "$1" | tail -15
+}
+
 fresh_db
 PASS=0; FAIL=0; FAILED=()
 
@@ -32,7 +45,7 @@ PASS=0; FAIL=0; FAILED=()
 if out="$("${PSQL[@]}" "$TARGET" -f "$ROOT/supabase/tests/fresh_install_check.sql" 2>&1)"; then
   PASS=$((PASS+1)); echo "PASS fresh_install_check.sql"
 else
-  FAIL=$((FAIL+1)); FAILED+=("fresh_install_check.sql"); echo "FAIL fresh_install_check.sql"; printf '%s\n' "$out" | tail -5
+  FAIL=$((FAIL+1)); FAILED+=("fresh_install_check.sql"); echo "FAIL fresh_install_check.sql"; show_failure "$out"
 fi
 
 # 2. Re-running every migration on a database with real data changes none of it.
@@ -65,12 +78,12 @@ for t in "$ROOT"/supabase/tests/*_test.sql; do
   # The suites end with a "failed | passed | total" (or "passed | failed | total") row.
   summary="$(printf '%s\n' "$out" | awk '/(failed|passed) \| (failed|passed) \| total/{h=$0; getline; getline; v=$0} END{gsub(/ +/," ",h); gsub(/ +/," ",v); if (h!="") print "(" h ":" v ")"}')"
   if [ $rc -eq 0 ]; then PASS=$((PASS+1)); echo "PASS $(basename "$t")  $summary"
-  else FAIL=$((FAIL+1)); FAILED+=("$(basename "$t")"); echo "FAIL $(basename "$t")"; printf '%s\n' "$out" | tail -15; fi
+  else FAIL=$((FAIL+1)); FAILED+=("$(basename "$t")"); echo "FAIL $(basename "$t")"; show_failure "$out"; fi
 done
 for t in "$ROOT"/supabase/tests/*_test.sh; do
   out="$(DATABASE_URL="$TARGET" bash "$t" 2>&1)"; rc=$?
   if [ $rc -eq 0 ]; then PASS=$((PASS+1)); echo "PASS $(basename "$t")  $(printf '%s\n' "$out" | tail -1)"
-  else FAIL=$((FAIL+1)); FAILED+=("$(basename "$t")"); echo "FAIL $(basename "$t")"; printf '%s\n' "$out" | tail -15; fi
+  else FAIL=$((FAIL+1)); FAILED+=("$(basename "$t")"); echo "FAIL $(basename "$t")"; show_failure "$out"; fi
 done
 echo "SQL suites: $PASS passed, $FAIL failed ${FAILED[*]:-}"
 [ $FAIL -eq 0 ]

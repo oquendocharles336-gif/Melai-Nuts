@@ -118,6 +118,9 @@ import '../core/utils/app_error.dart';
 class AppRoutes {
   AppRoutes._();
 
+  /// Lets a tapped push notification open a screen from outside the widget tree.
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
   static const String splash = '/';
   // Single sign-in / create-account screen shared by every role (customer,
   // staff, owner, delivery). Kept as one route so there's exactly one login
