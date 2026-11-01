@@ -105,7 +105,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _openRegister() {
-    Navigator.of(context).pushReplacement(FadeSlideRoute(builder: (_) => const RegisterScreen()));
+    // On top of this screen, not instead of it: Sign In may have nothing behind it
+    // (after logging out), and back from Create Account must always have somewhere to go.
+    Navigator.of(context).push(FadeSlideRoute(builder: (_) => const RegisterScreen(fromSignIn: true)));
   }
 
   /// Sign-out lands here with nothing behind it: back then means Welcome.
@@ -122,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return LuxeAuthFrame(
       title: 'Welcome back',
-      subtitle: 'One account for shoppers, staff, owners, and delivery riders.',
+      subtitle: 'Good to see you again. Sign in to continue.',
       onBack: _back,
       child: Form(
         key: _formKey,

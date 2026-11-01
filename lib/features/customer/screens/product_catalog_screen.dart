@@ -299,7 +299,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                       vertical: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.darkBrown,
+                      color: AppColors.primary,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: AppShadows.md,
                     ),

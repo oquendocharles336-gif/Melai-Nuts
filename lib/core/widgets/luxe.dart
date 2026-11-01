@@ -6,8 +6,8 @@ import '../theme/app_text_styles.dart';
 import 'app_logo.dart';
 import 'motion.dart';
 
-/// The app's signature look: espresso and champagne gold, a faint gold lattice
-/// instead of flat backgrounds, serif headings and gold hairlines.
+/// The app's signature look: warm cream pages, a sunny honey background for the
+/// big moments, orange accents, a faint lattice and bold headings.
 
 /// Faint diamond lattice, drawn over a background.
 class LatticePainter extends CustomPainter {
@@ -33,7 +33,7 @@ class LatticePainter extends CustomPainter {
   bool shouldRepaint(LatticePainter oldDelegate) => oldDelegate.color != color || oldDelegate.spacing != spacing;
 }
 
-/// Champagne page background. Put a transparent [Scaffold] inside it.
+/// Cream page background. Put a transparent [Scaffold] inside it.
 class LuxeBackground extends StatelessWidget {
   final Widget child;
 
@@ -63,30 +63,32 @@ class LuxeBackground extends StatelessWidget {
   }
 }
 
-/// Espresso page background with a gold lattice. Put a transparent [Scaffold]
-/// inside it; the status bar icons turn light.
-class LuxeDarkBackground extends StatelessWidget {
+/// Sunny cream-to-honey page background, for splash, welcome and sign in. Put a
+/// transparent [Scaffold] inside it; use dark text on it.
+class LuxeSunBackground extends StatelessWidget {
   final Widget child;
 
-  const LuxeDarkBackground({super.key, required this.child});
+  const LuxeSunBackground({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
+      value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
       child: DecoratedBox(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [AppColors.sunStart, AppColors.sunEnd],
           ),
         ),
         child: Stack(
           children: [
+            const Positioned(top: -120, right: -90, child: _Glow(size: 340, opacity: 0.55)),
+            const Positioned(bottom: -140, left: -110, child: _Glow(size: 320, opacity: 0.30)),
             Positioned.fill(
               child: RepaintBoundary(
-                child: CustomPaint(painter: LatticePainter(color: AppColors.gold.withValues(alpha: 0.07))),
+                child: CustomPaint(painter: LatticePainter(color: AppColors.honeyDeep.withValues(alpha: 0.14))),
               ),
             ),
             Positioned.fill(child: child),
@@ -97,7 +99,31 @@ class LuxeDarkBackground extends StatelessWidget {
   }
 }
 
-/// A short gold line with a diamond in the middle.
+/// A soft circle of sunlight.
+class _Glow extends StatelessWidget {
+  final double size;
+  final double opacity;
+
+  const _Glow({required this.size, required this.opacity});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [AppColors.honey.withValues(alpha: opacity), AppColors.honey.withValues(alpha: 0)],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A short orange line with a diamond in the middle.
 class LuxeDivider extends StatelessWidget {
   final double width;
 
@@ -112,7 +138,7 @@ class LuxeDivider extends StatelessWidget {
               gradient: LinearGradient(
                 begin: begin,
                 end: end,
-                colors: [AppColors.gold.withValues(alpha: 0), AppColors.gold],
+                colors: [AppColors.primary.withValues(alpha: 0), AppColors.primary],
               ),
             ),
           ),
@@ -126,7 +152,7 @@ class LuxeDivider extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Transform.rotate(
               angle: 0.785398,
-              child: Container(width: 6, height: 6, color: AppColors.gold),
+              child: Container(width: 6, height: 6, color: AppColors.primary),
             ),
           ),
           line(Alignment.centerRight, Alignment.centerLeft),
@@ -136,7 +162,7 @@ class LuxeDivider extends StatelessWidget {
   }
 }
 
-/// The logo inside a gold ring.
+/// The logo with a soft glow.
 class LuxeCrest extends StatelessWidget {
   final double size;
 
@@ -144,25 +170,19 @@ class LuxeCrest extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      padding: const EdgeInsets.all(2.5),
+    return DecoratedBox(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.gold, AppColors.honeyDeep, AppColors.gold],
-        ),
-        boxShadow: [BoxShadow(color: AppColors.gold.withValues(alpha: 0.28), blurRadius: 28)],
+        boxShadow: [
+          BoxShadow(color: AppColors.primary.withValues(alpha: 0.30), blurRadius: size * 0.28, offset: Offset(0, size * 0.08)),
+        ],
       ),
-      child: AppLogo(size: size - 5, showRing: false, inset: 0.03),
+      child: AppLogo(size: size),
     );
   }
 }
 
-/// Metallic gold main button, for dark backgrounds.
+/// Orange main button with a soft shadow, for the sunny background.
 class LuxeGoldButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -177,8 +197,9 @@ class LuxeGoldButton extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColors.gold, AppColors.honey, AppColors.honeyDeep],
+          colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd],
         ),
+        boxShadow: [BoxShadow(color: AppColors.primary.withValues(alpha: 0.35), blurRadius: 14, offset: const Offset(0, 6))],
       ),
       child: Material(
         type: MaterialType.transparency,
@@ -188,7 +209,7 @@ class LuxeGoldButton extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 54, minWidth: double.infinity),
             child: Center(
-              child: Text(label, style: AppTextStyles.titleMd.copyWith(fontWeight: FontWeight.w700)),
+              child: Text(label, style: AppTextStyles.titleMd.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
             ),
           ),
         ),
@@ -197,7 +218,7 @@ class LuxeGoldButton extends StatelessWidget {
   }
 }
 
-/// Black app bar with a faint lattice and a gold hairline, for the main tabs.
+/// Orange app bar with a faint lattice, for the main tabs.
 class LuxeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
@@ -211,9 +232,9 @@ class LuxeAppBar extends StatelessWidget implements PreferredSizeWidget {
       flexibleSpace: SizedBox.expand(
         child: DecoratedBox(
           decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppColors.gold.withValues(alpha: 0.5))),
+            gradient: const LinearGradient(colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd]),
           ),
-          child: CustomPaint(painter: LatticePainter(color: AppColors.gold.withValues(alpha: 0.07))),
+          child: CustomPaint(painter: LatticePainter(color: Colors.white.withValues(alpha: 0.06))),
         ),
       ),
       actions: actions,
@@ -224,7 +245,7 @@ class LuxeAppBar extends StatelessWidget implements PreferredSizeWidget {
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 }
 
-/// Sign In / Create Account layout: crest and serif title on espresso, with
+/// Sign In / Create Account layout: logo and title on the sunny background, with
 /// the form on an ivory sheet that rises over it.
 class LuxeAuthFrame extends StatelessWidget {
   final String title;
@@ -242,10 +263,24 @@ class LuxeAuthFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LuxeDarkBackground(
+    // The phone's back button does the same as the arrow, also when there is
+    // nothing behind this screen to go back to.
+    return PopScope<Object?>(
+      canPop: onBack == null || Navigator.of(context).canPop(),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) onBack?.call();
+      },
+      child: _content(context),
+    );
+  }
+
+  Widget _content(BuildContext context) {
+    return LuxeSunBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: CustomScrollView(
+        body: Stack(
+          children: [
+            CustomScrollView(
           slivers: [
             SliverToBoxAdapter(
               child: SafeArea(
@@ -254,22 +289,19 @@ class LuxeAuthFrame extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(AppSpacing.xs, AppSpacing.xs2, AppSpacing.xs, AppSpacing.lg),
                   child: Column(
                     children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: BackButton(color: AppColors.gold, onPressed: onBack),
-                      ),
+                      const SizedBox(height: 48), // room for the pinned back button
                       FadeSlideIn(
                         duration: const Duration(milliseconds: 500),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
                           child: Column(
                             children: [
-                              const LuxeCrest(size: 76),
+                              const LuxeCrest(size: 92),
                               const SizedBox(height: AppSpacing.md),
                               Text(
                                 title,
                                 textAlign: TextAlign.center,
-                                style: AppTextStyles.display.copyWith(color: Colors.white),
+                                style: AppTextStyles.display,
                               ),
                               const SizedBox(height: AppSpacing.sm),
                               const LuxeDivider(),
@@ -277,7 +309,7 @@ class LuxeAuthFrame extends StatelessWidget {
                               Text(
                                 subtitle,
                                 textAlign: TextAlign.center,
-                                style: AppTextStyles.bodyMd.copyWith(color: AppColors.surfaceContainerHigh),
+                                style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
                               ),
                             ],
                           ),
@@ -297,7 +329,7 @@ class LuxeAuthFrame extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: AppColors.ivory,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-                    border: Border(top: BorderSide(color: AppColors.gold.withValues(alpha: 0.8), width: 1.5)),
+                    boxShadow: AppShadows.lg,
                   ),
                   child: SafeArea(
                     top: false,
@@ -306,6 +338,22 @@ class LuxeAuthFrame extends StatelessWidget {
                       child: child,
                     ),
                   ),
+                ),
+              ),
+            ),
+          ],
+            ),
+            // Pinned, so a long form never scrolls the way back out of reach.
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.xs),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.ivory.withValues(alpha: 0.9),
+                    shape: BoxShape.circle,
+                    boxShadow: AppShadows.sm,
+                  ),
+                  child: BackButton(color: AppColors.primaryDark, onPressed: onBack),
                 ),
               ),
             ),

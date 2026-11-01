@@ -210,6 +210,30 @@ select pg_temp.chk_true('audit rows for send / failed / succeeded',
   (select count(distinct action) = 4 from public.staff_audit_logs where entity_id = pg_temp.f('r_online')
      and action in ('refund.gateway_send', 'refund.gateway_failed', 'refund.gateway_pending', 'refund.gateway_succeeded')));
 
+-- A payment that arrives after the order was cancelled ------------------------------
+insert into fx values ('o_late', pg_temp.order_for('Online Payment (GCash, QR Ph, Card)', 'hr-key-late-1'));
+select public.hitpay_set_checkout(pg_temp.f('o_late'), 'preq-late', 'https://pay.example/late');
+select pg_temp.call_as('h-own', format($q$select public.staff_update_order_status(%L, 'cancelled')::text$q$, pg_temp.f('o_late')));
+select pg_temp.chk_true('late payment: it is still recorded',
+  public.hitpay_apply_payment(pg_temp.f('o_late'), 'success', 'qrph', 'pay-late-1', null, 'preq-late') = 'success'
+  and (select status = 'success' and method = 'qrph' from public.payments where order_id = pg_temp.f('o_late')));
+select pg_temp.chk_true('late payment: the order stays cancelled',
+  (select status = 'cancelled' from public.orders where id = pg_temp.f('o_late')));
+insert into fx select 'r_late', id from public.refund_requests where order_id = pg_temp.f('o_late');
+select pg_temp.chk_true('late payment: a pending refund for the full amount is open',
+  (select r.status = 'pending' and r.amount = p.amount from public.refund_requests r
+     join public.payments p on p.order_id = r.order_id where r.id = pg_temp.f('r_late')));
+select pg_temp.chk_true('late payment: the same event again opens no second refund',
+  public.hitpay_apply_payment(pg_temp.f('o_late'), 'success', 'qrph', 'pay-late-1', null, 'preq-late') = 'success'
+  and (select count(*) = 1 from public.refund_requests where order_id = pg_temp.f('o_late')));
+select pg_temp.call_as('h-sa', format($q$select public.admin_portal_review_refund(%L, 'approve')::text$q$, pg_temp.f('r_late')));
+select pg_temp.chk_true('late payment: the refund can go through HitPay',
+  (pg_temp.call_as('h-sa', format($q$select public.staff_begin_gateway_refund(%L)::text$q$, pg_temp.f('r_late')))) like '%pay-late-1%');
+select pg_temp.call_as('h-sa', format($q$select public.staff_review_refund(%L, 'complete')::text$q$, pg_temp.f('r_late')));
+select pg_temp.chk_true('late payment: completing it marks the payment refunded, the order stays cancelled',
+  (select p.status = 'refunded' and o.status = 'cancelled' from public.payments p
+     join public.orders o on o.id = p.order_id where p.order_id = pg_temp.f('o_late')));
+
 -- Report -------------------------------------------------------------------------
 select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;
 select count(*) filter (where not passed) as failed, count(*) filter (where passed) as passed, count(*) as total from results;

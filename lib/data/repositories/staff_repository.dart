@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -58,6 +60,62 @@ class StaffRepository {
   static final StaffRepository instance = StaffRepository._();
 
   SupabaseClient get _client => SupabaseService.instance.client;
+
+  /// The storage bucket's own limit (migration 20261031064416).
+  static const int maxProfilePhotoBytes = 2 * 1024 * 1024;
+  static const String _photoBucket = 'staff-photos';
+
+  /// Signed links for profile pictures, reused until shortly before they expire.
+  final Map<String, ({String url, DateTime expires})> _photoUrls = {};
+
+  /// Uploads a new picture into the caller's own folder and makes it theirs.
+  /// Returns its path.
+  Future<String> uploadProfilePhoto({
+    required String uid,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final extension = switch (contentType) { 'image/png' => 'png', 'image/webp' => 'webp', _ => 'jpg' };
+    final path = '$uid/${DateTime.now().millisecondsSinceEpoch}.$extension';
+    try {
+      await _client.storage
+          .from(_photoBucket)
+          .uploadBinary(path, bytes, fileOptions: FileOptions(contentType: contentType, upsert: false))
+          .timeout(_timeout);
+    } catch (e) {
+      throw AppErrors.from(e);
+    }
+    await _rpc('staff_set_my_photo', {'p_path': path});
+    return path;
+  }
+
+  /// Clears the caller's picture.
+  Future<void> clearProfilePhoto() => _rpc('staff_set_my_photo', {'p_path': null});
+
+  /// Deletes an old picture file. Only tidying up: a failure changes nothing
+  /// the staff member can see.
+  Future<void> deleteProfilePhotoFile(String path) async {
+    _photoUrls.remove(path);
+    try {
+      await _client.storage.from(_photoBucket).remove([path]).timeout(_timeout);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_repository:deleteProfilePhotoFile');
+    }
+  }
+
+  /// A short-lived link to a picture, or null if it cannot be read right now.
+  Future<String?> profilePhotoUrl(String path) async {
+    final cached = _photoUrls[path];
+    if (cached != null && cached.expires.isAfter(DateTime.now())) return cached.url;
+    try {
+      final url = await _client.storage.from(_photoBucket).createSignedUrl(path, 3600).timeout(_timeout);
+      _photoUrls[path] = (url: url, expires: DateTime.now().add(const Duration(minutes: 50)));
+      return url;
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_repository:profilePhotoUrl');
+      return null;
+    }
+  }
 
   static const Duration _timeout = Duration(seconds: 30);
 

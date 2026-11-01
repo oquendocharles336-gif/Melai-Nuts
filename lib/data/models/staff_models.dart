@@ -48,6 +48,23 @@ class StaffProfile {
     this.accountStatus = 'active',
   });
 
+  /// The same person with a different picture (null = no picture).
+  StaffProfile withProfileImage(String? path) => StaffProfile(
+        uid: uid,
+        fullName: fullName,
+        email: email,
+        role: role,
+        branchId: branchId,
+        branchName: branchName,
+        isActive: isActive,
+        canManageInventory: canManageInventory,
+        canReviewRefunds: canReviewRefunds,
+        createdAt: createdAt,
+        phone: phone,
+        profileImage: path,
+        accountStatus: accountStatus,
+      );
+
   bool get isOwner => role == 'owner';
   String get roleLabel => isOwner ? 'Owner' : 'Branch Staff';
 

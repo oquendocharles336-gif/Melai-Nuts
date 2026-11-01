@@ -198,7 +198,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
-  /// Espresso-to-caramel hero: greeting, cart / notifications, branch, search.
+  /// Orange hero: greeting, cart / notifications, branch, search.
   Widget _buildHeader(BuildContext context, String greeting, int unreadCount) {
     final top = MediaQuery.paddingOf(context).top;
     return Container(
@@ -577,8 +577,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           FilledButton(
             onPressed: () => Navigator.pushNamed(context, AppRoutes.customerLoyaltyDashboard),
             style: FilledButton.styleFrom(
-              backgroundColor: AppColors.darkBrown,
-              foregroundColor: AppColors.gold,
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
               minimumSize: const Size(0, 42),
               padding: const EdgeInsets.symmetric(horizontal: 18),
             ),

@@ -55,13 +55,21 @@ void main() {
     }
   });
 
-  test('espresso text on the honey rewards card meets WCAG AA', () {
+  test('dark and orange text on the sunny background meet WCAG AA', () {
+    for (final background in const [AppColors.sunStart, AppColors.sunEnd]) {
+      expect(contrast(AppColors.ink, background), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppColors.primaryDark, background), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppColors.textMuted, background), greaterThanOrEqualTo(4.5));
+    }
+  });
+
+  test('dark text on the honey rewards card meets WCAG AA', () {
     for (final background in const [AppColors.honey, AppColors.honeyDeep]) {
       expect(contrast(AppColors.ink, background), greaterThanOrEqualTo(4.5));
     }
   });
 
-  test('gold labels on the espresso buttons and bar meet WCAG AA', () {
+  test('cream labels on dark brown meet WCAG AA', () {
     expect(contrast(AppColors.gold, AppColors.darkBrown), greaterThanOrEqualTo(4.5));
   });
 

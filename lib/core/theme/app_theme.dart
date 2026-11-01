@@ -5,8 +5,8 @@ import 'app_colors.dart';
 
 /// Material 3 ThemeData for the whole app.
 ///
-/// Espresso and champagne gold: champagne canvas, white cards with gold
-/// hairlines, espresso main buttons with gold labels, and serif headings.
+/// Bright and warm: cream canvas, white cards, an orange app bar and main
+/// buttons, and bold rounded headings.
 class AppTheme {
   AppTheme._();
 
@@ -34,20 +34,20 @@ class AppTheme {
       fontWeight: FontWeight.w700,
       letterSpacing: 0.1,
     );
-    final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
+    final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
     OutlineInputBorder inputBorder([BorderSide side = BorderSide.none]) =>
         OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: side);
 
     return base.copyWith(
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.noir,
+        backgroundColor: AppColors.appBar,
         foregroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
         surfaceTintColor: Colors.transparent,
         systemOverlayStyle: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
-        titleTextStyle: GoogleFonts.playfairDisplay(
+        titleTextStyle: GoogleFonts.poppins(
           fontSize: 20,
           fontWeight: FontWeight.w700,
           color: Colors.white,
@@ -59,7 +59,7 @@ class AppTheme {
         color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           side: const BorderSide(color: AppColors.border, width: 1),
         ),
         margin: EdgeInsets.zero,
@@ -78,8 +78,8 @@ class AppTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.darkBrown,
-          foregroundColor: AppColors.gold,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
           minimumSize: const Size(64, 54),
           elevation: 0,
           textStyle: buttonText,
@@ -88,8 +88,8 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.darkBrown,
-          foregroundColor: AppColors.gold,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
           minimumSize: const Size(64, 54),
           textStyle: buttonText,
           shape: buttonShape,

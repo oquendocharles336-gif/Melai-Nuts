@@ -6,13 +6,14 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/melai_app_bar.dart';
-import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/staff_models.dart';
 import '../../settings/screens/logout_flow.dart';
 import '../../settings/screens/settings_screen.dart';
+import '../widgets/staff_avatar.dart';
 
 /// Staff notifications, read from the database (`staff_notifications`).
 /// A person only ever receives their own: new orders at their branch, low /
@@ -214,30 +215,67 @@ class StaffProfileBody extends StatelessWidget {
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
               Container(
-                padding: const EdgeInsets.all(16),
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-                  border: Border.all(color: AppColors.border),
-                  boxShadow: AppShadows.sm,
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.heroGradientStart, AppColors.heroGradientEnd],
+                  ),
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+                  boxShadow: AppShadows.md,
                 ),
-                child: Column(
-                  children: [
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: AppColors.roleStaff,
-                      child: Text(
-                        p.initials,
-                        style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                child: CustomPaint(
+                  painter: LatticePainter(color: Colors.white.withValues(alpha: 0.07)),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Column(
+                        children: [
+                          Semantics(
+                            button: true,
+                            label: 'Change profile picture',
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () => changeStaffPhoto(context),
+                              child: Stack(
+                                children: [
+                                  StaffAvatar(profile: p, size: 104),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 34,
+                                      height: 34,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.honey,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2),
+                                      ),
+                                      child: const Icon(Icons.photo_camera_rounded, size: 17, color: AppColors.ink),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            p.fullName.isEmpty ? 'Staff member' : p.fullName,
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.headlineMd.copyWith(color: Colors.white),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            store.activeBranchName.isEmpty ? p.roleLabel : '${p.roleLabel} • ${store.activeBranchName}',
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.bodyMd.copyWith(color: AppColors.gold),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Text(p.fullName.isEmpty ? 'Staff member' : p.fullName, style: AppTextStyles.headlineSm),
-                    Text(
-                      store.activeBranchName.isEmpty ? p.roleLabel : '${p.roleLabel} • ${store.activeBranchName}',
-                      style: AppTextStyles.bodyMd,
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
@@ -316,11 +354,7 @@ class StaffProfileBody extends StatelessWidget {
                 )),
               ),
               const SizedBox(height: AppSpacing.lg),
-              SecondaryButton(
-                label: 'Log Out',
-                icon: Icons.logout_rounded,
-                onPressed: () => confirmAndLogOut(context),
-              ),
+              const LogOutButton(),
             ],
           ),
         );
@@ -339,7 +373,12 @@ class _ProfileItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: AppColors.textSecondary),
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(color: AppColors.roleStaff.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, size: 19, color: AppColors.roleStaff),
+        ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(

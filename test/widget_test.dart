@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melai_nuts/app/app.dart';
+import 'package:melai_nuts/core/constants/app_constants.dart';
 
 void main() {
   testWidgets('Splash screen smoke test', (WidgetTester tester) async {
@@ -14,10 +15,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final semantics = tester.ensureSemantics();
+
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MelaiNutsApp());
 
-    // Verify that the app starts (finds the Melai Nuts app name or logo text)
-    expect(find.textContaining('Melai Nuts'), findsAtLeast(1));
+    // The name animates in letter by letter, and is announced as one label.
+    expect(find.bySemanticsLabel(AppConstants.appName), findsOneWidget);
+    semantics.dispose();
   });
 }

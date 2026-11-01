@@ -18,6 +18,7 @@ import '../../settings/screens/logout_flow.dart';
 import '../barcode/barcode_scan_screen.dart';
 import '../barcode/sku_matcher.dart';
 import '../widgets/pos_offline_widgets.dart';
+import '../widgets/staff_avatar.dart';
 import 'cash_drawer_screen.dart';
 import 'staff_dashboard_tab.dart';
 import 'staff_extra_screens.dart';
@@ -57,10 +58,10 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
           appBar: AppBar(
             title: Row(
               children: [
-                const CircleAvatar(
-                  radius: 16,
-                  backgroundColor: AppColors.roleStaff,
-                  child: Icon(Icons.badge_rounded, size: 16, color: Colors.white),
+                InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => setState(() => _currentIndex = 4),
+                  child: StaffAvatar(profile: profile, size: 36),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -135,7 +136,7 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
               surfaceTintColor: Colors.transparent,
               labelTextStyle: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.selected)) {
-                  return AppTextStyles.labelMd.copyWith(color: AppColors.roleStaff);
+                  return AppTextStyles.labelMd.copyWith(color: AppColors.roleStaff, fontWeight: FontWeight.w700);
                 }
                 return AppTextStyles.labelMd;
               }),

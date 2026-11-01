@@ -36,7 +36,7 @@ class WelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LuxeDarkBackground(
+    return LuxeSunBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: SafeArea(
@@ -61,7 +61,7 @@ class WelcomeScreen extends StatelessWidget {
                             Text(
                               AppConstants.appName,
                               textAlign: TextAlign.center,
-                              style: AppTextStyles.display.copyWith(color: Colors.white),
+                              style: AppTextStyles.display,
                             ),
                             const SizedBox(height: AppSpacing.md),
                             const LuxeDivider(width: 160),
@@ -69,13 +69,13 @@ class WelcomeScreen extends StatelessWidget {
                             Text(
                               AppConstants.appTagline.toUpperCase(),
                               textAlign: TextAlign.center,
-                              style: AppTextStyles.labelMd.copyWith(color: AppColors.gold, letterSpacing: 3),
+                              style: AppTextStyles.labelMd.copyWith(color: AppColors.primaryDark, letterSpacing: 3),
                             ),
                             const SizedBox(height: AppSpacing.sm),
                             Text(
                               'Fresh-roasted nuts from your Melai Nuts branch.',
                               textAlign: TextAlign.center,
-                              style: AppTextStyles.bodyMd.copyWith(color: AppColors.surfaceContainerHigh),
+                              style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
                             ),
                           ],
                         ),
@@ -92,15 +92,15 @@ class WelcomeScreen extends StatelessWidget {
                             OutlinedButton(
                               onPressed: () => _openRegister(context),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.gold,
-                                side: BorderSide(color: AppColors.gold.withValues(alpha: 0.7), width: 1.2),
+                                foregroundColor: AppColors.primaryDark,
+                                side: const BorderSide(color: AppColors.primary, width: 1.4),
                               ),
                               child: const Text('Create Account'),
                             ),
                             const SizedBox(height: AppSpacing.xs),
                             TextButton(
                               onPressed: () => _continueAsGuest(context),
-                              style: TextButton.styleFrom(foregroundColor: AppColors.surfaceContainerHigh),
+                              style: TextButton.styleFrom(foregroundColor: AppColors.primaryDark),
                               child: const Text('Continue as guest'),
                             ),
                           ],

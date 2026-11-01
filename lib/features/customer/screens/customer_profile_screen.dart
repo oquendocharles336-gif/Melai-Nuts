@@ -10,6 +10,7 @@ import '../../../core/utils/person_name.dart';
 import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/state_views.dart';
+import '../../../data/models/customer_profile.dart';
 import '../../notifications/screens/notification_center_screen.dart';
 import '../../settings/screens/logout_flow.dart';
 import 'edit_profile_screen.dart';
@@ -52,7 +53,6 @@ class CustomerProfileScreen extends StatelessWidget {
     final emailVerified =
         (fbUser?.emailVerified ?? false) || (fbUser?.phoneNumber ?? '').isNotEmpty;
     final addresses = CustomerDataStore.instance.addresses;
-    final defaultAddress = CustomerDataStore.instance.defaultAddress;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -172,7 +172,7 @@ class CustomerProfileScreen extends StatelessWidget {
                                         padding: const EdgeInsets.only(bottom: 4),
                                         child: Text(
                                           'Golden Kernel pts',
-                                          style: AppTextStyles.bodySm.copyWith(color: AppColors.surfaceContainerHigh),
+                                          style: AppTextStyles.bodySm.copyWith(color: AppColors.gold),
                                         ),
                                       ),
                                     ],
@@ -181,7 +181,7 @@ class CustomerProfileScreen extends StatelessWidget {
                                     store.earnPesosPerPoint == null
                                         ? 'Earn rate not set yet'
                                         : 'Earn 1 pt per ₱${_peso(store.earnPesosPerPoint!)} spent',
-                                    style: AppTextStyles.bodySm.copyWith(color: AppColors.surfaceContainerHigh),
+                                    style: AppTextStyles.bodySm.copyWith(color: AppColors.gold),
                                   ),
                                   // Points the database took back because an order was (partly) refunded.
                                   Builder(builder: (context) {
@@ -191,7 +191,7 @@ class CustomerProfileScreen extends StatelessWidget {
                                     return reversed > 0
                                         ? Text(
                                             '$reversed pts reversed by refunds',
-                                            style: AppTextStyles.bodySm.copyWith(color: AppColors.surfaceContainerHigh),
+                                            style: AppTextStyles.bodySm.copyWith(color: AppColors.gold),
                                           )
                                         : const SizedBox.shrink();
                                   }),
@@ -255,10 +255,7 @@ class CustomerProfileScreen extends StatelessWidget {
                   _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
                   // Masked: the full number is only needed when editing it.
                   _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : maskPhone(phone)),
-                  _FieldRow(
-                    label: 'DELIVERY ADDRESS',
-                    value: defaultAddress == null ? 'Not set' : defaultAddress.fullAddress,
-                  ),
+                  const _DeliveryAddressRow(),
                   const SizedBox(height: 10),
                   SecondaryButton(
                     label: 'Edit Profile Information',
@@ -332,11 +329,7 @@ class CustomerProfileScreen extends StatelessWidget {
               )),
             ),
             const SizedBox(height: AppSpacing.lg),
-            SecondaryButton(
-              label: 'Log Out of Session',
-              icon: Icons.logout_rounded,
-              onPressed: () => confirmAndLogOut(context),
-            ),
+            const LogOutButton(),
           ],
         ),
               ),
@@ -364,6 +357,72 @@ class _FieldRow extends StatelessWidget {
           Text(label, style: AppTextStyles.labelSm),
           Text(value, style: AppTextStyles.bodyLg),
         ],
+      ),
+    );
+  }
+}
+
+/// What the Delivery Address row says. "None saved" is only ever said once the
+/// addresses have really been read.
+String deliveryAddressText({required CustomerAddress? address, required bool loaded, required bool failed}) {
+  if (address != null) return address.fullAddress;
+  if (failed) return 'Could not load your address. Tap to try again.';
+  if (!loaded) return 'Loading your address...';
+  return 'No address saved yet. Tap to add one.';
+}
+
+class _DeliveryAddressRow extends StatefulWidget {
+  const _DeliveryAddressRow();
+
+  @override
+  State<_DeliveryAddressRow> createState() => _DeliveryAddressRowState();
+}
+
+class _DeliveryAddressRowState extends State<_DeliveryAddressRow> {
+  @override
+  void initState() {
+    super.initState();
+    CustomerDataStore.instance.refreshAddresses();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = CustomerDataStore.instance;
+    final address = store.defaultAddress;
+    final failed = store.addressesFailed && address == null;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      onTap: () {
+        if (failed) {
+          store.refreshAddresses();
+        } else {
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SavedAddressesScreen()));
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('DELIVERY ADDRESS', style: AppTextStyles.labelSm),
+                  Text(
+                    deliveryAddressText(address: address, loaded: store.addressesLoaded, failed: store.addressesFailed),
+                    style: address != null
+                        ? AppTextStyles.bodyLg
+                        : AppTextStyles.bodyMd.copyWith(color: failed ? AppColors.error : AppColors.primary),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              failed ? Icons.refresh_rounded : Icons.chevron_right_rounded,
+              color: AppColors.primary,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_data_store.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/offline_banner.dart';
 import 'customer_home_screen.dart';
@@ -49,24 +51,25 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
       ),
       bottomNavigationBar: DecoratedBox(
         decoration: BoxDecoration(
-          color: AppColors.noir,
-          border: Border(top: BorderSide(color: AppColors.gold.withValues(alpha: 0.45))),
+          color: Colors.white,
+          border: const Border(top: BorderSide(color: AppColors.border)),
+          boxShadow: AppShadows.md,
         ),
         child: NavigationBarTheme(
           data: NavigationBarThemeData(
-            backgroundColor: AppColors.noir,
+            backgroundColor: Colors.white,
             elevation: 0,
             height: 68,
             surfaceTintColor: Colors.transparent,
-            indicatorColor: AppColors.gold,
+            indicatorColor: AppColors.primaryContainer,
             labelTextStyle: WidgetStateProperty.resolveWith((states) {
               final selected = states.contains(WidgetState.selected);
-              return AppTextStyles.labelMd.copyWith(color: selected ? AppColors.gold : AppColors.surfaceContainerHigh);
+              return AppTextStyles.labelMd.copyWith(color: selected ? AppColors.primaryDark : AppColors.textSecondary);
             }),
             iconTheme: WidgetStateProperty.resolveWith((states) {
               return states.contains(WidgetState.selected)
-                  ? const IconThemeData(color: AppColors.darkBrown, size: 24)
-                  : const IconThemeData(color: AppColors.surfaceContainerHigh, size: 24);
+                  ? const IconThemeData(color: AppColors.primaryDark, size: 24)
+                  : const IconThemeData(color: AppColors.textSecondary, size: 24);
             }),
           ),
         child: NavigationBar(
@@ -81,6 +84,7 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
               Navigator.of(context).pushNamed(AppRoutes.login);
               return;
             }
+            if (i == 3) CustomerDataStore.instance.refreshAddresses();
             setState(() => _index = i);
           },
           destinations: const [

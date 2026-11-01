@@ -715,11 +715,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        SecondaryButton(
-          label: 'Log Out',
-          icon: Icons.logout_rounded,
-          onPressed: () => confirmAndLogOut(context, beforeSignOut: _tracker.stop),
-        ),
+        LogOutButton(beforeSignOut: _tracker.stop),
       ],
     );
   }
