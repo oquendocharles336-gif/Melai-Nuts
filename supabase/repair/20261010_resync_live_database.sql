@@ -20780,7 +20780,9 @@ begin
     subtotal, discount, delivery_fee, total, payment_method,
     customer_notes, contact_phone, delivery_address_text, status
   )
-  select v_uid, v_cart.branch_id, b.name, p_is_delivery, p_delivery_address_id,
+  -- A pickup order never links an address, whatever an app build sends.
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery,
+    case when p_is_delivery then p_delivery_address_id end,
     v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method,
     left(coalesce(trim(p_customer_notes), ''), 500), v_contact_phone, v_delivery_address_text,
     case when v_downpayment is null then 'pending' else 'awaitingDownpayment' end
