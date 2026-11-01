@@ -100,10 +100,21 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
     return json({ error: "Could not load your payment." }, 500);
   }
   if (!payment) return json({ error: "Payment not found." }, 404);
-  if (payment.method === "cash") {
+  // A Cash on Delivery order with a required downpayment: this page pays only that
+  // part. Its balance stays cash (public.order_downpayments, migration 20261101083000).
+  const { data: downpayment, error: downpaymentError } = await userClient
+    .from("order_downpayments")
+    .select("amount, status")
+    .eq("order_id", orderId)
+    .maybeSingle();
+  if (downpaymentError) {
+    console.error("hitpay-create-payment: downpayment lookup failed", downpaymentError.message);
+    return json({ error: "Could not load your payment." }, 500);
+  }
+  if (!downpayment && payment.method === "cash") {
     return json({ error: "This order is paid in cash." }, 409);
   }
-  if (!["pending", "processing", "failed"].includes(payment.status)) {
+  if (!["pending", "processing", "failed"].includes((downpayment ?? payment).status)) {
     return json({ error: "This order is already paid." }, 409);
   }
 
@@ -134,13 +145,14 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
     return json({ checkout_url: claim.checkout_url, payment_request_id: claim.payment_request_id });
   }
   if (claim?.action === "closed") return json({ error: "This order is already paid." }, 409);
+  if (claim?.action === "expired") return json({ error: "The time to pay for this order has ended." }, 409);
   if (claim?.action !== "create") {
     return json({ error: "Your payment is still being prepared. Please try again in a moment." }, 409);
   }
   // From here this call holds the claim; give it back if no link gets stored.
   const release = () => adminClient.rpc("hitpay_release_checkout", { p_order_id: order.id });
 
-  const total = Number(order.total);
+  const total = Number(downpayment ? downpayment.amount : order.total);
   if (!Number.isFinite(total) || total <= 0) {
     await release();
     return json({ error: "This order has nothing to pay." }, 409);
