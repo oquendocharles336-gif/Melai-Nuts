@@ -85,6 +85,45 @@ class BusinessSettingsTest extends TestCase
         $this->assertNotContains('owner_update_business_settings', $this->db->calledFunctions());
     }
 
+    public function test_owner_sets_and_clears_the_cod_downpayment(): void
+    {
+        $this->useFakeSupabase();
+        $owner = $this->linkedLogin('uid-owner');
+
+        $this->signedIn($owner)->get('/admin/business-settings')->assertOk()->assertSee('Not set: no downpayment');
+
+        $this->signedIn($owner)->put('/admin/business-settings', [
+            'cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '30',
+            'cod_downpayment_expiry_minutes' => '30',
+        ])->assertRedirect(route('admin.business.index'));
+        $this->assertSame('percent', $this->db->settings['cod_downpayment_type']);
+        $this->assertEquals(30.0, $this->db->settings['cod_downpayment_value']);
+        $this->assertSame(30, $this->db->settings['cod_downpayment_expiry_minutes']);
+        $this->assertNull($this->db->settings['cod_downpayment_min_order']);
+
+        $this->signedIn($owner)->put('/admin/business-settings', [])->assertRedirect(route('admin.business.index'));
+        $this->assertNull($this->db->settings['cod_downpayment_type']);
+        $this->assertNull($this->db->settings['cod_downpayment_value']);
+    }
+
+    public function test_an_incomplete_or_invalid_cod_downpayment_is_refused(): void
+    {
+        $this->useFakeSupabase();
+        $owner = $this->linkedLogin('uid-owner');
+
+        foreach ([
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_expiry_minutes' => '30'],
+            ['cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30'],
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '30'],
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '30'],
+            ['cod_downpayment_type' => 'half', 'cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30'],
+            ['cod_downpayment_type' => 'fixed', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '1'],
+        ] as $form) {
+            $this->signedIn($owner)->put('/admin/business-settings', $form)->assertSessionHasErrors();
+            $this->assertNull($this->db->settings['cod_downpayment_type'], json_encode($form));
+        }
+    }
+
     public function test_owner_adds_and_edits_a_branch_with_a_required_delivery_fee(): void
     {
         $this->useFakeSupabase();

@@ -50,6 +50,10 @@ class SupabaseDataSource implements DataSource
             'paymentStatus' => $payStatus,
             'paymentMethod' => $pay['method'] ?? 'unknown',
             'paymentLabel' => $o['payment_label'] ?? null,
+            // A Cash on Delivery order's online part (migration 20261101083000). paymentMethod and
+            // paymentStatus then describe only the cash balance. null = no downpayment.
+            'downpaymentAmount' => isset($o['downpayment']) ? (float) $o['downpayment']['amount'] : null,
+            'downpaymentStatus' => $o['downpayment']['status'] ?? null,
             'paymentId' => $pay['id'] ?? null,
             'paymentReference' => $pay['reference_number'] ?? null,
             // The app has no separate "paid at" column; the payment row's last update is when it was confirmed.

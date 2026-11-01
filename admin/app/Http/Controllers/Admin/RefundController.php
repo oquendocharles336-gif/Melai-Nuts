@@ -34,7 +34,7 @@ class RefundController extends Controller
         if ($this->platform()->isSupabase()) {
             // Latest HitPay attempt of each approved online refund (few at a time).
             foreach ($refunds as $r) {
-                if (($r['effectiveRefundStatus'] ?? null) === 'approved_processing' && ! empty($r['refundId']) && ($r['paymentMethod'] ?? '') !== 'cash') {
+                if (($r['effectiveRefundStatus'] ?? null) === 'approved_processing' && ! empty($r['refundId']) && (($r['paymentMethod'] ?? '') !== 'cash' || ! empty($r['downpaymentAmount']))) {
                     try {
                         $attempts[$r['refundId']] = $this->repoAttempts($r['refundId'])[0] ?? null;
                     } catch (\Throwable $e) {
@@ -96,7 +96,8 @@ class RefundController extends Controller
         }
 
         $repo = app(SupabaseRepository::class);
-        $isCash = $order['paymentMethod'] === 'cash';
+        // With a downpayment, part of the money was paid online: it goes back through HitPay.
+        $isCash = $order['paymentMethod'] === 'cash' && empty($order['downpaymentAmount']);
         $repo->reviewRefund($order['refundId'], $isCash ? 'approve_cash' : 'approve', $request->input('note'));
         $this->orders()->refresh();
 

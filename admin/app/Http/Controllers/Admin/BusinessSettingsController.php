@@ -13,7 +13,7 @@ use Illuminate\Http\Request;
 /**
  * Owner-editable business settings (migration 20261018000000_business_settings.sql): restock
  * threshold fallback, stock-health and sales-rating ratios, daily sales targets, healthy margin,
- * and every branch's address / phone / hours / delivery fee. Stored ONLY in the shared database;
+ * the Cash on Delivery downpayment (migration 20261101083000), and every branch's address / phone / hours / delivery fee. Stored ONLY in the shared database;
  * an empty field means "Not set" (nothing is filled in). The database checks that the caller is
  * the active owner; this controller only shapes the form.
  */
@@ -30,6 +30,9 @@ class BusinessSettingsController extends Controller
         'healthy_margin_percent' => ['healthy_margin_percent', 1],
         'expiry_alert_days' => ['expiry_alert_days', 1],
         'low_stock_badge_qty' => ['low_stock_badge_qty', 1],
+        'cod_downpayment_value' => ['cod_downpayment_value', 1],
+        'cod_downpayment_min_order' => ['cod_downpayment_min_order', 1],
+        'cod_downpayment_expiry_minutes' => ['cod_downpayment_expiry_minutes', 1],
     ];
 
     public function __construct(private SupabaseRepository $repo) {}
@@ -59,14 +62,28 @@ class BusinessSettingsController extends Controller
             return back()->withInput()->withErrors(['sales_low_percent' => '"Low below" cannot be above "High above".']);
         }
 
+        $codType = $data['cod_downpayment_type'] ?? null;
+        $codValue = $data['cod_downpayment_value'] ?? null;
+        if (($codType === null) !== ($codValue === null)) {
+            return back()->withInput()->withErrors(['cod_downpayment_value' => 'Choose how the downpayment is worked out and enter its amount, or leave both empty.']);
+        }
+        if ($codType !== null && ($data['cod_downpayment_expiry_minutes'] ?? null) === null) {
+            return back()->withInput()->withErrors(['cod_downpayment_expiry_minutes' => 'Enter how long customers have to pay the downpayment.']);
+        }
+        if ($codType === 'percent' && (float) $codValue >= 100) {
+            return back()->withInput()->withErrors(['cod_downpayment_value' => 'A percent downpayment must be below 100.']);
+        }
+
         $values = [];
         foreach (self::FIELDS as $field => [$key, $div]) {
             $v = $data[$field] ?? null;
             $values[$key] = $v === null || $v === '' ? null : round(((float) $v) / $div, 4);
         }
-        foreach (['restock_threshold_default', 'expiry_alert_days', 'low_stock_badge_qty'] as $int) {
+        foreach (['restock_threshold_default', 'expiry_alert_days', 'low_stock_badge_qty', 'cod_downpayment_expiry_minutes'] as $int) {
             $values[$int] = $values[$int] === null ? null : (int) $values[$int];
         }
+
+        $values['cod_downpayment_type'] = $codType;
 
         try {
             $this->repo->updateBusinessSettings($values);

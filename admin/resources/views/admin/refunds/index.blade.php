@@ -49,7 +49,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
             <div class="refund-actions">
                 <form method="POST" action="{{ route('admin.refunds.approve', $r['id']) }}" data-confirm="Approve the refund of {{ $peso($refundAmount) }} for order {{ $r['id'] }}?" data-confirm-title="Approve refund?" data-confirm-label="Approve" data-confirm-safe">
                     @csrf
-                    @if ($r['paymentMethod'] === $cashMethod)
+                    @if ($r['paymentMethod'] === $cashMethod && empty($r['downpaymentAmount']))
                         <input type="hidden" name="note" value="Refunded in cash on delivery return.">
                     @endif
                     <x-password-confirm />
@@ -75,7 +75,11 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
                     @if ($att['gateway_refund_id']) · refund {{ $att['gateway_refund_id'] }} @endif
                     @if ($att['error']) · {{ $att['error'] }} @endif</p>
             @endif
-            @if ($hitpayReady && $r['paymentMethod'] !== 'cash')
+            @if ($hitpayReady && ($r['paymentMethod'] !== 'cash' || ! empty($r['downpaymentAmount'])))
+                @php $hitpayAmount = empty($r['downpaymentAmount']) ? $r['refundAmount'] : min($r['refundAmount'], $r['downpaymentAmount']); @endphp
+                @if ($hitpayAmount < $r['refundAmount'])
+                    <p class="muted" style="margin:.2rem 0">Only the {{ $peso($hitpayAmount) }} downpayment can go back through HitPay. Hand back the other {{ $peso($r['refundAmount'] - $hitpayAmount) }} in cash.</p>
+                @endif
                 @if ($att && $att['status'] === 'pending')
                     <form method="POST" action="{{ route('admin.refunds.hitpay.check', $r['id']) }}" style="margin-bottom:.5rem">@csrf
                         <input type="hidden" name="attempt_id" value="{{ $att['attempt_id'] }}">
@@ -87,9 +91,9 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
                         <button class="btn-outline" type="submit" style="padding:.4rem .9rem">Close attempt</button></form>
                 @else
                     <form method="POST" action="{{ route('admin.refunds.hitpay', $r['id']) }}" style="margin-bottom:.5rem"
-                          data-confirm="Send {{ $peso($r['refundAmount']) }} back to the customer through HitPay now?" data-confirm-title="Send refund?" data-confirm-label="Send refund" data-confirm-safe data-disable-on-submit">@csrf
+                          data-confirm="Send {{ $peso($hitpayAmount) }} back to the customer through HitPay now?" data-confirm-title="Send refund?" data-confirm-label="Send refund" data-confirm-safe data-disable-on-submit">@csrf
                         <x-password-confirm />
-                        <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Send {{ $peso($r['refundAmount']) }} via HitPay</button></form>
+                        <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Send {{ $peso($hitpayAmount) }} via HitPay</button></form>
                 @endif
                 <p class="muted" style="margin:.2rem 0">Or, if you refunded from the HitPay dashboard:</p>
             @endif
