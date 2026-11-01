@@ -14,6 +14,19 @@ create or replace function auth.jwt() returns jsonb language sql stable as $$
 $$;
 create or replace function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
 grant execute on function auth.jwt(), auth.uid() to anon, authenticated, service_role;
+-- Enough of Supabase Storage for the file rules in the migrations to run and be tested.
+create schema if not exists storage;
+grant usage on schema storage to anon, authenticated, service_role;
+create table if not exists storage.buckets (
+  id text primary key, name text not null, public boolean default false,
+  file_size_limit bigint, allowed_mime_types text[]
+);
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets(id),
+  name text, owner_id text, metadata jsonb, created_at timestamptz default now()
+);
+alter table storage.objects enable row level security;
+grant all on storage.buckets, storage.objects to anon, authenticated, service_role;
 do $$ begin
   if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then create publication supabase_realtime; end if;
 end $$;

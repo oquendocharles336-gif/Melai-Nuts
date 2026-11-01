@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/offline_banner.dart';
+import '../../notifications/push_tap_router.dart';
 import 'customer_home_screen.dart';
 import 'product_catalog_screen.dart';
 import 'order_history_screen.dart';
@@ -25,6 +26,12 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
   int _index = 0;
 
   bool get _isSignedIn => AuthService.instance.currentFirebaseUser != null;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => PushTapRouter.instance.portalReady());
+  }
 
   static const _tabs = [
     CustomerHomeScreen(),
