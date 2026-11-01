@@ -173,7 +173,7 @@ class DriverRepository {
 
   /// Proof is the recipient's name and/or a photo uploaded to the private
   /// `delivery-proofs` bucket under `<delivery id>/`. Cash on delivery needs
-  /// [cashCollected] equal to the order total.
+  /// [cashCollected] equal to the amount due (the order total less any downpayment).
   Future<Delivery> markDelivered({
     required String stopId,
     String? recipientName,

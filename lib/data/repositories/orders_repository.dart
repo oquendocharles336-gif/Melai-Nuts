@@ -98,7 +98,8 @@ class OrdersRepository {
       ' order_items(id,order_id,product_name,variant_label,quantity,unit_price,product_id,variant_id),'
       ' order_status_events(id,order_id,status,note,created_at),'
       ' payments(id,order_id,firebase_uid,method,status,amount,reference_number,created_at,updated_at,'
-      'gateway,gateway_payment_id,gateway_checkout_url)';
+      'gateway,gateway_payment_id,gateway_checkout_url),'
+      ' order_downpayments(amount,status,expires_at)';
 
   /// The customer's most recent orders kept in memory (dashboard, active
   /// order, loyalty). Older ones are read page by page ([fetchOrdersPage]).
@@ -106,7 +107,7 @@ class OrdersRepository {
 
   /// Order statuses grouped as the history screen's filter shows them.
   static const Map<String, List<String>> statusGroups = {
-    'active': ['pending', 'confirmed', 'preparing', 'readyForPickup', 'outForDelivery', 'refundRequested'],
+    'active': ['awaitingDownpayment', 'pending', 'confirmed', 'preparing', 'readyForPickup', 'outForDelivery', 'refundRequested'],
     'completed': ['completed'],
     'cancelled': ['cancelled'],
     'refunded': ['refunded'],
@@ -242,11 +243,13 @@ class OrdersRepository {
     final events = _rows(row['order_status_events'])
       ..sort((a, b) => (a['created_at'] as String).compareTo(b['created_at'] as String));
     final payments = _rows(row['payments']);
+    final downpayments = _rows(row['order_downpayments']);
     return Order.fromRow(
       row,
       itemRows: _rows(row['order_items']),
       eventRows: events,
       paymentRow: payments.isEmpty ? null : payments.first,
+      downpaymentRow: downpayments.isEmpty ? null : downpayments.first,
     );
   }
 

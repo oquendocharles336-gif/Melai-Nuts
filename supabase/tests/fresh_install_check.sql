@@ -39,6 +39,9 @@ begin
   if public.get_loyalty_earn_rate() is not null or public._default_restock_threshold() is not null then
     raise exception 'Earn rate and restock threshold must be "Not set" (NULL) on a fresh database.';
   end if;
+  if public.cod_downpayment_quote(1000) ->> 'required' <> 'false' then
+    raise exception 'A Cash on Delivery downpayment must be "Not set" on a fresh database.';
+  end if;
   raise notice 'fresh install: 0 rows in % business tables; online payment ON; settings Not set — passed',
     array_length(must_be_empty, 1);
 end $$;

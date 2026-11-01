@@ -5,6 +5,7 @@ import '../../core/config/payment_config.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/supabase_token.dart';
 import '../../core/utils/app_error.dart';
+import '../models/cod_downpayment.dart';
 import '../models/payment.dart';
 
 /// READ-ONLY access to the customer's payment records in Supabase.
@@ -59,6 +60,24 @@ class PaymentsRepository {
   Future<PaymentTransaction?> fetchForOrder(String orderId) async {
     final row = await _client.from('payments').select().eq('order_id', orderId).maybeSingle();
     return row == null ? null : PaymentTransaction.fromRow(row);
+  }
+
+  /// What a Cash on Delivery order of [total] would have to pay online now.
+  Future<CodDownpaymentQuote> fetchCodQuote(double total) async {
+    final raw = await _client
+        .rpc('cod_downpayment_quote', params: {'p_total': total})
+        .timeout(AppErrors.rpcTimeout);
+    return CodDownpaymentQuote.fromJson(Map<String, dynamic>.from(raw as Map));
+  }
+
+  /// The downpayment of [orderId], or null if it has none / it is not yours.
+  Future<OrderDownpayment?> fetchDownpayment(String orderId) async {
+    final row = await _client
+        .from('order_downpayments')
+        .select('amount,status,expires_at')
+        .eq('order_id', orderId)
+        .maybeSingle();
+    return row == null ? null : OrderDownpayment.fromRow(row);
   }
 
   /// Asks the `hitpay-create-payment` Edge Function for the HitPay hosted

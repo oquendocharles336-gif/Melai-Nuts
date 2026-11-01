@@ -27,6 +27,8 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/customer_profile.dart';
 import '../../../data/repositories/orders_repository.dart';
+import '../../../data/models/cod_downpayment.dart';
+import '../../../data/models/order.dart';
 import '../../../data/repositories/customer_profile_repository.dart';
 import '../../../data/repositories/payment_settings_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
@@ -97,6 +99,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _addressController = TextEditingController();
   final _contactController = TextEditingController();
   bool _placingOrder = false;
+
+  /// The server's answer for the current total. Null until it arrives, or if it
+  /// could not be read: `place_order` decides either way.
+  CodDownpaymentQuote? _codQuote;
+  double? _codQuoteTotal;
   String? _deliveryAddressId;
 
   /// The delivery pin the customer confirms here. It is saved on the address
@@ -214,6 +221,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _addressController.dispose();
     _contactController.dispose();
     super.dispose();
+  }
+
+  /// Asks the server once per total. Runs from build, so it only ever starts a
+  /// request and redraws when the answer for the current total arrives.
+  void _loadCodQuote(double total) {
+    if (_codQuoteTotal == total) return;
+    _codQuoteTotal = total;
+    _codQuote = null;
+    unawaited(() async {
+      try {
+        final quote = await PaymentsRepository.instance.fetchCodQuote(total);
+        if (mounted && _codQuoteTotal == total) setState(() => _codQuote = quote);
+      } catch (caughtError, caughtStack) {
+        // Only the preview is lost: the server still applies the downpayment.
+        AppErrors.report(caughtError, caughtStack, 'checkout_screen:codQuote');
+      }
+    }());
   }
 
   Future<void> _placeOrder() async {
@@ -462,7 +486,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // numbers still sitting in memory.
       unawaited(_quietly(() => ProductsRepository.instance.loadCatalog(branchId: branch.id)));
 
-      if (payOnline) {
+      if (payOnline || order.status == OrderStatus.awaitingDownpayment) {
         // The order is saved and unpaid. If the payment page cannot be
         // opened, the next screen offers a "Pay now" retry; the order is
         // never lost.
@@ -594,6 +618,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
           .clamp(0.0, double.infinity),
     );
+    if (_fulfillment == _FulfillmentMethod.delivery) _loadCodQuote(total);
+    final codQuote = _codQuoteTotal == total && _codQuote?.required == true ? _codQuote : null;
+    final payingDownpayment = _payment == _PaymentMethod.cod && codQuote != null;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -817,7 +844,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 _PaymentTile(
                   icon: Icons.delivery_dining_rounded,
                   title: AppLocalizations.of(context).cashOnDelivery,
-                  subtitle: AppLocalizations.of(context).cashOnDeliverySubtitle,
+                  subtitle: codQuote == null
+                      ? AppLocalizations.of(context).cashOnDeliverySubtitle
+                      : AppLocalizations.of(context).cashOnDeliveryDownpaymentSubtitle(
+                          peso(codQuote.amount), peso(codQuote.balance)),
                   selected: _payment == _PaymentMethod.cod,
                   onTap: () => setState(() => _payment = _PaymentMethod.cod),
                 )
@@ -899,6 +929,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                       ],
                     ),
+                    if (payingDownpayment) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Pay online now', style: AppTextStyles.labelLg),
+                          Text(peso(codQuote.amount), style: AppTextStyles.labelLg),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Cash on delivery', style: AppTextStyles.bodyMd),
+                          Text(peso(codQuote.balance), style: AppTextStyles.bodyMd),
+                        ],
+                      ),
+                      if (codQuote.expiryMinutes != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Pay within ${codQuote.expiryMinutes} minutes or the order is cancelled. '
+                          'We start preparing it once your downpayment is received.',
+                          style: AppTextStyles.bodySm,
+                        ),
+                      ],
+                    ],
                   ],
                 ),
               ),
@@ -927,9 +983,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('TOTAL PAYABLE', style: AppTextStyles.bodySm),
+                      Text(payingDownpayment ? 'PAY ONLINE NOW' : 'TOTAL PAYABLE', style: AppTextStyles.bodySm),
                       Text(
-                        '₱${total.toStringAsFixed(0)}',
+                        payingDownpayment ? peso(codQuote.amount) : '₱${total.toStringAsFixed(0)}',
                         style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
                       ),
                     ],
@@ -937,7 +993,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
                 Expanded(
                   child: PrimaryButton(
-                    label: _payment == _PaymentMethod.online ? 'Place Order & Pay' : 'Place Order',
+                    label: _payment == _PaymentMethod.online || payingDownpayment ? 'Place Order & Pay' : 'Place Order',
                     icon: Icons.arrow_forward_rounded,
                     loading: _placingOrder,
                     onPressed: cart.lines.isEmpty ? null : _placeOrder,

@@ -113,6 +113,12 @@ class DeliveryStop {
   final String? contactPhone;
   final String? customerNotes;
   final double? orderTotal;
+
+  /// Cash still to collect at the door (null when there is none or on an older server).
+  final double? cashDue;
+
+  /// The downpayment already paid online for this order, if any.
+  final double? downpaymentPaid;
   final String? paymentMethod; // 'cash' | 'gcash' | 'maya' | 'card'
   final String? paymentStatus; // 'pending' | 'success' | ...
   final String? recipientName;
@@ -137,6 +143,8 @@ class DeliveryStop {
     this.contactPhone,
     this.customerNotes,
     this.orderTotal,
+    this.cashDue,
+    this.downpaymentPaid,
     this.paymentMethod,
     this.paymentStatus,
     this.recipientName,
@@ -146,6 +154,9 @@ class DeliveryStop {
 
   /// True when the rider must collect cash at the door before completing.
   bool get needsCashCollection => paymentMethod == 'cash' && paymentStatus != 'success';
+
+  /// What the rider must collect: the balance after any downpayment.
+  double? get amountDue => cashDue ?? orderTotal;
 
   bool get isFinished =>
       status == StopStatus.delivered || status == StopStatus.failed || status == StopStatus.skipped;
@@ -171,6 +182,8 @@ class DeliveryStop {
       contactPhone: j['contact_phone'] as String?,
       customerNotes: j['customer_notes'] as String?,
       orderTotal: (j['order_total'] as num?)?.toDouble(),
+      cashDue: (j['cash_due'] as num?)?.toDouble(),
+      downpaymentPaid: (j['downpayment_paid'] as num?)?.toDouble(),
       paymentMethod: j['payment_method'] as String?,
       paymentStatus: j['payment_status'] as String?,
       recipientName: j['recipient_name'] as String?,

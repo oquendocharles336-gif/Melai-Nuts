@@ -83,7 +83,7 @@ Deno.test("switch on but no redirect URL configured: refused, no invented URL", 
 // ---- Switch ON: one payment request at a time, no expired links (review fix 7) ------------------
 
 /** A stateful stand-in for the database: same rules as hitpay_claim_checkout / hitpay_set_checkout. */
-function liveDb(payment: Record<string, unknown>, now: () => number = Date.now) {
+function liveDb(payment: Record<string, unknown>, now: () => number = Date.now, downpayment: Record<string, unknown> | null = null) {
   const calls: string[] = [];
   const rpcs: Record<string, (args: Record<string, unknown>) => unknown> = {
     online_payment_enabled: () => true,
@@ -112,6 +112,7 @@ function liveDb(payment: Record<string, unknown>, now: () => number = Date.now) 
   const rows: Record<string, unknown> = {
     orders: { id: "ORD-T-1", firebase_uid: "u1", status: "pending", total: 250 },
     payments: payment,
+    order_downpayments: downpayment,
     customer_profiles: null,
   };
   const factory = () => ({
@@ -176,4 +177,59 @@ Deno.test("a HitPay failure gives the claim back so the next tap can try at once
   assertEquals(res.status, 502);
   assertEquals(db.payment.checkout_started_at, null);
   assertEquals(db.calls.includes("rpc:hitpay_release_checkout"), true);
+});
+
+// ---- Cash on Delivery with a required downpayment (migration 20261101083000) -------------------
+
+function chargedAmount() {
+  const sent: string[] = [];
+  const fetchFn = (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    sent.push(new URLSearchParams(String(init?.body ?? "")).get("amount") ?? "");
+    return Promise.resolve(new Response(JSON.stringify({ id: "req-1", url: "https://pay.test/1" }), { status: 200 }));
+  };
+  return { sent, fetchFn: fetchFn as typeof fetch };
+}
+
+Deno.test("a downpayment order charges the downpayment, not the order total", async () => {
+  const db = liveDb({ id: "PAY-1", method: "cash", status: "pending", amount: 175 }, Date.now, { amount: 75, status: "pending" });
+  const { sent, fetchFn } = chargedAmount();
+  const res = await makeHandler(db.factory, (k) => fullEnv[k], fetchFn, quickSleep)(request());
+  assertEquals(res.status, 200);
+  assertEquals(sent, ["75.00"]);
+});
+
+Deno.test("a plain cash order is still refused", async () => {
+  const db = liveDb({ id: "PAY-1", method: "cash", status: "pending", amount: 250 });
+  const res = await makeHandler(db.factory, (k) => fullEnv[k], neverFetch, quickSleep)(request());
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "This order is paid in cash." });
+});
+
+Deno.test("a paid downpayment cannot be paid again, though the cash balance is still due", async () => {
+  const db = liveDb({ id: "PAY-1", method: "cash", status: "pending", amount: 175 }, Date.now, { amount: 75, status: "success" });
+  const res = await makeHandler(db.factory, (k) => fullEnv[k], neverFetch, quickSleep)(request());
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "This order is already paid." });
+});
+
+Deno.test("past its time limit, a downpayment opens no payment page", async () => {
+  const db = liveDb({ id: "PAY-1", method: "cash", status: "pending", amount: 175 }, Date.now, { amount: 75, status: "pending" });
+  const factory = () => {
+    const c = db.factory();
+    return {
+      ...c,
+      rpc: (fn: string, args: Record<string, unknown> = {}) =>
+        fn === "hitpay_claim_checkout" ? Promise.resolve({ data: { action: "expired" }, error: null }) : c.rpc(fn, args),
+    };
+  };
+  const res = await makeHandler(factory, (k) => fullEnv[k], neverFetch, quickSleep)(request());
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "The time to pay for this order has ended." });
+});
+
+Deno.test("online payment switched off: a downpayment order opens no payment page either", async () => {
+  const calls: string[] = [];
+  const handler = makeHandler(client({ online_payment_enabled: { data: false } }, calls), (k) => fullEnv[k], neverFetch);
+  assertEquals((await handler(request())).status, 403);
+  assertEquals(calls.filter((c) => c.startsWith("from:")), [], "no table was read");
 });

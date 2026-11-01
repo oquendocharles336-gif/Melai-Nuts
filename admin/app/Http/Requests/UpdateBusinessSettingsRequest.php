@@ -24,6 +24,10 @@ class UpdateBusinessSettingsRequest extends FormRequest
             'healthy_margin_percent' => ['nullable', 'numeric', 'gt:0', 'lt:100', 'decimal:0,2'],
             'expiry_alert_days' => Rules::quantity(1, 365, false),
             'low_stock_badge_qty' => Rules::quantity(1, 1000, false),
+            'cod_downpayment_type' => ['nullable', 'in:percent,fixed'],
+            'cod_downpayment_value' => ['nullable', 'numeric', 'gt:0', 'max:1000000', 'decimal:0,2'],
+            'cod_downpayment_min_order' => ['nullable', 'numeric', 'gt:0', 'max:100000000', 'decimal:0,2'],
+            'cod_downpayment_expiry_minutes' => Rules::quantity(5, 1440, false),
         ];
     }
 

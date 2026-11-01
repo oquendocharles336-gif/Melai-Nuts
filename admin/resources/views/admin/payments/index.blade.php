@@ -50,7 +50,7 @@
         @forelse ($failedOrPending as $o)
             <tr>
                 <td>{{ $o['id'] }}</td><td>{{ $branchName($o) }}</td>
-                <td>{{ $methodLabel($o['paymentMethod']) }}</td><td>{{ $peso($o['total']) }}</td>
+                <td>{{ $methodLabel($o['paymentMethod']) }}@if (! empty($o['downpaymentAmount']))<br><small class="muted">{{ $peso($o['downpaymentAmount']) }} downpayment online ({{ $o['downpaymentStatus'] }}), {{ $peso($o['total'] - $o['downpaymentAmount']) }} in cash</small>@endif</td><td>{{ $peso($o['total']) }}</td>
                 <td><span class="status {{ $o['effectivePaymentStatus'] === 'failed' ? 'low' : 'average' }}">{{ ucfirst($o['effectivePaymentStatus']) }}</span></td>
                 <td>{{ $o['createdAt']->format('M j, g:i A') }}</td>
                 <td>
@@ -78,7 +78,7 @@
         @forelse ($orders as $o)
             <tr>
                 <td>{{ $o['id'] }}</td><td>{{ $branchName($o) }}</td>
-                <td>{{ $methodLabel($o['paymentMethod']) }}</td><td>{{ $peso($o['total']) }}</td>
+                <td>{{ $methodLabel($o['paymentMethod']) }}@if (! empty($o['downpaymentAmount']))<br><small class="muted">{{ $peso($o['downpaymentAmount']) }} downpayment online ({{ $o['downpaymentStatus'] }}), {{ $peso($o['total'] - $o['downpaymentAmount']) }} in cash</small>@endif</td><td>{{ $peso($o['total']) }}</td>
                 <td>{{ ($o['refundedAmount'] ?? null) === null ? '—' : (($o['refundedAmount'] > 0) ? $peso($o['refundedAmount']).(($o['refundState'] ?? null) === 'partial' ? ' (partial)' : '') : '—') }}</td>
                 <td><span class="status {{ ['paid' => 'high', 'pending' => 'average', 'failed' => 'low', 'refunded' => 'info'][$o['effectivePaymentStatus']] ?? 'info' }}">{{ ($o['refundState'] ?? null) === 'partial' && $o['effectivePaymentStatus'] === 'refunded' ? 'Partially refunded' : ucfirst($o['effectivePaymentStatus']) }}</span></td>
                 <td>{{ $o['paidAt']?->format('M j, g:i A') ?? '—' }}</td>

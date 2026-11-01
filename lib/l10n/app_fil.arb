@@ -14,6 +14,7 @@
   "paymentMethod": "Paraan ng Pagbabayad",
   "cashOnDelivery": "Cash on Delivery",
   "cashOnDeliverySubtitle": "Magbayad ng cash sa rider pagdating ng order mo",
+  "cashOnDeliveryDownpaymentSubtitle": "Magbayad ng {amount} online ngayon at {balance} na cash pagdating ng order mo",
   "cashOnPickup": "Cash sa Counter (Pickup)",
   "cashOnPickupSubtitle": "Magbayad pagkuha mo ng order",
   "onlinePaymentUnavailableLabel": "Hindi available ang online na pagbabayad. {message}",

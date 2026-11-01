@@ -10,6 +10,7 @@ import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../data/models/cod_downpayment.dart';
 import '../../../data/models/order.dart';
 import '../../../data/models/payment.dart';
 import '../../../data/repositories/payments_repository.dart';
@@ -50,12 +51,27 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
 
   Timer? _timer;
   PaymentTransaction? _txn;
+
+  /// Set for a Cash on Delivery order: this screen then pays only its downpayment.
+  OrderDownpayment? _downpayment;
   String? _message;
   bool _opening = false;
   bool _refreshing = false;
   late bool _pageOpened;
 
-  PaymentStatus? get _status => _txn?.status;
+  bool get _paysDownpayment => widget.order.downpayment != null;
+  bool get _isExpired => _downpayment?.isExpired ?? false;
+
+  PaymentStatus? get _status {
+    if (_paysDownpayment) {
+      if (_downpayment?.isPaid ?? false) return PaymentStatus.success;
+      if (_downpayment?.status == 'failed') return PaymentStatus.failed;
+      if (_downpayment?.status == 'processing') return PaymentStatus.processing;
+      return PaymentStatus.pending;
+    }
+    return _txn?.status;
+  }
+
   bool get _isSuccess => _status == PaymentStatus.success;
   bool get _isFailed => _status == PaymentStatus.failed;
 
@@ -65,6 +81,7 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
     WidgetsBinding.instance.addObserver(this);
     _pageOpened = widget.startError == null && !widget.resume;
     _message = widget.startError;
+    _downpayment = widget.order.downpayment;
     _txn = CustomerDataStore.instance.paymentForOrder(widget.order.id);
     _refresh();
     _startPolling();
@@ -99,6 +116,13 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
     if (_refreshing) return;
     _refreshing = true;
     try {
+      if (_paysDownpayment) {
+        final fresh = await PaymentsRepository.instance.fetchDownpayment(widget.order.id);
+        if (!mounted) return;
+        setState(() => _downpayment = fresh ?? _downpayment);
+        if (fresh != null && !(fresh.status == 'pending' || fresh.status == 'processing')) _stopPolling();
+        return;
+      }
       final fresh = await PaymentsRepository.instance.fetchForOrder(widget.order.id);
       if (!mounted) return;
       if (fresh != null) CustomerDataStore.instance.upsertPayment(fresh);
@@ -169,12 +193,22 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
     final IconData icon;
     final String title;
     final String body;
-    if (_isSuccess) {
+    if (_isExpired) {
+      accent = AppColors.error;
+      accentBg = AppColors.error.withValues(alpha: 0.1);
+      icon = Icons.timer_off_rounded;
+      title = 'Time to pay has ended';
+      body = 'Order ${widget.order.id} was cancelled because its downpayment was not paid in time. '
+          'Nothing was charged. If you did pay, we will refund it.';
+    } else if (_isSuccess) {
       accent = AppColors.success;
       accentBg = AppColors.successBg;
       icon = Icons.check_rounded;
-      title = 'Payment received';
-      body = 'Thank you! Your payment for order ${widget.order.id} is confirmed.';
+      title = _paysDownpayment ? 'Downpayment received' : 'Payment received';
+      body = _paysDownpayment
+          ? 'Thank you! We are preparing order ${widget.order.id}. '
+              'Please have ${_money(widget.order.cashBalance)} ready in cash on delivery.'
+          : 'Thank you! Your payment for order ${widget.order.id} is confirmed.';
     } else if (_isFailed) {
       accent = AppColors.error;
       accentBg = AppColors.error.withValues(alpha: 0.1);
@@ -232,7 +266,11 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
                 child: Column(
                   children: [
                     _InfoLine('Order', widget.order.id),
-                    _InfoLine('Amount', '₱${widget.order.total.toStringAsFixed(2)}'),
+                    if (_paysDownpayment) ...[
+                      _InfoLine('Downpayment', _money(_downpayment?.amount ?? widget.order.downpayment!.amount)),
+                      _InfoLine('Cash on delivery', _money(widget.order.cashBalance)),
+                    ] else
+                      _InfoLine('Amount', '₱${widget.order.total.toStringAsFixed(2)}'),
                     _InfoLine('Status', _status?.label ?? 'Pending', valueColor: accent),
                   ],
                 ),
@@ -246,7 +284,9 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
                 ),
               ],
               const SizedBox(height: AppSpacing.lg),
-              if (_isSuccess) ...[
+              if (_isExpired) ...[
+                SecondaryButton(label: 'View order', onPressed: _viewOrder),
+              ] else if (_isSuccess) ...[
                 PrimaryButton(
                   label: 'Continue',
                   icon: Icons.arrow_forward_rounded,
@@ -271,6 +311,8 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
     );
   }
 }
+
+String _money(double amount) => '₱${amount.toStringAsFixed(2)}';
 
 class _InfoLine extends StatelessWidget {
   final String label;

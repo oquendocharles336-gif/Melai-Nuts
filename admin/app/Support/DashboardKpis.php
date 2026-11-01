@@ -22,7 +22,7 @@ class DashboardKpis
 {
     /** Order statuses used by the app (orders.status), in workflow order. */
     public const ORDER_STATUSES = [
-        'pending' => 'Pending', 'confirmed' => 'Confirmed', 'preparing' => 'Preparing', 'outForDelivery' => 'Out for delivery',
+        'awaitingDownpayment' => 'Awaiting downpayment', 'pending' => 'Pending', 'confirmed' => 'Confirmed', 'preparing' => 'Preparing', 'outForDelivery' => 'Out for delivery',
         'completed' => 'Completed', 'refundRequested' => 'Refund requested', 'refunded' => 'Refunded', 'cancelled' => 'Cancelled',
     ];
 

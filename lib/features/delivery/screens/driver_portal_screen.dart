@@ -399,7 +399,8 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                 if (s.orderTotal != null)
                   Text(
                     s.needsCashCollection
-                        ? 'Collect cash: ${peso(s.orderTotal!)}'
+                        ? 'Collect cash: ${peso(s.amountDue!)}'
+                            '${s.downpaymentPaid != null ? ' (${peso(s.downpaymentPaid!)} paid online)' : ''}'
                         : 'Paid (${(s.paymentMethod ?? '').toUpperCase()}) • ${peso(s.orderTotal!)}',
                     style: AppTextStyles.labelMd.copyWith(
                       color: s.needsCashCollection ? AppColors.warning : AppColors.success,
@@ -465,7 +466,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
   Future<void> _deliver(Delivery d, DeliveryStop s) async {
     final nameCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
-    final cashCtrl = TextEditingController(text: s.needsCashCollection && s.orderTotal != null ? s.orderTotal!.toStringAsFixed(2) : '');
+    final cashCtrl = TextEditingController(text: s.needsCashCollection && s.amountDue != null ? s.amountDue!.toStringAsFixed(2) : '');
     final formKey = GlobalKey<FormState>();
     List<int>? photo;
     final confirmed = await showDialog<bool>(
@@ -515,7 +516,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                     controller: cashCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: InputRules.decimal(),
-                    decoration: InputDecoration(labelText: 'Cash collected (${peso(s.orderTotal ?? 0)} due)'),
+                    decoration: InputDecoration(labelText: 'Cash collected (${peso(s.amountDue ?? 0)} due)'),
                     // driver_update_stop only accepts exactly the amount due, so
                     // check it here — before the proof photo is uploaded — with a
                     // clear message, instead of a confusing server refusal when
@@ -528,10 +529,10 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
                         max: 1000000,
                       );
                       if (error != null) return error;
-                      final due = s.orderTotal;
+                      final due = s.amountDue;
                       if (due == null) return null; // Server still checks it.
                       if (toCents(double.parse(v!.trim())) != toCents(due)) {
-                        return 'Enter exactly ${peso(due)} — the order total. Give change separately.';
+                        return 'Enter exactly ${peso(due)} — the amount due. Give change separately.';
                       }
                       return null;
                     },

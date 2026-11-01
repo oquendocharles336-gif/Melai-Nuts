@@ -24,7 +24,12 @@ class OrderDetailsScreen extends StatelessWidget {
   /// the customer can reopen the payment page from here. The Edge Function
   /// re-checks all of this server-side.
   bool get _canPayOnline {
-    if (!PaymentConfig.onlinePaymentEnabled || !PaymentConfig.isOnlinePayment(order.paymentMethod)) return false;
+    if (!PaymentConfig.onlinePaymentEnabled) return false;
+    final downpayment = order.downpayment;
+    if (downpayment != null) {
+      return order.status == OrderStatus.awaitingDownpayment && downpayment.isOpen && !downpayment.isPastLimit(DateTime.now());
+    }
+    if (!PaymentConfig.isOnlinePayment(order.paymentMethod)) return false;
     if (order.status == OrderStatus.cancelled ||
         order.status == OrderStatus.refundRequested ||
         order.status == OrderStatus.refunded) {
@@ -242,13 +247,14 @@ class OrderDetailsScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('TOTAL PAID', style: AppTextStyles.titleMd),
+                      Text(order.downpayment == null ? 'TOTAL PAID' : 'TOTAL', style: AppTextStyles.titleMd),
                       Text(
                         '₱${order.total.toStringAsFixed(0)}',
                         style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
                       ),
                     ],
                   ),
+                  if (order.downpayment != null) _DownpaymentLines(order: order),
                 ],
               ),
             ),
@@ -286,6 +292,53 @@ class OrderDetailsScreen extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// How a Cash on Delivery order is split between its downpayment and its cash balance.
+class _DownpaymentLines extends StatelessWidget {
+  final Order order;
+
+  const _DownpaymentLines({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = order.downpayment!;
+    final limit = d.expiresAt;
+    final String state;
+    if (d.status == 'refunded') {
+      state = 'Refunded';
+    } else if (d.isPaid) {
+      state = 'Paid';
+    } else if (d.isExpired) {
+      state = 'Not paid in time';
+    } else if (limit != null) {
+      state = 'Pay by ${TimeOfDay.fromDateTime(limit).format(context)}';
+    } else {
+      state = 'Not paid yet';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(child: Text('Downpayment online ($state)', style: AppTextStyles.bodyMd)),
+              Text('₱${d.amount.toStringAsFixed(2)}', style: AppTextStyles.labelLg),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Cash on delivery', style: AppTextStyles.bodyMd),
+              Text('₱${order.cashBalance.toStringAsFixed(2)}', style: AppTextStyles.labelLg),
+            ],
+          ),
+        ],
       ),
     );
   }

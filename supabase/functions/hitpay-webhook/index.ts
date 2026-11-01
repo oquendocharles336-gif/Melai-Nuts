@@ -113,7 +113,17 @@ Deno.serve(async (req: Request) => {
   }
 
   if (status === "completed") {
-    const { data: row, error } = await adminClient
+    // A Cash on Delivery order pays its downpayment here; the balance is cash.
+    const { data: downpayment, error: downpaymentError } = await adminClient
+      .from("order_downpayments")
+      .select("amount")
+      .eq("order_id", orderId)
+      .maybeSingle();
+    if (downpaymentError) {
+      console.error("hitpay-webhook: downpayment lookup failed", downpaymentError.message);
+      return respond(500, "Lookup failed");
+    }
+    const { data: payment, error } = await adminClient
       .from("payments")
       .select("amount")
       .eq("order_id", orderId)
@@ -122,6 +132,7 @@ Deno.serve(async (req: Request) => {
       console.error("hitpay-webhook: payment lookup failed", error.message);
       return respond(500, "Lookup failed");
     }
+    const row = downpayment ?? payment;
     if (!row) return respond(400, "Unknown order");
     const paidAmount = Number(payload.amount);
     if (!Number.isFinite(paidAmount) || Math.round(paidAmount * 100) !== Math.round(Number(row.amount) * 100)) {

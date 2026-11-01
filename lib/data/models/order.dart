@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import 'cod_downpayment.dart';
 
 /// Lifecycle status of a customer order.
 enum OrderStatus {
+  /// A Cash on Delivery order whose required downpayment is not paid yet. Staff
+  /// cannot see it until it is.
+  awaitingDownpayment,
   pending,
   confirmed,
   preparing,
@@ -17,6 +21,8 @@ enum OrderStatus {
 extension OrderStatusX on OrderStatus {
   String get label {
     switch (this) {
+      case OrderStatus.awaitingDownpayment:
+        return 'Awaiting Downpayment';
       case OrderStatus.pending:
         return 'Pending';
       case OrderStatus.confirmed:
@@ -38,7 +44,8 @@ extension OrderStatusX on OrderStatus {
     }
   }
 
-  bool get isActive => this == OrderStatus.pending ||
+  bool get isActive => this == OrderStatus.awaitingDownpayment ||
+      this == OrderStatus.pending ||
       this == OrderStatus.confirmed ||
       this == OrderStatus.preparing ||
       this == OrderStatus.readyForPickup ||
@@ -46,6 +53,8 @@ extension OrderStatusX on OrderStatus {
 
   Color get color {
     switch (this) {
+      case OrderStatus.awaitingDownpayment:
+        return AppColors.warning;
       case OrderStatus.pending:
         return AppColors.warning;
       case OrderStatus.confirmed:
@@ -188,6 +197,9 @@ class Order {
   /// payment row hasn't loaded yet.
   final String? paymentStatus;
 
+  /// The online part of a Cash on Delivery order, or null when there is none.
+  final OrderDownpayment? downpayment;
+
   const Order({
     required this.id,
     required this.date,
@@ -207,17 +219,22 @@ class Order {
     this.contactPhone = '',
     this.deliveryAddressText,
     this.paymentStatus,
+    this.downpayment,
   });
 
   double get subtotal => items.fold(0, (sum, i) => sum + i.total);
   double get total => subtotal - discount + deliveryFee;
   int get itemCount => items.fold(0, (sum, i) => sum + i.quantity);
 
+  /// What is left to pay in cash on delivery after the downpayment.
+  double get cashBalance => total - (downpayment?.amount ?? 0);
+
   factory Order.fromRow(
     Map<String, dynamic> row, {
     required List<Map<String, dynamic>> itemRows,
     List<Map<String, dynamic>> eventRows = const [],
     Map<String, dynamic>? paymentRow,
+    Map<String, dynamic>? downpaymentRow,
   }) {
     return Order(
       id: row['id'] as String,
@@ -238,6 +255,7 @@ class Order {
       contactPhone: (row['contact_phone'] as String?) ?? '',
       deliveryAddressText: row['delivery_address_text'] as String?,
       paymentStatus: paymentRow?['status'] as String?,
+      downpayment: downpaymentRow == null ? null : OrderDownpayment.fromRow(downpaymentRow),
     );
   }
 }
