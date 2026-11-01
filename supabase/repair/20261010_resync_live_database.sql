@@ -16993,3 +16993,832 @@ grant execute on function public.owner_set_customer_active(text, boolean) to aut
 grant execute on function public.owner_disabled_customers() to authenticated;
 
 commit;
+
+
+-- >>>>>>>>>> 20261030111500_branch_coordinates.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261030111500: branch map coordinates
+-- =============================================================================
+-- Run after 20261029000000_admin_portal_account_status.sql. Idempotent.
+--
+-- The app selects the customer's nearest branch from the phone's location, which
+-- needs each branch's coordinates; all three were empty. These are the stores'
+-- positions as given by the owner. A value already set is never overwritten.
+-- =============================================================================
+begin;
+
+update public.branches set latitude = 14.214111223297447, longitude = 121.15019546414851
+ where name = 'Calamba Branch' and latitude is null and longitude is null;
+update public.branches set latitude = 14.176370127061539, longitude = 121.26257325608445
+ where name = 'Los Baños Branch' and latitude is null and longitude is null;
+update public.branches set latitude = 14.25338982439908, longitude = 121.38991834394692
+ where name = 'Santa Cruz Branch' and latitude is null and longitude is null;
+
+commit;
+
+
+-- >>>>>>>>>> 20261031034858_enable_online_payment.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261031034858: turn online payment (HitPay) on
+-- =============================================================================
+-- Run after 20261030111500_branch_coordinates.sql. Idempotent.
+--
+-- Switches payment_settings.online_payment_enabled on, so customers can pay
+-- online through HitPay's hosted checkout (GCash, Maya, card) besides Cash on
+-- Delivery / Cash on Counter Pickup. Nothing else changes: place_order(), the
+-- orders_online_payment_switch trigger and the hitpay-* Edge Functions already
+-- read this switch.
+--
+-- BEFORE applying, set the HitPay secrets and deploy hitpay-create-payment and
+-- hitpay-webhook (supabase/functions/README.md §2–3). Otherwise customers can
+-- pick online payment but the payment page answers "Online payment is not
+-- configured." (the order is kept and can be paid later).
+--
+-- Turn it off again (SQL editor, as the owner / postgres):
+--   update public.payment_settings set online_payment_enabled = false, updated_at = now()
+--   where id = 'default';
+-- =============================================================================
+begin;
+
+insert into public.payment_settings (id, online_payment_enabled)
+values ('default', true)
+on conflict (id) do update
+  set online_payment_enabled = true,
+      updated_at = now();
+
+commit;
+
+
+-- >>>>>>>>>> 20261031045119_hitpay_payment_method_codes.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261031045119: real HitPay payment methods
+-- =============================================================================
+-- Run after 20261031034858_enable_online_payment.sql. Idempotent.
+--
+-- Until now only gcash, maya and card could be recorded, so a QR Ph (or any other)
+-- payment stayed on the "card" placeholder and reports called it a card sale.
+--
+--  1. payments.method also accepts the other methods on HitPay's Philippines list,
+--     plus 'online': paid through HitPay, method not known (yet).
+--  2. hitpay_apply_payment records them.
+--  3. staff_begin_gateway_refund accepts every non-cash method, so a QR Ph payment
+--     can still be refunded through HitPay.
+--  4. New checkout label 'Online Payment (GCash, QR Ph, Card)', whose placeholder is
+--     'online'. HitPay's Philippines list has no Maya method of its own. The older
+--     labels stay accepted (past orders, older app builds) and keep their old
+--     placeholders, because older builds cannot read the new codes.
+--
+-- Apply this BEFORE deploying hitpay-webhook and before releasing an app build that
+-- sends the new label. Release that app build before switching HitPay to live: older
+-- builds cannot read a payment recorded with one of the new codes.
+-- =============================================================================
+begin;
+
+-- 1. ---------------------------------------------------------------------------
+alter table public.payments drop constraint if exists payments_method_check;
+alter table public.payments add constraint payments_method_check check (method in (
+  'gcash', 'maya', 'card', 'cash',
+  'qrph', 'grabpay', 'shopeepay', 'spaylater', 'billease', 'wechat',
+  'unionbank', 'instapay', 'pesonet', 'bayad', 'ecpay', 'palawan',
+  'online'
+));
+
+-- 2. ---------------------------------------------------------------------------
+create or replace function public.hitpay_apply_payment(
+  p_order_id text,
+  p_status text,
+  p_method text,
+  p_gateway_payment_id text,
+  p_reference_number text,
+  p_payment_request_id text default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pay public.payments;
+  v_method text := lower(trim(coalesce(p_method, '')));
+  v_gateway_payment_id text := nullif(trim(coalesce(p_gateway_payment_id, '')), '');
+  v_reference text := nullif(trim(coalesce(p_reference_number, '')), '');
+  v_request_id text := nullif(trim(coalesce(p_payment_request_id, '')), '');
+begin
+  if p_status is null or p_status not in ('success', 'failed') then
+    return null;
+  end if;
+
+  select * into v_pay from public.payments where order_id = p_order_id for update;
+  if not found then return null; end if;
+
+  if v_pay.status = 'success' or v_pay.status = 'refunded' then
+    return v_pay.status;
+  end if;
+  if p_status = 'failed' and v_pay.status = 'failed' then
+    return v_pay.status;
+  end if;
+  -- A "failed" event from an older link never touches the current one.
+  if p_status = 'failed' and v_pay.gateway_payment_id is distinct from v_request_id then
+    return v_pay.status;
+  end if;
+
+  if v_pay.status = 'failed' then
+    update public.payments set status = 'processing' where id = v_pay.id;
+  end if;
+
+  perform set_config('app.allow_payment_method_change', 'on', true);
+  update public.payments
+  set status = p_status,
+      method = case when v_method in (
+        'gcash', 'maya', 'card',
+        'qrph', 'grabpay', 'shopeepay', 'spaylater', 'billease', 'wechat',
+        'unionbank', 'instapay', 'pesonet', 'bayad', 'ecpay', 'palawan',
+        'online'
+      ) then v_method else method end,
+      gateway = 'hitpay',
+      gateway_payment_id = coalesce(v_gateway_payment_id, gateway_payment_id),
+      reference_number = coalesce(v_reference, reference_number)
+  where id = v_pay.id;
+  perform set_config('app.allow_payment_method_change', 'off', true);
+
+  return p_status;
+end;
+$$;
+revoke all on function public.hitpay_apply_payment(text, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.hitpay_apply_payment(text, text, text, text, text, text) to service_role;
+
+-- 3. ---------------------------------------------------------------------------
+create or replace function public.staff_begin_gateway_refund(p_refund_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r public.refund_requests;
+  v_staff public.staff_members;
+  v_branch uuid;
+  v_pay public.payments;
+  v_live public.refund_gateway_attempts;
+  a public.refund_gateway_attempts;
+begin
+  select * into r from public.refund_requests where id = p_refund_id for update;
+  if r.id is null then raise exception 'That refund request could not be found.'; end if;
+  select branch_id into v_branch from public.orders where id = r.order_id;
+  v_staff := public._require_staff(v_branch, 'refunds');
+
+  -- 'processing' = the app's "Start processing" step; still nothing has been paid back.
+  if r.status not in ('approved', 'processing') then
+    raise exception 'Only an approved refund can be sent to HitPay (this one is %).', r.status;
+  end if;
+  select * into v_pay from public.payments where order_id = r.order_id order by created_at desc limit 1 for update;
+  if v_pay.id is null or v_pay.method = 'cash' then
+    raise exception 'This order was not paid online. Refund the cash and mark it completed instead.';
+  end if;
+  if v_pay.status <> 'success' then
+    raise exception 'The online payment for this order is %, so there is nothing to send back through HitPay.', v_pay.status;
+  end if;
+  if coalesce(v_pay.gateway, '') <> 'hitpay' or v_pay.gateway_payment_id is null then
+    raise exception 'This payment has no HitPay payment id. Send the refund from the HitPay dashboard and mark it completed by hand.';
+  end if;
+  if r.amount <= 0 or r.amount > v_pay.amount then
+    raise exception 'The refund amount does not fit the payment.';
+  end if;
+
+  select * into v_live from public.refund_gateway_attempts
+  where refund_id = r.id and status in ('sending', 'pending', 'succeeded') limit 1;
+  if v_live.id is not null then
+    if v_live.status = 'succeeded' then
+      raise exception 'This refund was already sent through HitPay.';
+    elsif v_live.status = 'pending' then
+      raise exception 'HitPay is still processing this refund. Check its status instead of sending it again.';
+    else
+      raise exception 'A HitPay refund for this request was started at % and has no answer yet. Check the HitPay dashboard before trying again.',
+        to_char(v_live.started_at at time zone 'Asia/Manila', 'Mon DD HH12:MI AM');
+    end if;
+  end if;
+
+  insert into public.refund_gateway_attempts (refund_id, order_id, gateway_payment_id, amount, started_by)
+  values (r.id, r.order_id, v_pay.gateway_payment_id, r.amount, v_staff.firebase_uid)
+  returning * into a;
+  perform public._write_audit(v_staff.firebase_uid, v_branch, 'refund.gateway_send', 'refund_request', r.id,
+    jsonb_build_object('attempt_id', a.id, 'amount', a.amount, 'order_id', r.order_id));
+  return public._gateway_attempt_json(a);
+end;
+$$;
+
+-- 4. ---------------------------------------------------------------------------
+create or replace function public._trg_orders_online_payment_switch()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.payment_method in (
+       'Online Payment (GCash, QR Ph, Card)', 'Online Payment (GCash, Maya, Card)',
+       'GCash E-Wallet', 'Maya / Credit Card'
+     )
+     and not public.online_payment_enabled() then
+    raise exception '%', public.online_payment_disabled_message();
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text default ''
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_item record;
+  v_available int;
+  v_order_id text;
+  v_subtotal numeric;
+  v_voucher_discount numeric := 0;
+  v_loyalty_discount numeric := 0;
+  v_delivery_fee numeric;
+  v_total numeric;
+  v_discount numeric;
+  v_points_used int := 0;
+  v_balance int := 0;
+  v_has_voucher boolean;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
+  v_address record;
+  v_profile_phone text;
+  v_contact_phone text;
+  v_delivery_address_text text;
+  v_payment_method_code text;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open'
+  for update;
+  if not found then raise exception 'Your cart is no longer available.'; end if;
+
+  -- 'Online Payment (GCash, QR Ph, Card)' is settled by the HitPay hosted
+  -- checkout; 'online' is only the initial placeholder, the HitPay webhook
+  -- (hitpay_apply_payment) records the method actually used. The three older
+  -- online labels stay accepted, with their old placeholders, for older app builds.
+  if p_payment_method not in (
+    'Online Payment (GCash, QR Ph, Card)', 'Cash on Delivery', 'Cash on Counter Pickup',
+    'Online Payment (GCash, Maya, Card)', 'GCash E-Wallet', 'Maya / Credit Card'
+  ) then
+    raise exception 'Unsupported payment method.';
+  end if;
+  if p_payment_method = 'Cash on Delivery' and not p_is_delivery then
+    raise exception 'Cash on Delivery is only available for delivery orders.';
+  end if;
+  v_payment_method_code := case p_payment_method
+    when 'Online Payment (GCash, QR Ph, Card)' then 'online'
+    when 'Online Payment (GCash, Maya, Card)' then 'card'
+    when 'GCash E-Wallet' then 'gcash'
+    when 'Maya / Credit Card' then 'card'
+    else 'cash'
+  end;
+
+  select phone into v_profile_phone from public.customer_profiles where firebase_uid = v_uid;
+
+  if p_is_delivery then
+    if p_delivery_address_id is null then raise exception 'Please provide a delivery address.'; end if;
+    select * into v_address from public.customer_addresses
+      where id = p_delivery_address_id and firebase_uid = v_uid;
+    if not found then raise exception 'The selected delivery address is invalid.'; end if;
+    select delivery_fee into v_delivery_fee from public.branches
+      where id = v_cart.branch_id and supports_delivery and is_active;
+    if not found then raise exception 'Delivery is not available for this branch.'; end if;
+    v_contact_phone := nullif(trim(v_address.phone), '');
+    v_delivery_address_text := trim(
+      v_address.recipient_name || ', ' || v_address.line1 || ', ' || v_address.city ||
+      case when coalesce(v_address.province, '') <> '' then ', ' || v_address.province else '' end ||
+      case when coalesce(v_address.postal_code, '') <> '' then ' ' || v_address.postal_code else '' end
+    );
+  else
+    if not exists (select 1 from public.branches where id = v_cart.branch_id and supports_pickup and is_active) then
+      raise exception 'Pickup is not available for this branch.';
+    end if;
+    v_delivery_fee := 0;
+    v_contact_phone := nullif(trim(coalesce(v_profile_phone, '')), '');
+    v_delivery_address_text := null;
+  end if;
+
+  if v_contact_phone is null then
+    raise exception 'Please add a contact phone number to your profile before checking out.';
+  end if;
+
+  -- Prices always come from the catalog, never from the cart row.
+  update public.cart_items ci
+  set current_price = pv.price, variant_label = pv.label, updated_at = now()
+  from public.product_variants pv
+  join public.products p on p.id = pv.product_id
+  where ci.cart_id = v_cart.id and ci.variant_id = pv.id and p.is_active;
+
+  if not exists (select 1 from public.cart_items where cart_id = v_cart.id) then
+    raise exception 'Your cart is empty.';
+  end if;
+
+  -- Validate + lock stock in a fixed order so two checkouts cannot deadlock.
+  for v_item in
+    select ci.product_id, ci.variant_id, ci.quantity, p.name as product_name, p.is_active as product_active
+    from public.cart_items ci
+    join public.products p on p.id = ci.product_id
+    where ci.cart_id = v_cart.id
+    order by ci.product_id, ci.variant_id
+  loop
+    if not v_item.product_active then raise exception '% is no longer available.', v_item.product_name; end if;
+    if v_item.variant_id is null then raise exception '% is no longer available.', v_item.product_name; end if;
+    select bi.quantity into v_available
+    from public.branch_inventory bi
+    where bi.branch_id = v_cart.branch_id
+      and bi.product_id = v_item.product_id
+      and bi.variant_id = v_item.variant_id
+    for update;
+    if v_available is null then raise exception '% is not available at this branch.', v_item.product_name; end if;
+    if v_available < v_item.quantity then
+      raise exception 'Only % of % left at this branch.', v_available, v_item.product_name;
+    end if;
+  end loop;
+
+  -- Lock the loyalty account before recomputing so points cannot be spent twice.
+  insert into public.loyalty_accounts (firebase_uid) values (v_uid) on conflict (firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid = v_uid for update;
+
+  select coalesce(sum(current_price * quantity), 0) into v_subtotal
+  from public.cart_items where cart_id = v_cart.id;
+
+  v_has_voucher := v_cart.voucher_code is not null and trim(v_cart.voucher_code) <> '';
+  if v_has_voucher then
+    select * into v_voucher
+    from public.vouchers v
+    where upper(v.code) = upper(trim(v_cart.voucher_code))
+      and v.is_active
+      and (v.starts_at is null or v.starts_at <= now())
+      and (v.ends_at is null or v.ends_at >= now())
+    for update;
+    if not found then raise exception 'Voucher is invalid or expired.'; end if;
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then
+      raise exception 'This voucher has reached its usage limit.';
+    end if;
+    if v_voucher.per_customer_limit is not null and
+       (select count(*) from public.voucher_usage vu
+        where vu.voucher_id = v_voucher.id and vu.firebase_uid = v_uid) >= v_voucher.per_customer_limit then
+      raise exception 'You have already used this voucher.';
+    end if;
+    if v_subtotal < v_voucher.minimum_subtotal then
+      raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal;
+    end if;
+    if v_voucher.discount_type = 'percent' then
+      v_voucher_discount := round(v_subtotal * v_voucher.discount_value / 100, 2);
+    else
+      v_voucher_discount := v_voucher.discount_value;
+    end if;
+    if v_voucher.maximum_discount is not null then
+      v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount);
+    end if;
+    v_voucher_discount := least(v_voucher_discount, v_subtotal);
+  end if;
+
+  if v_cart.redeem_points then
+    select points_per_peso, max_discount_percent into v_points_per_peso, v_max_discount_percent
+    from public.loyalty_cart_settings where id = 'default';
+    if v_points_per_peso is null then raise exception 'Loyalty point redemption is not configured yet.'; end if;
+    if v_balance <= 0 then raise exception 'You do not have loyalty points available to redeem.'; end if;
+    v_points_used := least(
+      v_balance,
+      floor(greatest(0, least(v_subtotal - v_voucher_discount,
+                              v_subtotal * v_max_discount_percent / 100)) * v_points_per_peso)::int
+    );
+    v_loyalty_discount := round(v_points_used / v_points_per_peso, 2);
+  end if;
+
+  v_discount := v_voucher_discount + v_loyalty_discount;
+  v_total := greatest(0, v_subtotal - v_discount + v_delivery_fee);
+
+  update public.branch_inventory bi
+  set quantity = bi.quantity - ci.quantity
+  from public.cart_items ci
+  where ci.cart_id = v_cart.id
+    and bi.branch_id = v_cart.branch_id
+    and bi.product_id = ci.product_id
+    and bi.variant_id = ci.variant_id;
+
+  insert into public.orders (
+    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
+    subtotal, discount, delivery_fee, total, payment_method,
+    customer_notes, contact_phone, delivery_address_text
+  )
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery, p_delivery_address_id,
+    v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method,
+    left(coalesce(trim(p_customer_notes), ''), 500), v_contact_phone, v_delivery_address_text
+  from public.branches b where b.id = v_cart.branch_id
+  returning id into v_order_id;
+
+  insert into public.order_items (order_id, product_id, variant_id, product_name, variant_label, quantity, unit_price)
+  select v_order_id, ci.product_id, ci.variant_id, p.name, ci.variant_label, ci.quantity, ci.current_price
+  from public.cart_items ci
+  join public.products p on p.id = ci.product_id
+  where ci.cart_id = v_cart.id;
+
+  -- Created in the same transaction as the order; only a trusted server path
+  -- (gateway webhook / staff tooling) may ever move it past 'pending'.
+  insert into public.payments (order_id, firebase_uid, method, status, amount, reference_number)
+  values (v_order_id, v_uid, v_payment_method_code, 'pending', v_total, v_order_id);
+
+  if v_points_used > 0 then
+    update public.loyalty_accounts set points_balance = points_balance - v_points_used
+    where firebase_uid = v_uid;
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (v_uid, 'redeem', -v_points_used, 'Applied to order ' || v_order_id, v_order_id, 'order_redeem');
+  end if;
+
+  if v_has_voucher then
+    update public.vouchers set used_count = used_count + 1 where id = v_voucher.id;
+    insert into public.voucher_usage (voucher_id, firebase_uid, order_id, discount_amount)
+    values (v_voucher.id, v_uid, v_order_id, v_voucher_discount);
+  end if;
+
+  delete from public.cart_items where cart_id = v_cart.id;
+  update public.carts
+  set status = 'checked_out', voucher_code = null, redeem_points = false, updated_at = now()
+  where id = v_cart.id;
+
+  return v_order_id;
+end;
+$$;
+
+commit;
+
+
+-- >>>>>>>>>> 20261031052943_loyalty_points_on_completion_only.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261031052943: points are only earned on completion
+-- =============================================================================
+-- Run after 20261031045119_hitpay_payment_method_codes.sql. Idempotent.
+--
+-- Migration 20260928000000 moved earning to completion and dropped the
+-- award-at-placement trigger, but orders_award_points is live again (schema.sql
+-- still created it). So every order earned when placed, kept those points when
+-- cancelled, and earned a second time when completed.
+--
+--  1. Drop the award-at-placement trigger.
+--  2. Completion does not award an order that still holds points from that trigger.
+--  3. Cancelling removes any points the order still holds. Only orders placed while
+--     the old trigger was live can hold any.
+--
+-- This changes no existing balance. Past wrong balances are corrected separately
+-- by supabase/repair/20261031_correct_double_loyalty_points.sql.
+-- =============================================================================
+begin;
+
+-- 1. ---------------------------------------------------------------------------
+drop trigger if exists orders_award_points on public.orders;
+drop function if exists public.award_order_points();
+
+-- 2. ---------------------------------------------------------------------------
+-- The points an order currently holds: what it earned (source is null on rows from
+-- the old trigger), less corrections and reversals posted against that order.
+create or replace function public._order_points_held(p_order_id text)
+returns int
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(sum(points), 0)::int
+  from public.loyalty_transactions
+  where order_id = p_order_id
+    and ((type = 'earn' and coalesce(source, 'order_earn') = 'order_earn')
+         or source in ('admin_adjust', 'order_clawback'));
+$$;
+revoke all on function public._order_points_held(text) from public, anon, authenticated;
+
+create or replace function public.award_points_on_completion()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.points_earned > 0 and not exists (
+       select 1 from public.loyalty_transactions t
+       where t.order_id = new.id and t.source = 'order_earn')
+     and public._order_points_held(new.id) <= 0 then
+    insert into public.loyalty_accounts (firebase_uid, points_balance, lifetime_points)
+    values (new.firebase_uid, new.points_earned, new.points_earned)
+    on conflict (firebase_uid) do update
+      set points_balance  = public.loyalty_accounts.points_balance  + excluded.points_balance,
+          lifetime_points = public.loyalty_accounts.lifetime_points + excluded.lifetime_points;
+
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (new.firebase_uid, 'earn', new.points_earned, 'Order ' || new.id, new.id, 'order_earn');
+  end if;
+  return new;
+end;
+$$;
+
+-- 3. ---------------------------------------------------------------------------
+create or replace function public.reverse_order_on_cancel()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_line record;
+  v_points int;
+  v_voucher_id uuid;
+  v_held int;
+  v_take int;
+begin
+  -- Only undo orders that never reached the customer.
+  if old.status in ('completed', 'refundRequested', 'refunded') then
+    return new;
+  end if;
+
+  if new.branch_id is not null then
+    for v_line in
+      select product_id, variant_id, quantity from public.order_items
+      where order_id = new.id and product_id is not null and variant_id is not null
+    loop
+      update public.branch_inventory
+      set quantity = quantity + v_line.quantity
+      where branch_id = new.branch_id
+        and product_id = v_line.product_id
+        and variant_id = v_line.variant_id;
+    end loop;
+  end if;
+
+  select coalesce(-sum(points), 0) into v_points
+  from public.loyalty_transactions
+  where order_id = new.id and source = 'order_redeem';
+
+  if v_points > 0 and not exists (
+       select 1 from public.loyalty_transactions t
+       where t.order_id = new.id and t.source = 'order_return') then
+    insert into public.loyalty_accounts (firebase_uid, points_balance)
+    values (new.firebase_uid, v_points)
+    on conflict (firebase_uid) do update
+      set points_balance = public.loyalty_accounts.points_balance + excluded.points_balance;
+
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (new.firebase_uid, 'earn', v_points,
+            'Points returned - order ' || new.id || ' cancelled', new.id, 'order_return');
+  end if;
+
+  -- Runs after the points spent on this order are returned above, and takes the
+  -- balance no lower than zero, like a refund's reversal.
+  v_held := public._order_points_held(new.id);
+  if v_held > 0 then
+    select least(points_balance, v_held) into v_take
+    from public.loyalty_accounts where firebase_uid = new.firebase_uid for update;
+
+    if coalesce(v_take, 0) > 0 then
+      update public.loyalty_accounts
+      set points_balance = points_balance - v_take,
+          lifetime_points = greatest(lifetime_points - v_held, 0)
+      where firebase_uid = new.firebase_uid;
+
+      insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+      values (new.firebase_uid, 'redeem', -v_take,
+              'Points removed - order ' || new.id || ' cancelled', new.id, 'order_clawback');
+    end if;
+  end if;
+
+  delete from public.voucher_usage where order_id = new.id returning voucher_id into v_voucher_id;
+  if v_voucher_id is not null then
+    update public.vouchers set used_count = greatest(used_count - 1, 0) where id = v_voucher_id;
+  end if;
+
+  return new;
+end;
+$$;
+
+commit;
+
+
+-- >>>>>>>>>> 20261031064416_staff_profile_photos.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261031064416: staff profile photos
+-- =============================================================================
+-- Run after 20261031052943_loyalty_points_on_completion_only.sql. Idempotent.
+--
+-- Staff can put a picture on their profile.
+--
+--  * Bucket staff-photos: private, images only, at most 2 MB. A file lives in a
+--    folder named after its owner's account, and only that person may add or
+--    remove it. Active staff may read them, through short-lived signed links.
+--  * staff_set_my_photo stores the path on the caller's own staff row. Staff have
+--    no UPDATE right on staff_members, so this is the only way to change it, and it
+--    only accepts a file from the caller's own folder.
+-- =============================================================================
+begin;
+
+do $do$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'buckets') then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values ('staff-photos', 'staff-photos', false, 2097152, array['image/jpeg', 'image/png', 'image/webp'])
+    on conflict (id) do update
+      set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+    execute $p$drop policy if exists "staff add own photo" on storage.objects$p$;
+    execute $p$create policy "staff add own photo" on storage.objects for insert to authenticated
+      with check (bucket_id = 'staff-photos'
+        and split_part(name, '/', 1) = public.current_firebase_uid()
+        and exists (select 1 from public.staff_members s
+                    where s.firebase_uid = public.current_firebase_uid() and s.account_status = 'active'))$p$;
+
+    execute $p$drop policy if exists "staff remove own photo" on storage.objects$p$;
+    execute $p$create policy "staff remove own photo" on storage.objects for delete to authenticated
+      using (bucket_id = 'staff-photos' and split_part(name, '/', 1) = public.current_firebase_uid())$p$;
+
+    execute $p$drop policy if exists "staff read photos" on storage.objects$p$;
+    execute $p$create policy "staff read photos" on storage.objects for select to authenticated
+      using (bucket_id = 'staff-photos'
+        and exists (select 1 from public.staff_members s
+                    where s.firebase_uid = public.current_firebase_uid() and s.account_status = 'active'))$p$;
+  end if;
+end
+$do$;
+
+create or replace function public.staff_set_my_photo(p_path text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_staff public.staff_members;
+  v_path text := nullif(trim(coalesce(p_path, '')), '');
+begin
+  v_staff := public._require_staff();
+  if v_path is not null
+     and (split_part(v_path, '/', 1) is distinct from v_staff.firebase_uid
+          or v_path like '%..%'
+          or char_length(v_path) > 300) then
+    raise exception 'That photo does not belong to your account.';
+  end if;
+  update public.staff_members set profile_image = v_path where firebase_uid = v_staff.firebase_uid;
+end;
+$$;
+revoke all on function public.staff_set_my_photo(text) from public, anon;
+grant execute on function public.staff_set_my_photo(text) to authenticated;
+
+commit;
+
+
+-- >>>>>>>>>> 20261031064602_refund_payment_on_cancelled_order.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261031064602: a payment on a cancelled order is refunded
+-- =============================================================================
+-- Run after 20261031064416_staff_profile_photos.sql. Idempotent.
+--
+-- A HitPay page can stay open after its order is cancelled. If the customer then
+-- pays, the money is real, but nothing told anyone it had to go back.
+--
+--  1. hitpay_apply_payment still records the payment, and also opens a refund
+--     request for it, so it shows in the normal refund queue ("Send via HitPay").
+--     The customer and the staff are told.
+--  2. sync_order_status_from_refund leaves a cancelled order cancelled. It used to
+--     try to move it to refundRequested, which a cancelled order refuses, and that
+--     would have made the webhook fail on every retry. When the refund completes it
+--     marks the payment refunded, which finalize_order_refund does for other orders.
+--
+-- Stock and points need nothing: cancelling returned the stock, and a cancelled
+-- order earns no points. Sales reports count this payment as a sale and the
+-- completed refund against it, so they net to zero.
+-- =============================================================================
+begin;
+
+-- 1. ---------------------------------------------------------------------------
+create or replace function public.hitpay_apply_payment(
+  p_order_id text,
+  p_status text,
+  p_method text,
+  p_gateway_payment_id text,
+  p_reference_number text,
+  p_payment_request_id text default null
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pay public.payments;
+  v_order public.orders;
+  v_method text := lower(trim(coalesce(p_method, '')));
+  v_gateway_payment_id text := nullif(trim(coalesce(p_gateway_payment_id, '')), '');
+  v_reference text := nullif(trim(coalesce(p_reference_number, '')), '');
+  v_request_id text := nullif(trim(coalesce(p_payment_request_id, '')), '');
+  v_refund_id text;
+begin
+  if p_status is null or p_status not in ('success', 'failed') then
+    return null;
+  end if;
+
+  -- The order first, so a cancel running right now is seen here or sees this payment.
+  select * into v_order from public.orders where id = p_order_id for update;
+  select * into v_pay from public.payments where order_id = p_order_id for update;
+  if not found then return null; end if;
+
+  if v_pay.status = 'success' or v_pay.status = 'refunded' then
+    return v_pay.status;
+  end if;
+  if p_status = 'failed' and v_pay.status = 'failed' then
+    return v_pay.status;
+  end if;
+  -- A "failed" event from an older link never touches the current one.
+  if p_status = 'failed' and v_pay.gateway_payment_id is distinct from v_request_id then
+    return v_pay.status;
+  end if;
+
+  if v_pay.status = 'failed' then
+    update public.payments set status = 'processing' where id = v_pay.id;
+  end if;
+
+  perform set_config('app.allow_payment_method_change', 'on', true);
+  update public.payments
+  set status = p_status,
+      method = case when v_method in (
+        'gcash', 'maya', 'card',
+        'qrph', 'grabpay', 'shopeepay', 'spaylater', 'billease', 'wechat',
+        'unionbank', 'instapay', 'pesonet', 'bayad', 'ecpay', 'palawan',
+        'online'
+      ) then v_method else method end,
+      gateway = 'hitpay',
+      gateway_payment_id = coalesce(v_gateway_payment_id, gateway_payment_id),
+      reference_number = coalesce(v_reference, reference_number)
+  where id = v_pay.id;
+  perform set_config('app.allow_payment_method_change', 'off', true);
+
+  -- Paid after it was cancelled: the money has to go back.
+  if p_status = 'success' and v_order.status = 'cancelled' and v_pay.amount > 0 then
+    insert into public.refund_requests (order_id, firebase_uid, reason, notes, amount, payment_method)
+    values (v_order.id, v_order.firebase_uid, 'Paid after the order was cancelled',
+            'Opened automatically when HitPay reported this payment.', v_pay.amount, v_order.payment_method)
+    on conflict (order_id) where status <> 'rejected' do nothing
+    returning id into v_refund_id;
+
+    perform public.notify_customer(v_order.firebase_uid, 'refund', 'Payment received for a cancelled order',
+      'We received ₱' || to_char(v_pay.amount, 'FM999,999,990.00') || ' for order ' || v_order.id
+        || ' after it was cancelled. We will refund it to you.');
+
+    -- Staff with refund rights hear about it from the refund request's own trigger.
+    insert into public.staff_notifications (recipient_uid, branch_id, category, title, body, reference)
+    select s.firebase_uid, v_order.branch_id, 'refund', 'Refund needed: cancelled order was paid',
+           'Order ' || v_order.id || ' • ₱' || to_char(v_pay.amount, 'FM999,999,990.00'), v_refund_id
+    from public.staff_members s
+    where s.is_active and s.role = 'owner';
+  end if;
+
+  return p_status;
+end;
+$$;
+revoke all on function public.hitpay_apply_payment(text, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.hitpay_apply_payment(text, text, text, text, text, text) to service_role;
+
+-- 2. ---------------------------------------------------------------------------
+create or replace function public.sync_order_status_from_refund()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (select 1 from public.orders where id = new.order_id and status = 'cancelled') then
+    if tg_op = 'UPDATE' and new.status = 'completed' and old.status is distinct from 'completed' then
+      update public.payments set status = 'refunded'
+      where order_id = new.order_id and status = 'success';
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    update public.orders set status = 'refundRequested' where id = new.order_id;
+  elsif new.status is distinct from old.status then
+    if new.status = 'completed' then
+      update public.orders set status = 'refunded' where id = new.order_id;
+    elsif new.status = 'rejected' then
+      update public.orders set status = 'completed' where id = new.order_id;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+commit;
