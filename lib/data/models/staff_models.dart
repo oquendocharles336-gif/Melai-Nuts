@@ -318,6 +318,11 @@ class StaffOrder {
   final List<StaffOrderItem> items;
   final StaffPaymentInfo? payment;
 
+  /// The downpayment already paid online for a Cash on Delivery order, if any.
+  /// [payment] then holds only the cash balance.
+  final double? downpaymentAmount;
+  final String? downpaymentStatus;
+
   /// Refunded / pending amounts and points reversed, from the database
   /// (null on an older server).
   final OrderRefundSummary? refund;
@@ -344,6 +349,8 @@ class StaffOrder {
     required this.changeGiven,
     required this.items,
     required this.payment,
+    this.downpaymentAmount,
+    this.downpaymentStatus,
     this.refund,
   });
 
@@ -377,6 +384,8 @@ class StaffOrder {
         payment: j['payment'] == null
             ? null
             : StaffPaymentInfo.fromJson(Map<String, dynamic>.from(j['payment'] as Map)),
+        downpaymentAmount: _numOrNull((j['downpayment'] as Map?)?['amount']),
+        downpaymentStatus: (j['downpayment'] as Map?)?['status'] as String?,
         refund: OrderRefundSummary.fromJson(j['refund_summary']),
       );
 }
@@ -518,6 +527,10 @@ class StaffRefund {
   /// When the refund was completed (null until then, or on an older server).
   final DateTime? completedAt;
 
+  /// The order's downpayment, when it was paid partly online: only this much can
+  /// go back through HitPay.
+  final double? downpaymentAmount;
+
   /// The order's total, and whether this refund covers only part of it
   /// (null on an older server).
   final double? orderTotal;
@@ -542,6 +555,7 @@ class StaffRefund {
     required this.createdAt,
     required this.customerName,
     required this.items,
+    this.downpaymentAmount,
     this.completedAt,
     this.orderTotal,
     this.isPartial,
@@ -565,6 +579,7 @@ class StaffRefund {
         items: ((j['items'] as List?) ?? const [])
             .map((e) => StaffOrderItem.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
+        downpaymentAmount: _numOrNull(j['downpayment_amount']),
         completedAt: j['completed_at'] == null ? null : _time(j['completed_at']),
         orderTotal: _numOrNull(j['order_total']),
         isPartial: j['is_partial'] as bool?,

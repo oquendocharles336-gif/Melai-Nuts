@@ -337,6 +337,10 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
                   Text('Payment', style: AppTextStyles.labelLg),
                   const SizedBox(height: 8),
                   _row('Method', o.paymentMethod),
+                  if (o.downpaymentAmount != null) ...[
+                    _row('Downpayment (online)', '${peso(o.downpaymentAmount!)}${o.downpaymentStatus == 'refunded' ? ' • Refunded' : ' • Paid'}'),
+                    _row('Balance due in cash', peso(o.payment?.amount ?? 0)),
+                  ],
                   _row('Status', o.isPaid ? 'Paid' : (o.payment?.status == 'refunded' ? 'Paid, then refunded' : (o.payment?.status ?? 'Pending'))),
                   if ((o.payment?.referenceNumber ?? '').isNotEmpty && o.payment!.method != 'cash')
                     _row('Reference', o.payment!.referenceNumber),

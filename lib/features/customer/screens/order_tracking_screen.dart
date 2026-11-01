@@ -76,6 +76,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   double _progressFor(OrderStatus status) {
     switch (status) {
+      case OrderStatus.awaitingDownpayment:
+        return 0.05;
       case OrderStatus.pending:
         return 0.1;
       case OrderStatus.confirmed:
@@ -123,6 +125,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   String _headline(Order o) {
     if (!o.isDelivery) return o.status.label;
     switch (o.status) {
+      case OrderStatus.awaitingDownpayment:
+        return 'Waiting for your downpayment';
       case OrderStatus.pending:
       case OrderStatus.confirmed:
         return 'Order received';

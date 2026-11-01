@@ -99,7 +99,7 @@ class _RefundCardState extends State<_RefundCard> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Send refund via HitPay?'),
-        content: Text('${peso(widget.refund.amount)} goes back to the customer\'s ${widget.refund.paymentMethod}. This cannot be undone.'),
+        content: Text('${_hitpayPart()} goes back to the customer\'s ${widget.refund.downpaymentAmount == null ? widget.refund.paymentMethod : 'online payment'}. This cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send')),
@@ -120,7 +120,18 @@ class _RefundCardState extends State<_RefundCard> {
     }
   }
 
-  bool get _isOnline => !widget.refund.paymentMethod.toLowerCase().contains('cash');
+  /// A Cash on Delivery order with a downpayment was paid partly online.
+  bool get _isOnline =>
+      widget.refund.downpaymentAmount != null || !widget.refund.paymentMethod.toLowerCase().contains('cash');
+
+  /// Only the downpayment can go back through HitPay. The rest was paid in cash, so
+  /// staff hand it back themselves.
+  String _hitpayPart() {
+    final r = widget.refund;
+    final online = r.downpaymentAmount;
+    if (online == null || online >= r.amount) return peso(online == null ? r.amount : (online < r.amount ? online : r.amount));
+    return '${peso(online)} of the ${peso(r.amount)} (hand back the other ${peso(r.amount - online)} in cash)';
+  }
 
   @override
   Widget build(BuildContext context) {

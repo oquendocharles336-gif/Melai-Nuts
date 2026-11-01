@@ -14,6 +14,17 @@
   "paymentMethod": "Payment Method",
   "cashOnDelivery": "Cash on Delivery",
   "cashOnDeliverySubtitle": "Pay the rider in cash when your order arrives",
+  "cashOnDeliveryDownpaymentSubtitle": "Pay {amount} online now and {balance} in cash when your order arrives",
+  "@cashOnDeliveryDownpaymentSubtitle": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "balance": {
+        "type": "String"
+      }
+    }
+  },
   "cashOnPickup": "Cash on Counter Pickup",
   "cashOnPickupSubtitle": "Pay when picking up order",
   "onlinePaymentUnavailableLabel": "Online payment unavailable. {message}",
