@@ -235,7 +235,7 @@ class _ActiveOrderBanner extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: active)),
                   ),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                  label: const Text('Track Live Delivery'),
+                  label: Text(active.isDelivery ? 'Track Live Delivery' : 'Track Order'),
                 ),
               ],
             ),

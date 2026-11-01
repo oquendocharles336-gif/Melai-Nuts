@@ -4,7 +4,7 @@ import 'cod_downpayment.dart';
 
 /// Lifecycle status of a customer order.
 enum OrderStatus {
-  /// A Cash on Delivery order whose required downpayment is not paid yet. Staff
+  /// A pickup order whose required downpayment is not paid yet. Staff
   /// cannot see it until it is.
   awaitingDownpayment,
   pending,
@@ -197,7 +197,7 @@ class Order {
   /// payment row hasn't loaded yet.
   final String? paymentStatus;
 
-  /// The online part of a Cash on Delivery order, or null when there is none.
+  /// The online part of a pickup order, or null when there is none.
   final OrderDownpayment? downpayment;
 
   const Order({
@@ -226,7 +226,7 @@ class Order {
   double get total => subtotal - discount + deliveryFee;
   int get itemCount => items.fold(0, (sum, i) => sum + i.quantity);
 
-  /// What is left to pay in cash on delivery after the downpayment.
+  /// What is left to pay in cash at pickup after the downpayment.
   double get cashBalance => total - (downpayment?.amount ?? 0);
 
   factory Order.fromRow(

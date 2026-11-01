@@ -14,8 +14,27 @@
   "paymentMethod": "Payment Method",
   "cashOnDelivery": "Cash on Delivery",
   "cashOnDeliverySubtitle": "Pay the rider in cash when your order arrives",
-  "cashOnDeliveryDownpaymentSubtitle": "Pay {amount} online now and {balance} in cash when your order arrives",
-  "@cashOnDeliveryDownpaymentSubtitle": {
+  "cashOnPickupDownpaymentSubtitle": "Pay {amount} online now and {balance} in cash when you pick up",
+  "downpaymentNote": "Why a downpayment? To reserve your order, please pay {share} online now. The rest is paid in cash when you pick up. This helps us prepare your items and avoid unclaimed orders. If you don't pick up within {period}, the downpayment is non-refundable.",
+  "@downpaymentNote": {
+    "placeholders": {
+      "share": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "downpaymentDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "@downpaymentDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@cashOnPickupDownpaymentSubtitle": {
     "placeholders": {
       "amount": {
         "type": "String"

@@ -52,7 +52,7 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
   Timer? _timer;
   PaymentTransaction? _txn;
 
-  /// Set for a Cash on Delivery order: this screen then pays only its downpayment.
+  /// Set for a pickup order: this screen then pays only its downpayment.
   OrderDownpayment? _downpayment;
   String? _message;
   bool _opening = false;
@@ -207,7 +207,7 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
       title = _paysDownpayment ? 'Downpayment received' : 'Payment received';
       body = _paysDownpayment
           ? 'Thank you! We are preparing order ${widget.order.id}. '
-              'Please have ${_money(widget.order.cashBalance)} ready in cash on delivery.'
+              'Please bring ${_money(widget.order.cashBalance)} in cash when you pick it up.'
           : 'Thank you! Your payment for order ${widget.order.id} is confirmed.';
     } else if (_isFailed) {
       accent = AppColors.error;
@@ -268,7 +268,7 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
                     _InfoLine('Order', widget.order.id),
                     if (_paysDownpayment) ...[
                       _InfoLine('Downpayment', _money(_downpayment?.amount ?? widget.order.downpayment!.amount)),
-                      _InfoLine('Cash on delivery', _money(widget.order.cashBalance)),
+                      _InfoLine('Cash at pickup', _money(widget.order.cashBalance)),
                     ] else
                       _InfoLine('Amount', '₱${widget.order.total.toStringAsFixed(2)}'),
                     _InfoLine('Status', _status?.label ?? 'Pending', valueColor: accent),

@@ -62,7 +62,7 @@ class PaymentsRepository {
     return row == null ? null : PaymentTransaction.fromRow(row);
   }
 
-  /// What a Cash on Delivery order of [total] would have to pay online now.
+  /// What a pickup order of [total] would have to pay online now.
   Future<CodDownpaymentQuote> fetchCodQuote(double total) async {
     final raw = await _client
         .rpc('cod_downpayment_quote', params: {'p_total': total})
@@ -74,7 +74,7 @@ class PaymentsRepository {
   Future<OrderDownpayment?> fetchDownpayment(String orderId) async {
     final row = await _client
         .from('order_downpayments')
-        .select('amount,status,expires_at')
+        .select('amount,status,expires_at,percent,pickup_days')
         .eq('order_id', orderId)
         .maybeSingle();
     return row == null ? null : OrderDownpayment.fromRow(row);
