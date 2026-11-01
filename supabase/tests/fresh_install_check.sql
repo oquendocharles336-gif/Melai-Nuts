@@ -32,13 +32,13 @@ begin
   if bad <> '' then
     raise exception 'A fresh database must hold no business data, but found:%', bad;
   end if;
-  -- The only seeded row allowed: the online-payment switch, OFF (owner decision).
-  if (select count(*) from public.payment_settings) <> 1 or public.online_payment_enabled() then
-    raise exception 'payment_settings must hold exactly one row with online payment OFF.';
+  -- The only seeded row allowed: the online-payment switch, ON since migration 20261031034858.
+  if (select count(*) from public.payment_settings) <> 1 or not public.online_payment_enabled() then
+    raise exception 'payment_settings must hold exactly one row with online payment ON.';
   end if;
   if public.get_loyalty_earn_rate() is not null or public._default_restock_threshold() is not null then
     raise exception 'Earn rate and restock threshold must be "Not set" (NULL) on a fresh database.';
   end if;
-  raise notice 'fresh install: 0 rows in % business tables; online payment OFF; settings Not set — passed',
+  raise notice 'fresh install: 0 rows in % business tables; online payment ON; settings Not set — passed',
     array_length(must_be_empty, 1);
 end $$;

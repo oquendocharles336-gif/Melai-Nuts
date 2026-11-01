@@ -76,8 +76,11 @@ create function pg_temp.cart() returns text language sql as $$
     pg_temp.f('ba'), pg_temp.f('prod'), pg_temp.f('var')))
 $$;
 
--- 1. Off by default -------------------------------------------------------------
-select pg_temp.chk_true('online payment is off by default', not public.online_payment_enabled());
+-- 1. Switched off ---------------------------------------------------------------
+-- Migration 20261031034858 turned online payment on, so switch it off here.
+select pg_temp.chk_true('online payment is on after the migrations', public.online_payment_enabled());
+update public.payment_settings set online_payment_enabled = false where id = 'default';
+select pg_temp.chk_true('online payment reads as off once switched off', not public.online_payment_enabled());
 select pg_temp.chk_true('customers can read the switch',
   pg_temp.call_as('pay-c1', 'select online_payment_enabled::text from public.payment_settings') = 'false');
 select pg_temp.chk_true('anon can read the switch',
