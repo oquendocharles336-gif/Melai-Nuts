@@ -1,4 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:melai_nuts/core/config/delivery_config.dart';
+import 'package:melai_nuts/features/customer/widgets/downpayment_note.dart';
+import 'package:melai_nuts/l10n/generated/app_localizations.dart';
 import 'package:melai_nuts/data/models/cod_downpayment.dart';
 import 'package:melai_nuts/data/models/delivery.dart';
 import 'package:melai_nuts/data/models/order.dart';
@@ -14,7 +18,7 @@ void main() {
         'is_delivery': true,
         'discount': 0,
         'delivery_fee': 50,
-        'payment_method': 'Cash on Delivery',
+        'payment_method': 'Cash on Counter Pickup',
         'points_earned': 0,
       };
   final items = [
@@ -64,7 +68,7 @@ void main() {
       for (final s in ['pending', 'processing', 'failed']) {
         expect(of(s).isOpen, isTrue, reason: s);
       }
-      for (final s in ['success', 'expired', 'refunded']) {
+      for (final s in ['success', 'expired', 'refunded', 'forfeited']) {
         expect(of(s).isOpen, isFalse, reason: s);
       }
     });
@@ -74,6 +78,8 @@ void main() {
       expect(of('refunded').isPaid, isTrue);
       expect(of('expired').isPaid, isFalse);
       expect(of('expired').isExpired, isTrue);
+      expect(of('forfeited').isPaid, isTrue);
+      expect(of('forfeited').isForfeited, isTrue);
     });
 
     test('the time limit', () {
@@ -87,7 +93,16 @@ void main() {
 
   group('CodDownpaymentQuote', () {
     test('required', () {
-      final q = CodDownpaymentQuote.fromJson({'required': true, 'amount': 45, 'balance': 105, 'expiry_minutes': 30});
+      final q = CodDownpaymentQuote.fromJson({
+        'required': true,
+        'amount': 45,
+        'balance': 105,
+        'expiry_minutes': 30,
+        'percent': 30,
+        'pickup_days': 2,
+      });
+      expect(q.percent, 30);
+      expect(q.pickupDays, 2);
       expect(q.required, isTrue);
       expect(q.amount, 45);
       expect(q.balance, 105);
@@ -98,6 +113,66 @@ void main() {
       final q = CodDownpaymentQuote.fromJson({'required': false, 'amount': 0, 'balance': 150, 'expiry_minutes': null});
       expect(q.required, isFalse);
       expect(q.expiryMinutes, isNull);
+    });
+  });
+
+  group('the customer app is pickup only', () {
+    test('delivery is hidden by default', () {
+      expect(DeliveryConfig.customerDeliveryEnabled, isFalse);
+    });
+  });
+
+  group('the downpayment note', () {
+    Future<String> noteText(WidgetTester tester, Locale locale, DownpaymentNote note) async {
+      await tester.pumpWidget(MaterialApp(
+        locale: locale,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: note),
+      ));
+      await tester.pumpAndSettle();
+      return tester.widget<Text>(find.byType(Text)).data!;
+    }
+
+    testWidgets('English, with the real percent and days', (tester) async {
+      final text = await noteText(tester, const Locale('en'),
+          const DownpaymentNote(percent: 30, amount: 30, pickupDays: 2));
+      expect(
+        text,
+        "Why a downpayment? To reserve your order, please pay 30% online now. The rest is paid in cash when you pick up. "
+        "This helps us prepare your items and avoid unclaimed orders. If you don't pick up within 2 days, the downpayment is non-refundable.",
+      );
+    });
+
+    testWidgets('Filipino, with the real percent and days', (tester) async {
+      final text = await noteText(tester, const Locale('fil'),
+          const DownpaymentNote(percent: 30, amount: 30, pickupDays: 2));
+      expect(
+        text,
+        'Bakit may downpayment? Para ma-reserve ang order mo, magbayad ng 30% online ngayon. Ang natitira ay babayaran ng cash pagkuha mo. '
+        'Nakakatulong ito para maihanda namin ang items mo at maiwasan ang hindi kinukuhang orders. '
+        'Kung hindi makuha sa loob ng 2 araw, hindi na maibabalik ang downpayment.',
+      );
+    });
+
+    testWidgets('other settings change the words, not just the sum', (tester) async {
+      final text = await noteText(tester, const Locale('en'),
+          const DownpaymentNote(percent: 25, amount: 25, pickupDays: 1));
+      expect(text, contains('pay 25% online now'));
+      expect(text, contains('within 1 day,'));
+    });
+
+    testWidgets('a fixed amount is shown in pesos', (tester) async {
+      final text = await noteText(tester, const Locale('en'),
+          const DownpaymentNote(amount: 100, pickupDays: 3));
+      expect(text, contains('pay ₱100.00 online now'));
+      expect(text, contains('within 3 days,'));
+    });
+
+    test('share labels', () {
+      expect(DownpaymentNote.shareLabel(percent: 30, amount: 1), '30%');
+      expect(DownpaymentNote.shareLabel(percent: 12.5, amount: 1), '12.5%');
+      expect(DownpaymentNote.shareLabel(amount: 100), '₱100.00');
     });
   });
 

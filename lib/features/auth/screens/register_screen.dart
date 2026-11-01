@@ -166,7 +166,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               textInputAction: TextInputAction.next,
               inputFormatters: InputRules.phone(),
               hint: '09171234567',
-              helperText: '11 digits. Used for delivery and order updates.',
+              helperText: '11 digits. Used for order updates.',
               validator: ValidationUtils.validateMobile,
             ),
             const SizedBox(height: AppSpacing.lg),

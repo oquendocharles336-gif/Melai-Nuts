@@ -34,6 +34,7 @@ class PaymentController extends Controller
             'orders' => ListTools::paginate($orders, $request),
             'q' => $q,
             'totals' => $sales === null ? null : ($sales['by_method'] ?? []),
+            'keptDownpayments' => $sales['kept_downpayments'] ?? null,
             'totalsRange' => [$from, $to],
             'failedOrPending' => collect($orders)->whereIn('effectivePaymentStatus', ['failed', 'pending'])->values()->all(),
             'branches' => $this->platform()->branches(),

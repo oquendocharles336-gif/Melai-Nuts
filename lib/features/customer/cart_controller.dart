@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/config/delivery_config.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -93,6 +94,9 @@ class CartController extends ChangeNotifier {
   double get voucherDiscount => _pricing.voucherDiscount;
   double get loyaltyDiscount => _pricing.loyaltyDiscount;
   double get deliveryFee => _pricing.deliveryFee;
+
+  /// The total the cart shows: a pickup-only shop charges no delivery fee.
+  double get displayTotal => DeliveryConfig.customerDeliveryEnabled ? total : (toCents(total) - toCents(deliveryFee)) / 100;
   double get total => _pricing.total;
   int get itemCount => _lines.fold(0, (sum, line) => sum + line.quantity);
   String get currentBranch => BranchController.instance.selectedBranch?.name ?? 'Select a branch';

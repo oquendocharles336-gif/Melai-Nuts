@@ -27,6 +27,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/customer_profile.dart';
 import '../../../data/repositories/orders_repository.dart';
+import '../../../core/config/delivery_config.dart';
 import '../../../data/models/cod_downpayment.dart';
 import '../../../data/models/order.dart';
 import '../../../data/repositories/customer_profile_repository.dart';
@@ -36,6 +37,7 @@ import '../../../data/repositories/products_repository.dart';
 import '../../payments/screens/online_payment_screen.dart';
 import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
+import '../widgets/downpayment_note.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
 import 'order_confirmation_screen.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -347,7 +349,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         );
       }
       final isDelivery = _fulfillment == _FulfillmentMethod.delivery;
-      String? deliveryAddressId = _deliveryAddressId;
+      // A pickup order has no delivery address, even when the customer has a saved one.
+      String? deliveryAddressId = isDelivery ? _deliveryAddressId : null;
       if (isDelivery) {
         final enteredAddress = _addressController.text.trim();
         // One stored phone format (E.164) — compare normalized numbers.
@@ -594,7 +597,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (branch != null) {
       if (_fulfillment == _FulfillmentMethod.delivery && !branch.supportsDelivery) {
         _fulfillment = _FulfillmentMethod.pickup;
-      } else if (_fulfillment == _FulfillmentMethod.pickup && !branch.supportsPickup) {
+      } else if (DeliveryConfig.customerDeliveryEnabled &&
+          _fulfillment == _FulfillmentMethod.pickup &&
+          !branch.supportsPickup) {
         _fulfillment = _FulfillmentMethod.delivery;
       }
     }
@@ -618,9 +623,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
           .clamp(0.0, double.infinity),
     );
-    if (_fulfillment == _FulfillmentMethod.delivery) _loadCodQuote(total);
+    if (_fulfillment == _FulfillmentMethod.pickup) _loadCodQuote(total);
     final codQuote = _codQuoteTotal == total && _codQuote?.required == true ? _codQuote : null;
-    final payingDownpayment = _payment == _PaymentMethod.cod && codQuote != null;
+    final payingDownpayment = _payment == _PaymentMethod.cash && codQuote != null;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -687,6 +692,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           : null,
                     ),
                   ),
+                  if (DeliveryConfig.customerDeliveryEnabled) ...[
                   const SizedBox(width: 10),
                   Expanded(
                     child: _OptionCard(
@@ -705,6 +711,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           : null,
                     ),
                   ),
+                  ],
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
@@ -844,10 +851,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 _PaymentTile(
                   icon: Icons.delivery_dining_rounded,
                   title: AppLocalizations.of(context).cashOnDelivery,
-                  subtitle: codQuote == null
-                      ? AppLocalizations.of(context).cashOnDeliverySubtitle
-                      : AppLocalizations.of(context).cashOnDeliveryDownpaymentSubtitle(
-                          peso(codQuote.amount), peso(codQuote.balance)),
+                  subtitle: AppLocalizations.of(context).cashOnDeliverySubtitle,
                   selected: _payment == _PaymentMethod.cod,
                   onTap: () => setState(() => _payment = _PaymentMethod.cod),
                 )
@@ -855,10 +859,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 _PaymentTile(
                   icon: Icons.storefront_rounded,
                   title: AppLocalizations.of(context).cashOnPickup,
-                  subtitle: AppLocalizations.of(context).cashOnPickupSubtitle,
+                  subtitle: codQuote == null
+                      ? AppLocalizations.of(context).cashOnPickupSubtitle
+                      : AppLocalizations.of(context).cashOnPickupDownpaymentSubtitle(
+                          peso(codQuote.amount), peso(codQuote.balance)),
                   selected: _payment == _PaymentMethod.cash,
                   onTap: () => setState(() => _payment = _PaymentMethod.cash),
                 ),
+              if (payingDownpayment && codQuote.pickupDays != null) ...[
+                const SizedBox(height: 8),
+                DownpaymentNote(
+                  percent: codQuote.percent,
+                  amount: codQuote.amount,
+                  pickupDays: codQuote.pickupDays!,
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               Text('Special Instructions (Pasalubong / Packing)', style: AppTextStyles.titleMd),
               const SizedBox(height: 8),
@@ -942,7 +957,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Cash on delivery', style: AppTextStyles.bodyMd),
+                          Text('Cash at pickup', style: AppTextStyles.bodyMd),
                           Text(peso(codQuote.balance), style: AppTextStyles.bodyMd),
                         ],
                       ),

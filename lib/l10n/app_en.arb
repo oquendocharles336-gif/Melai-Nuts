@@ -14,8 +14,27 @@
   "paymentMethod": "Payment Method",
   "cashOnDelivery": "Cash on Delivery",
   "cashOnDeliverySubtitle": "Pay the rider in cash when your order arrives",
-  "cashOnDeliveryDownpaymentSubtitle": "Pay {amount} online now and {balance} in cash when your order arrives",
-  "@cashOnDeliveryDownpaymentSubtitle": {
+  "cashOnPickupDownpaymentSubtitle": "Pay {amount} online now and {balance} in cash when you pick up",
+  "downpaymentNote": "Why a downpayment? To reserve your order, please pay {share} online now. The rest is paid in cash when you pick up. This helps us prepare your items and avoid unclaimed orders. If you don't pick up within {period}, the downpayment is non-refundable.",
+  "@downpaymentNote": {
+    "placeholders": {
+      "share": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "downpaymentDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "@downpaymentDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@cashOnPickupDownpaymentSubtitle": {
     "placeholders": {
       "amount": {
         "type": "String"
@@ -153,7 +172,7 @@
   "consentAnd": " and the ",
   "consentSuffix": ".",
   "consentRequired": "Please tick the box to agree to the Terms and Conditions and the Privacy Policy.",
-  "consentOrderUpdates": "Send me order, delivery and refund updates (optional).",
+  "consentOrderUpdates": "Send me order and refund updates (optional).",
   "legalUpdatedTitle": "We updated our terms",
   "legalUpdatedBody": "Please read the new Terms and Conditions and Privacy Policy and accept them to keep using the app.",
   "iAgree": "I Agree",
@@ -162,10 +181,10 @@
   "permCameraScan": "We need access to your camera to scan product barcodes at the register.",
   "permCameraProof": "We need access to your camera to take a proof-of-delivery photo.",
   "permLocationTitle": "Location Permission",
-  "permLocationPin": "We need your location so you can pin your delivery address on the map.",
+  "permLocationPin": "We need your location to find your nearest branch.",
   "permLocationDelivery": "We need your location so customers can follow their delivery.",
   "permNotificationsTitle": "Notification Permission",
-  "permNotificationsBody": "We send order, delivery, and refund updates.",
+  "permNotificationsBody": "We send order and refund updates.",
   "permContinue": "Continue",
   "permOpenSettings": "Open Settings",
   "permDeniedTitle": "{permission} is off",
@@ -179,7 +198,7 @@
   "permBlockedBody": "Melai Nuts can no longer ask for it. Turn it on in your phone's Settings.",
   "permCameraScanFallback": "Without the camera you can still type the SKU or barcode.",
   "permCameraProofFallback": "Without the camera the proof-of-delivery photo cannot be taken.",
-  "permLocationPinFallback": "Without location you can still place the pin on the map by hand.",
+  "permLocationPinFallback": "Without location you can still choose your branch by hand.",
   "permLocationDeliveryFallback": "Without location, customers cannot follow the delivery on the map.",
   "permNotificationsFallback": "You will not get updates on this phone, but you can still see them in the app.",
   "permissionsTitle": "Permissions",
@@ -193,9 +212,9 @@
   "permStatusUnsupported": "Not used on this device",
   "permAllow": "Allow",
   "permManage": "Manage",
-  "permCameraUse": "Scan barcodes (staff) and proof-of-delivery photos (riders).",
-  "permLocationUse": "Pin your address; riders share their location during a delivery.",
-  "permNotificationsUse": "Order, delivery and refund updates.",
+  "permCameraUse": "Scan barcodes (staff).",
+  "permLocationUse": "Find your nearest branch.",
+  "permNotificationsUse": "Order and refund updates.",
   "delete": "Delete",
   "remove": "Remove",
   "confirm": "Confirm",

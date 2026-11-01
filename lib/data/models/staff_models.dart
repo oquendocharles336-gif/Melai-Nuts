@@ -318,7 +318,7 @@ class StaffOrder {
   final List<StaffOrderItem> items;
   final StaffPaymentInfo? payment;
 
-  /// The downpayment already paid online for a Cash on Delivery order, if any.
+  /// The downpayment already paid online for a pickup order, if any.
   /// [payment] then holds only the cash balance.
   final double? downpaymentAmount;
   final String? downpaymentStatus;

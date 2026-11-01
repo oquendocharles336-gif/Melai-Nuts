@@ -58,24 +58,28 @@
                 <input class="light-input" id="low_stock_badge_qty" name="low_stock_badge_qty" type="number" min="1" max="1000" step="1"
                        value="{{ old('low_stock_badge_qty', $s['low_stock_badge_qty'] ?? null) }}" placeholder="Not set">
                 <p class="note">Uses the branch's real stock count. Not set: the app never shows it.</p></div>
-            <div class="field"><label for="cod_downpayment_type">Cash on Delivery downpayment</label>
+            <div class="field"><label for="cod_downpayment_type">Cash on Counter Pickup downpayment</label>
                 <select class="light-input" id="cod_downpayment_type" name="cod_downpayment_type">
                     <option value="">Not set: no downpayment</option>
                     <option value="percent" @selected(old('cod_downpayment_type', $s['cod_downpayment_type'] ?? null) === 'percent')>A percent of the order total</option>
                     <option value="fixed" @selected(old('cod_downpayment_type', $s['cod_downpayment_type'] ?? null) === 'fixed')>A fixed amount</option>
                 </select>
-                <p class="note">Paid online through HitPay at checkout. Staff only see the order once it is paid, and the rest is collected in cash on delivery. While online payment is switched off, Cash on Delivery needs no downpayment. Changing this never affects orders already placed.</p></div>
+                <p class="note">Paid online through HitPay at checkout. Staff only see the order once it is paid, and the rest is paid in cash at pickup. While online payment is switched off, pickup needs no downpayment. Changing this never affects orders already placed.</p></div>
             <div class="field"><label for="cod_downpayment_value">Downpayment amount (% or ₱)</label>
                 <input class="light-input" id="cod_downpayment_value" name="cod_downpayment_value" type="number" min="0" step="0.01"
                        value="{{ old('cod_downpayment_value', $num($s['cod_downpayment_value'] ?? null)) }}" placeholder="Not set"></div>
             <div class="field"><label for="cod_downpayment_min_order">Only for orders of at least (₱)</label>
                 <input class="light-input" id="cod_downpayment_min_order" name="cod_downpayment_min_order" type="number" min="0" step="0.01"
                        value="{{ old('cod_downpayment_min_order', $num($s['cod_downpayment_min_order'] ?? null)) }}" placeholder="Not set">
-                <p class="note">Not set: every Cash on Delivery order needs the downpayment.</p></div>
+                <p class="note">Not set: every Cash on Counter Pickup order needs the downpayment.</p></div>
             <div class="field"><label for="cod_downpayment_expiry_minutes">Cancel an unpaid order after (minutes)</label>
                 <input class="light-input" id="cod_downpayment_expiry_minutes" name="cod_downpayment_expiry_minutes" type="number" min="5" max="1440" step="1"
                        value="{{ old('cod_downpayment_expiry_minutes', $s['cod_downpayment_expiry_minutes'] ?? null) }}" placeholder="Not set">
                 <p class="note">Its stock, points and voucher are returned. A payment that arrives later is refunded.</p></div>
+            <div class="field"><label for="cod_downpayment_pickup_days">Customers must pick up within (days)</label>
+                <input class="light-input" id="cod_downpayment_pickup_days" name="cod_downpayment_pickup_days" type="number" min="1" max="30" step="1"
+                       value="{{ old('cod_downpayment_pickup_days', $s['cod_downpayment_pickup_days'] ?? null) }}" placeholder="Not set">
+                <p class="note">Counted from when staff mark the order Ready for Pickup. After that the order is cancelled, its stock is returned, and the shop keeps the downpayment. If the shop cancels instead, the downpayment is refunded.</p></div>
             <button class="btn-solid" type="submit">Save settings</button>
         </form>
     </x-card>

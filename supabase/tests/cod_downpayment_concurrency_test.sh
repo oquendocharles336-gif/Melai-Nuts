@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Melai Nuts — races for the Cash on Delivery downpayment (migration 20261101083000)
+# Melai Nuts — races for the pickup downpayment (migrations 20261101083000, 20261101120000)
 # =============================================================================
 #   1. N "paid" events at once, for one order          -> one release, one notification
 #   2. A "paid" event while the time limit runs out    -> one clean outcome, either way:
@@ -52,7 +52,7 @@ SQL
   "${PSQL[@]}" >/dev/null 2>&1 <<'SQL'
 update public.business_settings
    set cod_downpayment_type = null, cod_downpayment_value = null,
-       cod_downpayment_min_order = null, cod_downpayment_expiry_minutes = null
+       cod_downpayment_min_order = null, cod_downpayment_expiry_minutes = null, cod_downpayment_pickup_days = null
  where id = 'default';
 SQL
 }
@@ -86,19 +86,18 @@ insert into public.customer_addresses (firebase_uid, recipient_name, phone, line
 values ('dpc-cust', 'Cust', '09170000021', '1 Test St', 'Calamba', 14.205, 121.156);
 update public.payment_settings set online_payment_enabled = true where id = 'default';
 insert into public.business_settings (id) values ('default') on conflict (id) do nothing;
-update public.business_settings set cod_downpayment_type = 'percent', cod_downpayment_value = 30, cod_downpayment_expiry_minutes = 30 where id = 'default';
+update public.business_settings set cod_downpayment_type = 'percent', cod_downpayment_value = 30, cod_downpayment_expiry_minutes = 30, cod_downpayment_pickup_days = 2 where id = 'default';
 SQL
 
 BA=$("${PSQL[@]}" -c "select id from public.branches where name = 'DPC-A'")
 PROD=$("${PSQL[@]}" -c "select id from public.products where name = 'DPC-Nut'")
 VAR=$("${PSQL[@]}" -c "select v.id from public.product_variants v where v.product_id = '$PROD'")
-ADDR=$("${PSQL[@]}" -c "select id from public.customer_addresses where firebase_uid = 'dpc-cust'")
 stock() { "${PSQL[@]}" -c "select quantity from public.branch_inventory where branch_id = '$BA' and variant_id = '$VAR'"; }
 
 new_order() { # idempotency key
   local cart
   cart=$(as_user dpc-cust "select (public.sync_customer_cart('$BA', jsonb_build_array(jsonb_build_object('product_id','$PROD','variant_id','$VAR','quantity',1)), null, false) ->> 'cart_id')" | tail -1)
-  as_user dpc-cust "select public.place_order('$cart', true, '$ADDR', 'Cash on Delivery', '', '$1')" | tail -1
+  as_user dpc-cust "select public.place_order('$cart', false, null, 'Cash on Counter Pickup', '', '$1')" | tail -1
 }
 
 tmp="$(mktemp -d)"

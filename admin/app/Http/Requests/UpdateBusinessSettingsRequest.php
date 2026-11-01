@@ -28,6 +28,7 @@ class UpdateBusinessSettingsRequest extends FormRequest
             'cod_downpayment_value' => ['nullable', 'numeric', 'gt:0', 'max:1000000', 'decimal:0,2'],
             'cod_downpayment_min_order' => ['nullable', 'numeric', 'gt:0', 'max:100000000', 'decimal:0,2'],
             'cod_downpayment_expiry_minutes' => Rules::quantity(5, 1440, false),
+            'cod_downpayment_pickup_days' => Rules::quantity(1, 30, false),
         ];
     }
 

@@ -99,7 +99,7 @@ class OrdersRepository {
       ' order_status_events(id,order_id,status,note,created_at),'
       ' payments(id,order_id,firebase_uid,method,status,amount,reference_number,created_at,updated_at,'
       'gateway,gateway_payment_id,gateway_checkout_url),'
-      ' order_downpayments(amount,status,expires_at)';
+      ' order_downpayments(amount,status,expires_at,percent,pickup_days)';
 
   /// The customer's most recent orders kept in memory (dashboard, active
   /// order, loyalty). Older ones are read page by page ([fetchOrdersPage]).

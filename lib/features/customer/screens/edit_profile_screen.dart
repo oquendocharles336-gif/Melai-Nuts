@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/config/delivery_config.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
@@ -226,9 +227,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 autofillHints: const [AutofillHints.telephoneNumber],
                 inputFormatters: InputRules.phone(),
                 hint: '09171234567',
-                helperText: '11 digits. Used by the rider to reach you about a delivery.',
+                helperText: '11 digits. Used to reach you about your order.',
                 validator: ValidationUtils.validateMobile,
               ),
+              if (DeliveryConfig.customerDeliveryEnabled) ...[
               const SizedBox(height: 14),
               Text('DELIVERY ADDRESS', style: AppTextStyles.labelSm),
               const SizedBox(height: 4),
@@ -269,6 +271,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   );
                 },
               ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(
                 label: 'Save Profile Changes',

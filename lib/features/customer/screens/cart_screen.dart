@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/config/delivery_config.dart';
 import '../../../core/utils/input_rules.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/confirm_dialog.dart';
@@ -264,9 +265,10 @@ class _CartScreenState extends State<CartScreen> {
                       _SummaryRow('Promo Discount (${cart.appliedVoucherCode})', '-₱${cart.voucherDiscount.toStringAsFixed(0)}', valueColor: AppColors.success),
                     if (cart.redeemPoints)
                       _SummaryRow('Loyalty Points Discount', '-₱${cart.loyaltyDiscount.toStringAsFixed(0)}', valueColor: AppColors.success),
-                    _SummaryRow('Est. Delivery Fee', '₱${cart.deliveryFee.toStringAsFixed(0)}'),
+                    if (DeliveryConfig.customerDeliveryEnabled)
+                      _SummaryRow('Est. Delivery Fee', '₱${cart.deliveryFee.toStringAsFixed(0)}'),
                     const Divider(height: 20),
-                    _SummaryRow('Total Payable', '₱${cart.total.toStringAsFixed(0)}', isTotal: true),
+                    _SummaryRow('Total Payable', '₱${cart.displayTotal.toStringAsFixed(0)}', isTotal: true),
                     Text('The final total is confirmed by the branch when you place the order.', style: AppTextStyles.bodySm),
                   ],
                 ),

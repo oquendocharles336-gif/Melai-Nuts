@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/config/delivery_config.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/customer_data_store.dart';
@@ -255,7 +256,7 @@ class CustomerProfileScreen extends StatelessWidget {
                   _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
                   // Masked: the full number is only needed when editing it.
                   _FieldRow(label: 'MOBILE NUMBER', value: phone.isEmpty ? 'Not set' : maskPhone(phone)),
-                  const _DeliveryAddressRow(),
+                  if (DeliveryConfig.customerDeliveryEnabled) const _DeliveryAddressRow(),
                   const SizedBox(height: 10),
                   SecondaryButton(
                     label: 'Edit Profile Information',
@@ -299,17 +300,19 @@ class CustomerProfileScreen extends StatelessWidget {
                     subtitle: 'Order updates & promos',
                     onTap: () => Navigator.of(context).pushNamed(AppRoutes.notificationSettings),
                   ),
-                  const Divider(height: 1),
-                  _SettingsTile(
-                    icon: Icons.location_on_outlined,
-                    title: 'Saved Addresses',
-                    subtitle: addresses.isEmpty
-                        ? 'No address saved'
-                        : '${addresses.length} address${addresses.length == 1 ? '' : 'es'} saved',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const SavedAddressesScreen()),
+                  if (DeliveryConfig.customerDeliveryEnabled) ...[
+                    const Divider(height: 1),
+                    _SettingsTile(
+                      icon: Icons.location_on_outlined,
+                      title: 'Saved Addresses',
+                      subtitle: addresses.isEmpty
+                          ? 'No address saved'
+                          : '${addresses.length} address${addresses.length == 1 ? '' : 'es'} saved',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SavedAddressesScreen()),
+                      ),
                     ),
-                  ),
+                  ],
                   const Divider(height: 1),
                   _SettingsTile(
                     icon: Icons.favorite_border_rounded,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/config/delivery_config.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/branch_controller.dart';
@@ -131,7 +132,7 @@ class _BranchSettingsScreenState extends State<BranchSettingsScreen> {
                         Text('Choose your branch', style: AppTextStyles.titleMd),
                         const SizedBox(height: 4),
                         Text(
-                          'Sets which branch\'s stock, pricing, and delivery options you see.',
+                          'Sets which branch\'s stock and pricing you see.',
                           style: AppTextStyles.bodySm,
                         ),
                         const SizedBox(height: AppSpacing.md),
@@ -316,10 +317,11 @@ class _BranchCard extends StatelessWidget {
                   _InfoPill(icon: Icons.call_outlined, label: branch.contactPhone!),
                 if (branch.operatingHours != null && branch.operatingHours!.isNotEmpty)
                   _InfoPill(icon: Icons.access_time_rounded, label: branch.operatingHours!),
-                _InfoPill(
-                  icon: Icons.delivery_dining_outlined,
-                  label: branch.supportsDelivery ? 'Delivery available' : 'Pickup only',
-                ),
+                if (DeliveryConfig.customerDeliveryEnabled)
+                  _InfoPill(
+                    icon: Icons.delivery_dining_outlined,
+                    label: branch.supportsDelivery ? 'Delivery available' : 'Pickup only',
+                  ),
                 if (branch.supportsPickup)
                   const _InfoPill(icon: Icons.store_mall_directory_outlined, label: 'Pickup available'),
               ],

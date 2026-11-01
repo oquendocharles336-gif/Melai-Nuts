@@ -231,7 +231,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                         textInputAction: TextInputAction.next,
                         inputFormatters: InputRules.phone(),
                         hint: '0917 123 4567',
-                        helperText: 'Used by the rider to reach you about a delivery.',
+                        helperText: 'Used to reach you about your order.',
                         validator: ValidationUtils.validatePhone,
                       ),
                       const SizedBox(height: 14),

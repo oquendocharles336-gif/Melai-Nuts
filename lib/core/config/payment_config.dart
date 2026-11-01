@@ -1,7 +1,7 @@
 /// Which payment methods customers may use right now.
 ///
 /// Customers can pay online through HitPay's hosted checkout (GCash, QR Ph,
-/// card), by Cash on Delivery, or by Cash on Counter Pickup; in-store POS
+/// card) or by Cash on Counter Pickup; in-store POS
 /// sales (cash, in-store GCash / card reference) are not affected.
 ///
 /// Online payment is offered only when BOTH switches are on:
@@ -22,7 +22,7 @@ class PaymentConfig {
   /// Shown only when the database message cannot be read (e.g. no connection);
   /// the normal text comes from `payment_settings.online_payment_disabled_message`.
   static const String onlinePaymentDisabledMessage =
-      'Online payment is temporarily unavailable. Please choose Cash on Delivery or Cash on Counter Pickup.';
+      'Online payment is temporarily unavailable. Please choose Cash on Counter Pickup.';
 
   /// The `orders.payment_method` labels paid through HitPay (the current
   /// checkout label and the older ones the database still accepts).

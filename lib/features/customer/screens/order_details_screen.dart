@@ -8,6 +8,7 @@ import 'package:melai_nuts/core/theme/app_text_styles.dart';
 import 'package:melai_nuts/core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/models/order.dart';
 import 'package:melai_nuts/features/payments/screens/online_payment_screen.dart';
+import 'package:melai_nuts/features/customer/widgets/downpayment_note.dart';
 import 'package:melai_nuts/features/customer/widgets/order_refund_info.dart';
 import 'package:melai_nuts/features/customer/widgets/order_status_badge.dart';
 import 'package:melai_nuts/features/customer/screens/order_tracking_screen.dart';
@@ -23,6 +24,12 @@ class OrderDetailsScreen extends StatelessWidget {
   /// An online (HitPay) order that is not paid yet and can still be paid:
   /// the customer can reopen the payment page from here. The Edge Function
   /// re-checks all of this server-side.
+  /// The note explains the downpayment only while it is still unpaid.
+  bool get _showDownpaymentNote {
+    final d = order.downpayment;
+    return order.status == OrderStatus.awaitingDownpayment && d != null && d.isOpen && d.pickupDays != null;
+  }
+
   bool get _canPayOnline {
     if (!PaymentConfig.onlinePaymentEnabled) return false;
     final downpayment = order.downpayment;
@@ -260,6 +267,15 @@ class OrderDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.lg),
 
+            if (_showDownpaymentNote) ...[
+              DownpaymentNote(
+                percent: order.downpayment!.percent,
+                amount: order.downpayment!.amount,
+                pickupDays: order.downpayment!.pickupDays!,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+
             // Action Buttons
             if (_canPayOnline) ...[
               ElevatedButton.icon(
@@ -297,7 +313,7 @@ class OrderDetailsScreen extends StatelessWidget {
   }
 }
 
-/// How a Cash on Delivery order is split between its downpayment and its cash balance.
+/// How a pickup order is split between its downpayment and its cash balance.
 class _DownpaymentLines extends StatelessWidget {
   final Order order;
 
@@ -308,7 +324,9 @@ class _DownpaymentLines extends StatelessWidget {
     final d = order.downpayment!;
     final limit = d.expiresAt;
     final String state;
-    if (d.status == 'refunded') {
+    if (d.isForfeited) {
+      state = 'Kept: not picked up in time';
+    } else if (d.status == 'refunded') {
       state = 'Refunded';
     } else if (d.isPaid) {
       state = 'Paid';
@@ -334,7 +352,7 @@ class _DownpaymentLines extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Cash on delivery', style: AppTextStyles.bodyMd),
+              Text('Cash at pickup', style: AppTextStyles.bodyMd),
               Text('₱${order.cashBalance.toStringAsFixed(2)}', style: AppTextStyles.labelLg),
             ],
           ),
