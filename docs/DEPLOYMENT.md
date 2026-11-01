@@ -107,7 +107,7 @@ select cron.schedule('melai-push-dispatch', '* * * * *', $$
       (select decrypted_secret from vault.decrypted_secrets where name = 'push_dispatch_secret')))
 $$);
 select cron.schedule('melai-expiry-alerts', '0 23 * * *', $$ select public.enqueue_expiring_batch_alerts() $$);  -- 07:00 Manila
-select cron.schedule('melai-cod-downpayment-expiry', '* * * * *', $$ select public.expire_unpaid_cod_downpayments() $$);  -- cancels unpaid Cash on Delivery orders
+select cron.schedule('melai-cod-downpayment-expiry', '* * * * *', $$ select public.expire_unpaid_cod_downpayments() $$);  -- cancels unpaid pickup orders and orders not picked up in time
 select cron.schedule('melai-owner-digest',  '5 23 * * *', $$ select public.enqueue_owner_daily_digest() $$);   -- 07:05 Manila
 ```
 
