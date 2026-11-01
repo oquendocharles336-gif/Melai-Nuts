@@ -3,6 +3,7 @@ import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/motion.dart';
 import '../../../data/models/product.dart';
 
@@ -89,7 +90,7 @@ class ProductCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
           border: Border.all(color: AppColors.border),
           boxShadow: AppShadows.md,
         ),
@@ -120,12 +121,12 @@ class ProductCard extends StatelessWidget {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.darkBrown,
+                        color: AppColors.honey,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         product.badge!,
-                        style: AppTextStyles.labelSm.copyWith(color: Colors.white),
+                        style: AppTextStyles.labelSm.copyWith(color: AppColors.ink),
                       ),
                     ),
                   ),
@@ -188,15 +189,12 @@ class ProductCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '₱${product.price.toStringAsFixed(0)}',
-                        style: AppTextStyles.headlineSm.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w800,
-                        ),
+                        pesoWhole(product.price),
+                        style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
                       ),
                       if (product.originalPrice != null)
                         Text(
-                          '₱${product.originalPrice!.toStringAsFixed(0)}',
+                          pesoWhole(product.originalPrice!),
                           style: AppTextStyles.bodySm.copyWith(
                             decoration: TextDecoration.lineThrough,
                           ),
@@ -257,28 +255,19 @@ class _AddButton extends StatelessWidget {
         ),
       );
     }
-    return Pressable(
-      onTap: onAdd,
-      pressedScale: 0.88,
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.productCardGradientStart, AppColors.primaryDark],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.35),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+    return Semantics(
+      button: true,
+      label: 'Add to cart',
+      excludeSemantics: true,
+      child: Pressable(
+        onTap: onAdd,
+        pressedScale: 0.88,
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.primary),
+          child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
         ),
-        child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
       ),
     );
   }

@@ -23,7 +23,7 @@ class BusinessSettingsTest extends TestCase
 
         $this->signedIn($owner)->get('/admin/business-settings')->assertOk()
             ->assertSee('Business settings')->assertSee('Not set: customers earn no points yet')
-            ->assertSee('Not set: points cannot be redeemed yet')->assertSee('Off (owner decision)', false)
+            ->assertSee('Not set: points cannot be redeemed yet')->assertSee('Off. Customers pay by Cash on Delivery', false)
             ->assertSee('Calamba Branch')->assertSee('Los Baños Branch');
 
         $page = $this->signedIn($owner)->get('/dashboard')->assertOk()->assertSee('No target set');

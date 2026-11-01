@@ -44,8 +44,8 @@ class _OwnerPortalScreenState extends State<OwnerPortalScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Owner Dashboard', style: AppTextStyles.labelLg),
-                Text('All branches', style: AppTextStyles.bodySm),
+                Text('Owner Dashboard', style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
+                Text('All branches', style: AppTextStyles.bodySm.copyWith(color: Colors.white)),
               ],
             ),
           ],

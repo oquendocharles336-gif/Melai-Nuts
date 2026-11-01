@@ -28,8 +28,8 @@ class ActiveDeliveryScreen extends StatelessWidget {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('ACTIVE DISPATCH', style: AppTextStyles.labelSm),
-            Text(delivery.id, style: AppTextStyles.titleMd),
+            Text('ACTIVE DISPATCH', style: AppTextStyles.labelSm.copyWith(color: Colors.white)),
+            Text(delivery.id, style: AppTextStyles.titleMd.copyWith(color: Colors.white)),
           ],
         ),
       ),

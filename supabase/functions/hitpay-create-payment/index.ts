@@ -16,8 +16,8 @@
 // default 60: a stored link older than this is never reused; keep it at or below HitPay's expiry). SUPABASE_URL / SUPABASE_ANON_KEY /
 // SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 //
-// OWNER DECISION: online payment is OFF. While public.payment_settings says so
-// (or cannot be read), this function refuses with the database's message.
+// While public.payment_settings switches online payment off (or cannot be
+// read), this function refuses with the database's message.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { makeHandler } from "./handler.ts";
 

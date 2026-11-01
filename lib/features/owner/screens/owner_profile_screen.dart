@@ -3,7 +3,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/staff_data_scope.dart';
-import '../../../core/widgets/secondary_button.dart';
 import '../../settings/screens/logout_flow.dart';
 import '../../settings/screens/settings_screen.dart';
 
@@ -96,11 +95,7 @@ class OwnerProfileBody extends StatelessWidget {
           )),
         ),
         const SizedBox(height: AppSpacing.lg),
-        SecondaryButton(
-          label: 'Log Out',
-          icon: Icons.logout_rounded,
-          onPressed: () => confirmAndLogOut(context),
-        ),
+        const LogOutButton(),
       ],
     );
   }

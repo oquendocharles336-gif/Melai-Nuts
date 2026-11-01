@@ -162,8 +162,8 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Driver', style: AppTextStyles.labelLg),
-                  Text(_context?.branchName ?? '—', style: AppTextStyles.bodySm, overflow: TextOverflow.ellipsis),
+                  Text('Driver', style: AppTextStyles.labelLg.copyWith(color: Colors.white)),
+                  Text(_context?.branchName ?? '—', style: AppTextStyles.bodySm.copyWith(color: Colors.white), overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
@@ -715,11 +715,7 @@ class _DriverPortalScreenState extends State<DriverPortalScreen> {
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        SecondaryButton(
-          label: 'Log Out',
-          icon: Icons.logout_rounded,
-          onPressed: () => confirmAndLogOut(context, beforeSignOut: _tracker.stop),
-        ),
+        LogOutButton(beforeSignOut: _tracker.stop),
       ],
     );
   }

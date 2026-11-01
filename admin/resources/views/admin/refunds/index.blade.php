@@ -9,7 +9,7 @@ $tone = ['requested' => 'average', 'approved_processing' => 'info', 'rejected' =
 
 @include('partials.flash')
 
-<p class="muted">Refund requests made in the Melai Nuts app. The amount is fixed by the request (partial refunds cover only the returned items) and can never be more than what was paid minus refunds already completed on the order. Once completed it is deducted from net sales on the day it completed, everywhere (dashboard, reports, the app). Cash refunds are completed in one step. Online (GCash / Maya / card) refunds are approved here, then sent back with "Send via HitPay" (needs HITPAY_API_KEY), or refunded from the HitPay dashboard and marked refunded with the reference.</p>
+<p class="muted">Refund requests made in the Melai Nuts app. The amount is fixed by the request (partial refunds cover only the returned items) and can never be more than what was paid minus refunds already completed on the order. Once completed it is deducted from net sales on the day it completed, everywhere (dashboard, reports, the app). Cash refunds are completed in one step. Online (GCash, QR Ph, card) refunds are approved here, then sent back with "Send via HitPay" (needs HITPAY_API_KEY), or refunded from the HitPay dashboard and marked refunded with the reference.</p>
 
 <form method="GET" class="card filter-row">
     <select class="light-input" name="status" onchange="this.form.requestSubmit()">

@@ -22,12 +22,14 @@ class AppSpacing {
   static const double radiusLg = 24; // modals, drawers, hero cards
 }
 
+/// Kept deliberately soft: the design relies on whitespace and hairline
+/// borders more than on drop shadows.
 class AppShadows {
   AppShadows._();
 
   static List<BoxShadow> get sm => [
     BoxShadow(
-      color: const Color(0xFF201B15).withValues(alpha: 0.05),
+      color: const Color(0xFF3B2114).withValues(alpha: 0.06),
       blurRadius: 10,
       offset: const Offset(0, 4),
     ),
@@ -35,7 +37,7 @@ class AppShadows {
 
   static List<BoxShadow> get md => [
     BoxShadow(
-      color: const Color(0xFF201B15).withValues(alpha: 0.08),
+      color: const Color(0xFF3B2114).withValues(alpha: 0.08),
       blurRadius: 16,
       offset: const Offset(0, 6),
     ),
@@ -43,7 +45,7 @@ class AppShadows {
 
   static List<BoxShadow> get lg => [
     BoxShadow(
-      color: const Color(0xFF201B15).withValues(alpha: 0.12),
+      color: const Color(0xFF3B2114).withValues(alpha: 0.12),
       blurRadius: 24,
       offset: const Offset(0, 8),
     ),

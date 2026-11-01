@@ -26,8 +26,8 @@ class InputRules {
   /// Philippine mobile numbers: digits, "+", spaces and dashes, max 16.
   /// Use with `TextInputType.phone`.
   static List<TextInputFormatter> phone() => [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s-]')),
-        LengthLimitingTextInputFormatter(InputLimits.phone),
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(InputLimits.mobileDigits),
       ];
 
   /// The 6-digit e-mail verification code. Use with `TextInputType.number`.

@@ -58,6 +58,32 @@ class StaffStore extends ChangeNotifier {
   final LoadState profileState = LoadState();
   String? _ownerBranchId;
 
+  /// Saves a new profile picture for the signed-in staff member.
+  Future<void> setProfilePhoto(Uint8List bytes, {required String contentType}) async {
+    final current = profile;
+    if (current == null) return;
+    final path = await StaffRepository.instance.uploadProfilePhoto(
+      uid: current.uid,
+      bytes: bytes,
+      contentType: contentType,
+    );
+    final old = current.profileImage;
+    profile = current.withProfileImage(path);
+    notifyListeners();
+    if (old != null && old.isNotEmpty) unawaited(StaffRepository.instance.deleteProfilePhotoFile(old));
+  }
+
+  /// Removes the signed-in staff member's profile picture.
+  Future<void> removeProfilePhoto() async {
+    final current = profile;
+    final old = current?.profileImage;
+    if (current == null || old == null || old.isEmpty) return;
+    await StaffRepository.instance.clearProfilePhoto();
+    profile = current.withProfileImage(null);
+    notifyListeners();
+    unawaited(StaffRepository.instance.deleteProfilePhotoFile(old));
+  }
+
   bool get isOwner => profile?.isOwner ?? false;
   bool get canManageInventory => profile?.canManageInventory ?? false;
   bool get canReviewRefunds => profile?.canReviewRefunds ?? false;

@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Customers: your location is used once, when you tap "Use my location", to pin your delivery address. Riders: your location is shared only while a delivery run is out, so customers can follow it.</string>
+	<string>Customers: your location is used once when you open the store, to find your nearest branch, and when you pin your delivery address. It is not stored until you save an address or order. Riders: your location is shared only while a delivery run is out, so customers can follow it.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Cashiers: the camera scans product barcodes at the register. Riders: the camera takes a proof-of-delivery photo. Nothing else is recorded.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Melai Nuts never reads your photo library. iOS requires this text because the camera tool used for proof-of-delivery photos can also open the library.</string>
+	<string>Staff can choose a profile picture from their photos. Melai Nuts only sees the photo you pick.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

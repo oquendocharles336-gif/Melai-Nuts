@@ -88,6 +88,13 @@ class CustomerDataStore extends ChangeNotifier {
   CustomerProfile? profile;
   List<CustomerAddress> addresses = [];
 
+  /// False until the saved addresses have been read at least once, so a screen
+  /// can tell "none saved" apart from "not known yet".
+  bool addressesLoaded = false;
+
+  /// The last attempt to read the saved addresses failed.
+  bool addressesFailed = false;
+
   final List<Order> orders = <Order>[];
   final List<LoyaltyPointTransaction> loyaltyTransactions = <LoyaltyPointTransaction>[];
   final List<RewardItem> rewards = <RewardItem>[];
@@ -343,7 +350,11 @@ class CustomerDataStore extends ChangeNotifier {
           ..addAll(paymentList);
       }
       final addressList = results[7] as List<CustomerAddress>?;
-      if (addressList != null) addresses = addressList;
+      if (addressList != null) {
+        addresses = addressList;
+        addressesLoaded = true;
+      }
+      addressesFailed = addressList == null;
       final fetchedProfile = results[8] as CustomerProfile?;
       if (fetchedProfile != null) profile = _withPendingProfileChange(firebaseUid, fetchedProfile);
 
@@ -465,7 +476,29 @@ class CustomerDataStore extends ChangeNotifier {
   /// `refresh()` re-fetch of every other customer record just to update one.
   void setAddresses(List<CustomerAddress> updated) {
     addresses = updated;
+    addressesLoaded = true;
+    addressesFailed = false;
     notifyListeners();
+  }
+
+  /// Reads just the saved addresses again. Never throws.
+  Future<void> refreshAddresses() async {
+    final uid = _uid ?? _requestedUid;
+    if (uid == null) return;
+    final generation = _generation;
+    try {
+      final fetched = await AppErrors.guard(
+        () => CustomerProfileRepository.instance.fetchAddresses(uid),
+        timeout: AppErrors.rpcTimeout,
+      );
+      if (generation != _generation) return;
+      setAddresses(fetched);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'customer_data_store:refreshAddresses');
+      if (generation != _generation) return;
+      addressesFailed = true;
+      notifyListeners();
+    }
   }
 
   // ---- Realtime -------------------------------------------------------------
@@ -703,6 +736,8 @@ class CustomerDataStore extends ChangeNotifier {
     earnPesosPerPoint = null;
     profile = null;
     addresses = [];
+    addressesLoaded = false;
+    addressesFailed = false;
     lastSyncedAt = null;
     deviceCopyShownAt = null;
     orders.clear();

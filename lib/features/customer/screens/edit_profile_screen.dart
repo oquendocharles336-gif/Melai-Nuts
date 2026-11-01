@@ -8,12 +8,16 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/utils/form_utils.dart';
 import '../../../core/utils/input_rules.dart';
+import '../../../core/utils/person_name.dart';
+import '../../../core/utils/phone_utils.dart';
+import '../../../core/widgets/person_name_fields.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/services/pending_writes_service.dart';
 import '../../../data/models/customer_profile.dart';
+import 'saved_addresses_screen.dart';
 
 /// Edits the customer's real profile (`customer_profiles` in Supabase).
 /// Email isn't editable here — it's the Firebase Auth login identity, so
@@ -28,13 +32,14 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  late final _nameController = TextEditingController(
-    text: CustomerDataStore.instance.profile?.fullName ??
-        AuthService.instance.currentProfile?.name ??
-        '',
+  late final PersonName _startingName = PersonName.parse(
+    CustomerDataStore.instance.profile?.fullName ?? AuthService.instance.currentProfile?.name ?? '',
   );
+  late final _firstNameController = TextEditingController(text: _startingName.first);
+  late final _middleInitialController = TextEditingController(text: _startingName.middleInitial);
+  late final _lastNameController = TextEditingController(text: _startingName.last);
   late final _phoneController =
-      TextEditingController(text: CustomerDataStore.instance.profile?.phone ?? '');
+      TextEditingController(text: PhoneUtils.toLocal(CustomerDataStore.instance.profile?.phone ?? ''));
   final String _email = AuthService.instance.currentFirebaseUser?.email ??
       CustomerDataStore.instance.profile?.email ??
       '';
@@ -42,16 +47,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final String _initialName;
   late final String _initialPhone;
 
+  /// The one name value the account stores: "Juan D. Dela Cruz".
+  String get _fullName => PersonName(
+        first: _firstNameController.text,
+        middleInitial: _middleInitialController.text,
+        last: _lastNameController.text,
+      ).fullName;
+
   bool get _dirty =>
-      _nameController.text.trim() != _initialName.trim() ||
+      _fullName != _initialName ||
       _phoneController.text.trim() != _initialPhone.trim();
 
   @override
   void initState() {
     super.initState();
-    _initialName = _nameController.text;
+    _initialName = _fullName;
     _initialPhone = _phoneController.text;
-    _nameController.addListener(_onEdited);
+    _firstNameController.addListener(_onEdited);
+    _middleInitialController.addListener(_onEdited);
+    _lastNameController.addListener(_onEdited);
     _phoneController.addListener(_onEdited);
   }
 
@@ -59,7 +73,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _firstNameController.dispose();
+    _middleInitialController.dispose();
+    _lastNameController.dispose();
     _phoneController.dispose();
     super.dispose();
   }
@@ -77,7 +93,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     setState(() => _saving = true);
     try {
-      final name = _nameController.text.trim();
+      final name = _fullName;
       // Stored as E.164 (+639171234567), the one phone format in the database.
       final phone = ValidationUtils.normalizePhone(_phoneController.text);
       final outcome = await PendingWritesService.instance.run(
@@ -94,7 +110,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Profile updated.')),
           );
-          _nameController.removeListener(_onEdited);
+          _firstNameController.removeListener(_onEdited);
+          _middleInitialController.removeListener(_onEdited);
+          _lastNameController.removeListener(_onEdited);
           _phoneController.removeListener(_onEdited);
           Navigator.of(context).pop();
         case WriteOutcomeKind.queued:
@@ -108,7 +126,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               duration: Duration(seconds: 5),
             ),
           );
-          _nameController.removeListener(_onEdited);
+          _firstNameController.removeListener(_onEdited);
+          _middleInitialController.removeListener(_onEdited);
+          _lastNameController.removeListener(_onEdited);
           _phoneController.removeListener(_onEdited);
           Navigator.of(context).pop();
         case WriteOutcomeKind.rejected:
@@ -140,6 +160,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         title: const Text('Edit Profile'),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.gold),
             onPressed: _saving ? null : _save,
             child: const Text('Save'),
           ),
@@ -161,23 +182,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      _nameController.text.isNotEmpty ? _nameController.text[0].toUpperCase() : 'U',
+                      _firstNameController.text.isNotEmpty ? _firstNameController.text[0].toUpperCase() : 'U',
                       style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary),
                     ),
                   ),
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              AppTextField(
-                label: 'Full Name',
-                controller: _nameController,
-                prefixIcon: Icons.person_outline_rounded,
-                keyboardType: TextInputType.name,
-                textCapitalization: TextCapitalization.words,
-                autofillHints: const [AutofillHints.name],
-                textInputAction: TextInputAction.next,
-                maxLength: InputLimits.name,
-                validator: (v) => ValidationUtils.validateName(v, 'Full Name'),
+              PersonNameFields(
+                first: _firstNameController,
+                middleInitial: _middleInitialController,
+                last: _lastNameController,
               ),
               const SizedBox(height: 14),
               Text('EMAIL ADDRESS', style: AppTextStyles.labelSm),
@@ -210,9 +225,49 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 keyboardType: TextInputType.phone,
                 autofillHints: const [AutofillHints.telephoneNumber],
                 inputFormatters: InputRules.phone(),
-                hint: '0917 123 4567',
-                helperText: 'Used by the rider to reach you about a delivery.',
-                validator: ValidationUtils.validatePhone,
+                hint: '09171234567',
+                helperText: '11 digits. Used by the rider to reach you about a delivery.',
+                validator: ValidationUtils.validateMobile,
+              ),
+              const SizedBox(height: 14),
+              Text('DELIVERY ADDRESS', style: AppTextStyles.labelSm),
+              const SizedBox(height: 4),
+              ListenableBuilder(
+                listenable: CustomerDataStore.instance,
+                builder: (context, _) {
+                  final address = CustomerDataStore.instance.defaultAddress;
+                  return Material(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SavedAddressesScreen()),
+                      ),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.location_on_outlined, size: 18, color: AppColors.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                address?.fullAddress ?? 'Add a delivery address',
+                                style: AppTextStyles.bodyMd,
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded, color: AppColors.primary),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(

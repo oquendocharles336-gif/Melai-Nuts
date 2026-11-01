@@ -431,20 +431,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         backgroundColor: AppColors.canvas,
         extendBodyBehindAppBar: true,
         appBar: AppBar(
-          backgroundColor: Colors.transparent,
           elevation: 0,
           scrolledUnderElevation: 0,
-          foregroundColor: AppColors.darkBrown,
         ),
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [AppColors.primaryContainer, AppColors.surface, AppColors.canvas],
-              stops: [0.0, 0.35, 0.7],
-            ),
-          ),
+          color: AppColors.canvas,
           child: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(

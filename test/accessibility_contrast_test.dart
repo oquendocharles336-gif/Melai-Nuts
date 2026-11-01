@@ -18,8 +18,10 @@ double contrast(Color a, Color b) {
 void main() {
   const surfaces = {
     'white': Colors.white,
+    'ivory': AppColors.ivory,
     'canvas': AppColors.canvas,
     'surfaceContainerLow': AppColors.surfaceContainerLow,
+    'inputFill': AppColors.inputFill,
     'warningBg': AppColors.warningBg,
     'successBg': AppColors.successBg,
     'errorBg': AppColors.errorBg,
@@ -44,5 +46,35 @@ void main() {
 
   test('white text on the primary button colour meets WCAG AA', () {
     expect(contrast(Colors.white, AppColors.primary), greaterThanOrEqualTo(4.5));
+  });
+
+  test('white and gold text on the hero gradient meet WCAG AA', () {
+    for (final background in const [AppColors.heroGradientStart, AppColors.heroGradientEnd]) {
+      expect(contrast(Colors.white, background), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppColors.gold, background), greaterThanOrEqualTo(4.5));
+    }
+  });
+
+  test('dark and orange text on the sunny background meet WCAG AA', () {
+    for (final background in const [AppColors.sunStart, AppColors.sunEnd]) {
+      expect(contrast(AppColors.ink, background), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppColors.primaryDark, background), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppColors.textMuted, background), greaterThanOrEqualTo(4.5));
+    }
+  });
+
+  test('dark text on the honey rewards card meets WCAG AA', () {
+    for (final background in const [AppColors.honey, AppColors.honeyDeep]) {
+      expect(contrast(AppColors.ink, background), greaterThanOrEqualTo(4.5));
+    }
+  });
+
+  test('cream labels on dark brown meet WCAG AA', () {
+    expect(contrast(AppColors.gold, AppColors.darkBrown), greaterThanOrEqualTo(4.5));
+  });
+
+  test('primary (accent) text on white and on the canvas meets WCAG AA', () {
+    expect(contrast(AppColors.primary, Colors.white), greaterThanOrEqualTo(4.5));
+    expect(contrast(AppColors.primary, AppColors.canvas), greaterThanOrEqualTo(4.5));
   });
 }

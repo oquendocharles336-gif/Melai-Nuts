@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/luxe.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -91,7 +92,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
         ProductsRepository.instance,
         BranchController.instance,
       ]),
-      builder: (context, _) => _buildScaffold(context),
+      builder: (context, _) => LuxeBackground(child: _buildScaffold(context)),
     );
   }
 
@@ -126,9 +127,9 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text('Product Catalog'),
+      backgroundColor: Colors.transparent,
+      appBar: LuxeAppBar(
+        title: 'Product Catalog',
         actions: [
           IconButton(tooltip: 'Search', 
             icon: const Icon(Icons.search_rounded),
@@ -298,7 +299,7 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                       vertical: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.darkBrown,
+                      color: AppColors.primary,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: AppShadows.md,
                     ),

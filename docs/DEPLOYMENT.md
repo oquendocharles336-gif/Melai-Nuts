@@ -4,10 +4,11 @@ One page for putting the whole platform live: database, Edge Functions, Firebase
 website and the mobile app. Each step says where the details are. Do **staging first**, then
 production in the same order.
 
-> **Owner decision:** online payment (HitPay: GCash, Maya, card) stays **OFF**. Do not set the HitPay
-> secrets, do not deploy the HitPay functions for customers, keep `payment_settings.online_payment_enabled
-> = false` and `ONLINE_PAYMENT_ENABLED=false`. Customers pay Cash on Delivery or Cash on Counter Pickup;
-> in-store POS sales work as before.
+> **Online payment (HitPay: GCash, QR Ph, card) is ON.** Set the HitPay secrets and deploy
+> `hitpay-create-payment` + `hitpay-webhook` (`supabase/functions/README.md` §2–3) **before** applying
+> migration `20261031034858_enable_online_payment.sql`. Customers can also pay Cash on Delivery or Cash
+> on Counter Pickup; in-store POS sales work as before. To run cash-only, set
+> `payment_settings.online_payment_enabled = false` and build with `ONLINE_PAYMENT_ENABLED=false`.
 
 ---
 
@@ -21,7 +22,7 @@ Tick each line on staging, then again on production. Nothing here is done by the
       `google-services.json` / `GoogleService-Info.plist` downloaded (not committed).
 - [ ] `env/firebase.json` and `env/supabase.json` filled from the `*.example.json` files, including the
       newer keys `FIREBASE_PROJECT_ID`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_STORAGE_BUCKET`,
-      `FIREBASE_AUTH_DOMAIN`, `FIREBASE_IOS_BUNDLE_ID`, `FIREBASE_APP_ID_*`; `ONLINE_PAYMENT_ENABLED` = `"false"`.
+      `FIREBASE_AUTH_DOMAIN`, `FIREBASE_IOS_BUNDLE_ID`, `FIREBASE_APP_ID_*`; `ONLINE_PAYMENT_ENABLED` = `"true"`.
 - [ ] Android upload key created and `android/key.properties` filled (`docs/RELEASE.md` §2). Keep the
       keystore and its passwords in a password manager — a lost key means a new Play listing.
 
@@ -177,7 +178,7 @@ flutter build appbundle --release \
 flutter build ipa --release \
   --dart-define-from-file=env/firebase.json --dart-define-from-file=env/supabase.json
 ```
-Details, signing and store notes: `docs/RELEASE.md`. Release builds must use `ONLINE_PAYMENT_ENABLED=false`.
+Details, signing and store notes: `docs/RELEASE.md`. Release builds use `ONLINE_PAYMENT_ENABLED=true` (online payment through HitPay).
 Have a native speaker review the Filipino text (`lib/l10n/app_fil.arb`) before release.
 
 ## 6. Rollback

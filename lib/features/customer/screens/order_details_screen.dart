@@ -1,21 +1,38 @@
 import 'package:flutter/material.dart';
 
+import 'package:melai_nuts/core/config/payment_config.dart';
+import 'package:melai_nuts/core/services/customer_data_store.dart';
 import 'package:melai_nuts/core/theme/app_colors.dart';
 import 'package:melai_nuts/core/theme/app_spacing.dart';
 import 'package:melai_nuts/core/theme/app_text_styles.dart';
 import 'package:melai_nuts/core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/models/order.dart';
+import 'package:melai_nuts/features/payments/screens/online_payment_screen.dart';
 import 'package:melai_nuts/features/customer/widgets/order_refund_info.dart';
 import 'package:melai_nuts/features/customer/widgets/order_status_badge.dart';
 import 'package:melai_nuts/features/customer/screens/order_tracking_screen.dart';
 import 'package:melai_nuts/features/customer/screens/repeat_order_screen.dart';
 
 /// Full order details screen: items list, totals breakdown, payment method,
-/// status timeline, and quick actions (Track, Repeat, Request Refund).
+/// status timeline, and quick actions (Pay now, Track, Repeat, Request Refund).
 class OrderDetailsScreen extends StatelessWidget {
   final Order order;
 
   const OrderDetailsScreen({super.key, required this.order});
+
+  /// An online (HitPay) order that is not paid yet and can still be paid:
+  /// the customer can reopen the payment page from here. The Edge Function
+  /// re-checks all of this server-side.
+  bool get _canPayOnline {
+    if (!PaymentConfig.onlinePaymentEnabled || !PaymentConfig.isOnlinePayment(order.paymentMethod)) return false;
+    if (order.status == OrderStatus.cancelled ||
+        order.status == OrderStatus.refundRequested ||
+        order.status == OrderStatus.refunded) {
+      return false;
+    }
+    final status = CustomerDataStore.instance.paymentForOrder(order.id)?.status.name ?? order.paymentStatus;
+    return status == null || status == 'pending' || status == 'processing' || status == 'failed';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -238,6 +255,18 @@ class OrderDetailsScreen extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
 
             // Action Buttons
+            if (_canPayOnline) ...[
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => OnlinePaymentScreen(order: order, itemCount: order.itemCount, resume: true),
+                  ),
+                ),
+                icon: const Icon(Icons.account_balance_wallet_rounded),
+                label: const Text('Pay Now'),
+              ),
+              const SizedBox(height: 10),
+            ],
             if (order.status.isActive)
               ElevatedButton.icon(
                 onPressed: () => Navigator.of(context).push(

@@ -13,8 +13,11 @@ import '../../../core/services/branch_controller.dart';
 import '../../../core/services/checkout_attempt_store.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
+import '../../../core/services/device_location.dart';
+import '../../../core/services/geocoding_service.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/geo_utils.dart';
+import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/utils/form_utils.dart';
 import '../../../core/utils/input_rules.dart';
@@ -38,7 +41,7 @@ import '../../../core/utils/format_utils.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
 
-/// `online` is HitPay's hosted checkout (GCash, Maya, cards). `cod` is only
+/// `online` is HitPay's hosted checkout (GCash, QR Ph, cards). `cod` is only
 /// valid for delivery and `cash` (pay at the counter) only for pickup.
 enum _PaymentMethod { online, cod, cash }
 
@@ -82,8 +85,8 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
   _FulfillmentMethod _fulfillment = _FulfillmentMethod.pickup;
-  // Online payment is OFF by the owner's decision (PaymentConfig + the
-  // database switch): start on the cash option of the default fulfillment.
+  // Start on the cash option of the default fulfillment; online payment
+  // (when PaymentConfig and the database switch allow it) is never preselected.
   _PaymentMethod _payment = _PaymentMethod.cash;
 
   /// The database's online-payment switch and message; [PaymentSettings.unknown]
@@ -129,7 +132,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void _useAddress(CustomerAddress address) {
     _deliveryAddressId = address.id;
     _addressController.text = address.fullAddress;
-    _contactController.text = address.phone;
+    _contactController.text = PhoneUtils.toLocal(address.phone);
     _pinLat = address.isPinned ? address.latitude : null;
     _pinLng = address.isPinned ? address.longitude : null;
   }
@@ -160,6 +163,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// One-tap "Pin on map" (also offered by the blocking message).
+  /// Delivery chosen with no pin yet: start from where the customer is. They
+  /// see the pin and address below and can move or change them. If the location
+  /// cannot be read, they place the pin by hand as usual.
+  Future<void> _pinFromLocation() async {
+    if (_pinLat != null) return;
+    final position = await DeviceLocation.current(timeout: const Duration(seconds: 10));
+    if (!mounted || !position.ok || _pinLat != null) return;
+    setState(() {
+      _pinLat = position.latitude;
+      _pinLng = position.longitude;
+    });
+    if (_addressController.text.trim().isNotEmpty) return;
+    try {
+      final address = await NominatimGeocoder().reverse(position.latitude!, position.longitude!);
+      if (!mounted || address == null || _addressController.text.trim().isNotEmpty) return;
+      setState(() {
+        _addressController.text = address.displayName;
+        _deliveryAddressId = null;
+      });
+    } catch (caughtError, caughtStack) {
+      // The pin is set; the customer types the address.
+      AppErrors.report(caughtError, caughtStack, 'checkout_screen:pinFromLocation');
+    }
+  }
+
   Future<void> _pinOnMap() async {
     final branch = BranchController.instance.selectedBranch;
     final picked = await LocationPickerScreen.open(
@@ -242,7 +270,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
 
-    // Online payment is off (owner decision; the database refuses it too).
+    // Online payment is switched off (the database refuses it too).
     if (_payment == _PaymentMethod.online && !_onlineAllowed) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -271,7 +299,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     final payOnline = _payment == _PaymentMethod.online;
     final paymentLabel = switch (_payment) {
-      _PaymentMethod.online => 'Online Payment (GCash, Maya, Card)',
+      _PaymentMethod.online => 'Online Payment (GCash, QR Ph, Card)',
       _PaymentMethod.cod => 'Cash on Delivery',
       _PaymentMethod.cash => 'Cash on Counter Pickup',
     };
@@ -643,7 +671,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       trailingLabel: branch == null ? '—' : '₱${branch.deliveryFee.toStringAsFixed(2)}',
                       selected: _fulfillment == _FulfillmentMethod.delivery,
                       onTap: (branch == null || branch.supportsDelivery)
-                          ? () => setState(() => _fulfillment = _FulfillmentMethod.delivery)
+                          ? () {
+                              setState(() => _fulfillment = _FulfillmentMethod.delivery);
+                              unawaited(_pinFromLocation());
+                            }
                           : null,
                     ),
                   ),
@@ -739,10 +770,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   inputFormatters: InputRules.phone(),
                   decoration: const InputDecoration(
                     labelText: 'Contact number for the rider',
-                    hintText: '0917 123 4567',
+                    hintText: '09171234567',
                   ),
                   onChanged: (_) => _deliveryAddressId = null,
-                  validator: (v) => ValidationUtils.validatePhone(v),
+                  validator: (v) => ValidationUtils.validateMobile(v),
                 ),
                 if (CustomerDataStore.instance.addresses.isNotEmpty)
                   Align(
@@ -766,12 +797,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: AppSpacing.lg),
               Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
               const SizedBox(height: AppSpacing.sm),
-              // Online payment (HitPay) is hidden while it is off; the notice text
-              // comes from payment_settings.online_payment_disabled_message.
+              // Online payment (HitPay) is shown when both switches are on; while
+              // it is off the notice text comes from
+              // payment_settings.online_payment_disabled_message.
               if (_onlineAllowed) ...[
                 _PaymentTile(
                   icon: Icons.account_balance_wallet_rounded,
-                  title: 'Online Payment (GCash, Maya, Card)',
+                  title: 'Online Payment (GCash, QR Ph, Card)',
                   subtitle: 'Pay securely on the HitPay payment page',
                   selected: _payment == _PaymentMethod.online,
                   onTap: () => setState(() => _payment = _PaymentMethod.online),
@@ -1201,9 +1233,9 @@ class _ContactPhoneDialogState extends State<_ContactPhoneDialog> {
               inputFormatters: InputRules.phone(),
               decoration: const InputDecoration(
                 labelText: 'Mobile number',
-                hintText: '09XX XXX XXXX',
+                hintText: '09171234567',
               ),
-              validator: (v) => ValidationUtils.validatePhone(v),
+              validator: (v) => ValidationUtils.validateMobile(v),
               onFieldSubmitted: (_) => _save(),
             ),
             if (_error != null) ...[

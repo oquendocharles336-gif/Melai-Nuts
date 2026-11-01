@@ -139,7 +139,7 @@ class SupabaseIntegrationTest extends TestCase
 
         // Online payment is switched off by default (migration 20261017000000); tests of online-paid
         // orders switch it on for that one order and back off right after.
-        $online = in_array($method, ['Online Payment (GCash, Maya, Card)', 'GCash E-Wallet', 'Maya / Credit Card'], true);
+        $online = in_array($method, ['Online Payment (GCash, QR Ph, Card)', 'Online Payment (GCash, Maya, Card)', 'GCash E-Wallet', 'Maya / Credit Card'], true);
         if ($online) {
             $this->db()->update("update public.payment_settings set online_payment_enabled = true where id = 'default'");
         }

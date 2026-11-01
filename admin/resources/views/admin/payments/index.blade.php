@@ -5,7 +5,7 @@
 @php $branchName = fn ($o) => $o['branchName'] ?? (collect($branches)->firstWhere('id', $o['branch'])['name'] ?? '—'); @endphp
 
 @include('partials.flash')
-<p class="muted">Live from the Melai Nuts app (last {{ config('melai.supabase.order_window_days') }} days). Customers pay in cash (online payment is off by the owner's decision); only cash can be marked paid here. Past online payments were confirmed by HitPay.</p>
+<p class="muted">Live from the Melai Nuts app (last {{ config('melai.supabase.order_window_days') }} days). Customers pay in cash or online through HitPay. Only cash can be marked paid here; online payments are confirmed by HitPay.</p>
 
 <form method="GET" class="card filter-row">
     <select class="light-input" name="status" onchange="this.form.requestSubmit()">

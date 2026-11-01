@@ -35,9 +35,27 @@ class AppTextStyles {
     }
   }
 
-  static TextStyle headlineLg = _base(size: 26, weight: FontWeight.w700);
-  static TextStyle headlineMd = _base(size: 22, weight: FontWeight.w700);
-  static TextStyle headlineSm = _base(size: 18, weight: FontWeight.w600);
+  /// Bold, rounded headings (lining figures, so numbers sit level with the text).
+  static TextStyle _heading({required double size, double? height}) {
+    try {
+      return GoogleFonts.poppins(
+        fontSize: size,
+        fontWeight: FontWeight.w700,
+        height: height,
+        color: AppColors.textPrimary,
+        fontFeatures: const [FontFeature.liningFigures()],
+      );
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'app_text_styles:heading');
+      return TextStyle(fontSize: size, fontWeight: FontWeight.w700, height: height, color: AppColors.textPrimary, fontFamily: 'serif');
+    }
+  }
+
+  /// The largest screen headings (Welcome, Sign In, Create Account).
+  static TextStyle display = _heading(size: 32, height: 1.15);
+  static TextStyle headlineLg = _heading(size: 26);
+  static TextStyle headlineMd = _heading(size: 22);
+  static TextStyle headlineSm = _heading(size: 19);
   static TextStyle titleMd = _base(size: 16, weight: FontWeight.w600);
   static TextStyle bodyLg = _base(size: 16, weight: FontWeight.w400);
   static TextStyle bodyMd = _base(

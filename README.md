@@ -303,28 +303,27 @@ coordinates once: `update branches set latitude = 14.2117, longitude = 121.1653 
 For heavy traffic, point `MapTiles.url` (`lib/core/widgets/delivery_map.dart`) at a paid or own tile
 server (OSM tile policy). Address search uses Nominatim (free, rate-limited); pins work without it.
 
-## Payments (cash only — online payment is OFF by the owner's decision)
+## Payments (online through HitPay, or cash)
 
-Customers pay by **Cash on Delivery** (delivery orders; the rider collects, staff press
-"Confirm Cash Received") or **Cash on Counter Pickup** (pickup orders; staff confirm at the
-counter). In-store POS sales keep cash, and in-store GCash / card with a reference number.
+Customers choose at checkout:
 
-Online payment (HitPay: GCash, Maya, card) is **not offered**:
+- **Online Payment (GCash, QR Ph, Card)** — HitPay's hosted checkout. The app asks the
+  `hitpay-create-payment` Edge Function for a payment link (the amount always comes from the
+  database), opens it, and waits on the *Online Payment* screen. Only the signed `hitpay-webhook`
+  can mark the payment paid. An unpaid online order can be paid later from *Order details → Pay Now*.
+- **Cash on Delivery** (delivery orders; the rider collects, staff press "Confirm Cash Received").
+- **Cash on Counter Pickup** (pickup orders; staff confirm at the counter).
 
-- checkout hides it and shows the database's `payment_settings.online_payment_disabled_message`;
-- the database refuses new online-paid orders, also from older app builds
-  (`payment_settings.online_payment_enabled = false`, migrations `20261017000000` and `20261018000000`);
-- `hitpay-create-payment` refuses before it reads an order or calls HitPay, and fails closed when the
-  switch cannot be read (`supabase/functions/hitpay-create-payment/handler_test.ts`);
-- the app is built with `ONLINE_PAYMENT_ENABLED=false` (the default; also in `env/firebase.example.json`).
+In-store POS sales keep cash, and in-store GCash / card with a reference number.
 
-The HitPay code is kept dormant and intact. Re-enabling it later is an owner decision that needs
-BOTH switches (database + build flag) and the HitPay secrets described in
-[`supabase/functions/README.md`](supabase/functions/README.md).
+Online payment needs BOTH switches on — `payment_settings.online_payment_enabled` (migration
+`20261031034858` turns it on) and the build flag `ONLINE_PAYMENT_ENABLED` (default `true`) — plus the
+HitPay secrets described in [`supabase/functions/README.md`](supabase/functions/README.md). While either
+switch is off, checkout hides it and shows `payment_settings.online_payment_disabled_message`, the
+database refuses online-paid orders, and `hitpay-create-payment` refuses (fail-closed).
 
 **Refunds:** cash refunds are handled by hand (approve, then complete with the cash returned).
-"Send via HitPay" (admin website → Refunds, or the staff app) exists only for refunding PAST
-online payments made before online payment was switched off.
+Online payments are refunded with "Send via HitPay" (admin website → Refunds, or the staff app).
 
 ## Phone login (Android)
 

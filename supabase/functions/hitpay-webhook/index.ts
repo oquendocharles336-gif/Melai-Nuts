@@ -14,6 +14,7 @@
 // Env: HITPAY_SALT (secret). SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are
 // provided by Supabase.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { methodForResult } from "./method_code.ts";
 
 const encoder = new TextEncoder();
 
@@ -46,16 +47,6 @@ function safeEqual(a: string, b: string): boolean {
     diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
   }
   return diff === 0;
-}
-
-// Maps HitPay's payment_type onto payments.method codes; anything not clearly
-// one of ours is left null so the stored method stays as it was.
-function methodCode(paymentType: unknown): string | null {
-  const type = typeof paymentType === "string" ? paymentType.toLowerCase() : "";
-  if (type.includes("gcash")) return "gcash";
-  if (type.includes("maya") || type.includes("paymaya")) return "maya";
-  if (type.includes("card")) return "card";
-  return null;
 }
 
 type HitpayPayment = { id?: unknown; status?: unknown; payment_type?: unknown; amount?: unknown };
@@ -148,7 +139,7 @@ Deno.serve(async (req: Request) => {
   const { error } = await adminClient.rpc("hitpay_apply_payment", {
     p_order_id: orderId,
     p_status: status === "completed" ? "success" : "failed",
-    p_method: methodCode(paid?.payment_type),
+    p_method: methodForResult(status, paid?.payment_type),
     p_gateway_payment_id: gatewayPaymentId,
     p_reference_number: null,
     p_payment_request_id: typeof payload.id === "string" ? payload.id : null,
