@@ -40,6 +40,9 @@
     @endforelse
     @endif
 </section>
+@if (($keptDownpayments['count'] ?? 0) > 0)
+    <p class="muted" style="margin-top:0">Kept downpayments: {{ $peso($keptDownpayments['amount']) }} from {{ $keptDownpayments['count'] }} order(s) not picked up in time. These are not counted as sales.</p>
+@endif
 <p class="muted" style="margin-top:0">Totals: {{ \Carbon\Carbon::parse($totalsRange[0])->format('M j') }} – {{ \Carbon\Carbon::parse($totalsRange[1])->format('M j, Y') }}{{ ($filters['branch'] ?? null) ? ', this branch' : '' }}; net = after discounts and completed refunds, the same figures as the dashboard and reports (the status and method filters apply to the lists below).</p>
 
 <div class="block-head"><h2>Failed / pending payments</h2></div>
@@ -50,7 +53,7 @@
         @forelse ($failedOrPending as $o)
             <tr>
                 <td>{{ $o['id'] }}</td><td>{{ $branchName($o) }}</td>
-                <td>{{ $methodLabel($o['paymentMethod']) }}@if (! empty($o['downpaymentAmount']))<br><small class="muted">{{ $peso($o['downpaymentAmount']) }} downpayment online ({{ $o['downpaymentStatus'] }}), {{ $peso($o['total'] - $o['downpaymentAmount']) }} in cash</small>@endif</td><td>{{ $peso($o['total']) }}</td>
+                <td>{{ $methodLabel($o['paymentMethod']) }}@if (! empty($o['downpaymentAmount']))<br><small class="muted">{{ $peso($o['downpaymentAmount']) }} downpayment online ({{ $o['downpaymentStatus'] }}), {{ $peso($o['total'] - $o['downpaymentAmount']) }} in cash at pickup</small>@endif</td><td>{{ $peso($o['total']) }}</td>
                 <td><span class="status {{ $o['effectivePaymentStatus'] === 'failed' ? 'low' : 'average' }}">{{ ucfirst($o['effectivePaymentStatus']) }}</span></td>
                 <td>{{ $o['createdAt']->format('M j, g:i A') }}</td>
                 <td>
@@ -78,7 +81,7 @@
         @forelse ($orders as $o)
             <tr>
                 <td>{{ $o['id'] }}</td><td>{{ $branchName($o) }}</td>
-                <td>{{ $methodLabel($o['paymentMethod']) }}@if (! empty($o['downpaymentAmount']))<br><small class="muted">{{ $peso($o['downpaymentAmount']) }} downpayment online ({{ $o['downpaymentStatus'] }}), {{ $peso($o['total'] - $o['downpaymentAmount']) }} in cash</small>@endif</td><td>{{ $peso($o['total']) }}</td>
+                <td>{{ $methodLabel($o['paymentMethod']) }}@if (! empty($o['downpaymentAmount']))<br><small class="muted">{{ $peso($o['downpaymentAmount']) }} downpayment online ({{ $o['downpaymentStatus'] }}), {{ $peso($o['total'] - $o['downpaymentAmount']) }} in cash at pickup</small>@endif</td><td>{{ $peso($o['total']) }}</td>
                 <td>{{ ($o['refundedAmount'] ?? null) === null ? '—' : (($o['refundedAmount'] > 0) ? $peso($o['refundedAmount']).(($o['refundState'] ?? null) === 'partial' ? ' (partial)' : '') : '—') }}</td>
                 <td><span class="status {{ ['paid' => 'high', 'pending' => 'average', 'failed' => 'low', 'refunded' => 'info'][$o['effectivePaymentStatus']] ?? 'info' }}">{{ ($o['refundState'] ?? null) === 'partial' && $o['effectivePaymentStatus'] === 'refunded' ? 'Partially refunded' : ucfirst($o['effectivePaymentStatus']) }}</span></td>
                 <td>{{ $o['paidAt']?->format('M j, g:i A') ?? '—' }}</td>

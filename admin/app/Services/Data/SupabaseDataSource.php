@@ -50,7 +50,7 @@ class SupabaseDataSource implements DataSource
             'paymentStatus' => $payStatus,
             'paymentMethod' => $pay['method'] ?? 'unknown',
             'paymentLabel' => $o['payment_label'] ?? null,
-            // A Cash on Delivery order's online part (migration 20261101083000). paymentMethod and
+            // A pickup order's online part (migration 20261101083000). paymentMethod and
             // paymentStatus then describe only the cash balance. null = no downpayment.
             'downpaymentAmount' => isset($o['downpayment']) ? (float) $o['downpayment']['amount'] : null,
             'downpaymentStatus' => $o['downpayment']['status'] ?? null,

@@ -85,7 +85,7 @@ class BusinessSettingsTest extends TestCase
         $this->assertNotContains('owner_update_business_settings', $this->db->calledFunctions());
     }
 
-    public function test_owner_sets_and_clears_the_cod_downpayment(): void
+    public function test_owner_sets_and_clears_the_pickup_downpayment(): void
     {
         $this->useFakeSupabase();
         $owner = $this->linkedLogin('uid-owner');
@@ -94,8 +94,9 @@ class BusinessSettingsTest extends TestCase
 
         $this->signedIn($owner)->put('/admin/business-settings', [
             'cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '30',
-            'cod_downpayment_expiry_minutes' => '30',
+            'cod_downpayment_expiry_minutes' => '30', 'cod_downpayment_pickup_days' => '2',
         ])->assertRedirect(route('admin.business.index'));
+        $this->assertSame(2, $this->db->settings['cod_downpayment_pickup_days']);
         $this->assertSame('percent', $this->db->settings['cod_downpayment_type']);
         $this->assertEquals(30.0, $this->db->settings['cod_downpayment_value']);
         $this->assertSame(30, $this->db->settings['cod_downpayment_expiry_minutes']);
@@ -106,18 +107,20 @@ class BusinessSettingsTest extends TestCase
         $this->assertNull($this->db->settings['cod_downpayment_value']);
     }
 
-    public function test_an_incomplete_or_invalid_cod_downpayment_is_refused(): void
+    public function test_an_incomplete_or_invalid_pickup_downpayment_is_refused(): void
     {
         $this->useFakeSupabase();
         $owner = $this->linkedLogin('uid-owner');
 
         foreach ([
-            ['cod_downpayment_type' => 'percent', 'cod_downpayment_expiry_minutes' => '30'],
-            ['cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30'],
-            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '30'],
-            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '30'],
-            ['cod_downpayment_type' => 'half', 'cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30'],
-            ['cod_downpayment_type' => 'fixed', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '1'],
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_expiry_minutes' => '30', 'cod_downpayment_pickup_days' => '2'],
+            ['cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30', 'cod_downpayment_pickup_days' => '2'],
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '30', 'cod_downpayment_pickup_days' => '2'],
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30'],
+            ['cod_downpayment_type' => 'percent', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '30', 'cod_downpayment_pickup_days' => '2'],
+            ['cod_downpayment_type' => 'half', 'cod_downpayment_value' => '30', 'cod_downpayment_expiry_minutes' => '30', 'cod_downpayment_pickup_days' => '2'],
+            ['cod_downpayment_type' => 'fixed', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '1', 'cod_downpayment_pickup_days' => '2'],
+            ['cod_downpayment_type' => 'fixed', 'cod_downpayment_value' => '100', 'cod_downpayment_expiry_minutes' => '30', 'cod_downpayment_pickup_days' => '31'],
         ] as $form) {
             $this->signedIn($owner)->put('/admin/business-settings', $form)->assertSessionHasErrors();
             $this->assertNull($this->db->settings['cod_downpayment_type'], json_encode($form));
