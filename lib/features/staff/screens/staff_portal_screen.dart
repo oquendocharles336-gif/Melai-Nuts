@@ -20,6 +20,7 @@ import '../barcode/sku_matcher.dart';
 import '../widgets/pos_offline_widgets.dart';
 import '../widgets/staff_avatar.dart';
 import 'cash_drawer_screen.dart';
+import '../../notifications/push_tap_router.dart';
 import 'staff_dashboard_tab.dart';
 import 'staff_extra_screens.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -42,6 +43,7 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
   void initState() {
     super.initState();
     _store.ensureStarted();
+    WidgetsBinding.instance.addPostFrameCallback((_) => PushTapRouter.instance.portalReady());
   }
 
   @override
