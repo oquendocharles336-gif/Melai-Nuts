@@ -15,7 +15,7 @@
 -- =============================================================================
 begin;
 
-create or replace function public._can_upload_delivery_proof(p_name text)
+create or replace function public.can_upload_delivery_proof(p_name text)
 returns boolean
 language sql
 stable
@@ -28,10 +28,10 @@ as $$
       and d.driver_uid = public.current_firebase_uid()
       and d.driver_status in ('picked_up', 'in_transit'))
 $$;
-revoke all on function public._can_upload_delivery_proof(text) from public, anon;
-grant execute on function public._can_upload_delivery_proof(text) to authenticated;
+revoke all on function public.can_upload_delivery_proof(text) from public, anon;
+grant execute on function public.can_upload_delivery_proof(text) to authenticated;
 
-create or replace function public._can_read_delivery_proof(p_name text)
+create or replace function public.can_read_delivery_proof(p_name text)
 returns boolean
 language sql
 stable
@@ -43,19 +43,19 @@ as $$
     where d.id = split_part(p_name, '/', 1)
       and (public.staff_can_see_branch(d.branch_id) or d.driver_uid = public.current_firebase_uid()))
 $$;
-revoke all on function public._can_read_delivery_proof(text) from public, anon;
-grant execute on function public._can_read_delivery_proof(text) to authenticated;
+revoke all on function public.can_read_delivery_proof(text) from public, anon;
+grant execute on function public.can_read_delivery_proof(text) to authenticated;
 
 do $do$
 begin
   if exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'objects') then
     execute $p$drop policy if exists "driver uploads own proof" on storage.objects$p$;
     execute $p$create policy "driver uploads own proof" on storage.objects for insert to authenticated
-      with check (bucket_id = 'delivery-proofs' and public._can_upload_delivery_proof(name))$p$;
+      with check (bucket_id = 'delivery-proofs' and public.can_upload_delivery_proof(name))$p$;
 
     execute $p$drop policy if exists "staff and driver read proof" on storage.objects$p$;
     execute $p$create policy "staff and driver read proof" on storage.objects for select to authenticated
-      using (bucket_id = 'delivery-proofs' and public._can_read_delivery_proof(name))$p$;
+      using (bucket_id = 'delivery-proofs' and public.can_read_delivery_proof(name))$p$;
   end if;
 end
 $do$;

@@ -85,8 +85,8 @@ select pg_temp.seen('a customer does not', 'cu-1', 'delivery-proofs', 0);
 select pg_temp.chk('app users cannot read deliveries directly', 'st-a', 'select 1 from public.deliveries', 'error');
 insert into results(name, passed, detail)
 select 'anon cannot use the proof checks',
-  not has_function_privilege('anon', 'public._can_read_delivery_proof(text)', 'execute')
-    and not has_function_privilege('anon', 'public._can_upload_delivery_proof(text)', 'execute'),
+  not has_function_privilege('anon', 'public.can_read_delivery_proof(text)', 'execute')
+    and not has_function_privilege('anon', 'public.can_upload_delivery_proof(text)', 'execute'),
   '';
 
 -- Report -------------------------------------------------------------------------
