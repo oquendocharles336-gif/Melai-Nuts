@@ -192,6 +192,27 @@ select pg_temp.chk_true('Cash on Delivery is full cash again',
   (select o.status = 'pending' and p.amount = 150 from public.orders o join public.payments p on p.order_id = o.id
    where o.id = pg_temp.f('o_cod'))
   and not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o_cod')));
+select pg_temp.chk_true('a delivery order keeps its address',
+  (select delivery_address_id = pg_temp.f('addr')::uuid from public.orders where id = pg_temp.f('o_cod')));
+
+-- A pickup order never links an address, even if an app build sends one. The order
+-- is undone afterwards, so the stock and order counts below are not affected.
+do $$
+declare
+  v_order text;
+  v_address uuid;
+begin
+  begin
+    v_order := pg_temp.call_as('dp-c1', format($q$select public.place_order(%L::uuid, false, %L::uuid, 'Cash on Counter Pickup', '', 'dp-pickup-addr')$q$,
+      pg_temp.cart(), pg_temp.f('addr')));
+    select delivery_address_id into v_address from public.orders where id = v_order;
+    raise exception 'undo this order';
+  exception when raise_exception then
+    null;
+  end;
+  perform pg_temp.chk_true('a pickup order ignores an address it was sent',
+    v_order is not null and v_address is null, coalesce(v_order, 'no order was placed'));
+end $$;
 
 -- 5. Staff cannot see or touch an unpaid order --------------------------------------
 select pg_temp.chk_true('staff: not in the order list',

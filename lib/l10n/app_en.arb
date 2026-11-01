@@ -198,7 +198,7 @@
   "permBlockedBody": "Melai Nuts can no longer ask for it. Turn it on in your phone's Settings.",
   "permCameraScanFallback": "Without the camera you can still type the SKU or barcode.",
   "permCameraProofFallback": "Without the camera the proof-of-delivery photo cannot be taken.",
-  "permLocationPinFallback": "Without location you can still place the pin on the map by hand.",
+  "permLocationPinFallback": "Without location you can still choose your branch by hand.",
   "permLocationDeliveryFallback": "Without location, customers cannot follow the delivery on the map.",
   "permNotificationsFallback": "You will not get updates on this phone, but you can still see them in the app.",
   "permissionsTitle": "Permissions",

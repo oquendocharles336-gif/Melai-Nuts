@@ -349,7 +349,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         );
       }
       final isDelivery = _fulfillment == _FulfillmentMethod.delivery;
-      String? deliveryAddressId = _deliveryAddressId;
+      // A pickup order has no delivery address, even when the customer has a saved one.
+      String? deliveryAddressId = isDelivery ? _deliveryAddressId : null;
       if (isDelivery) {
         final enteredAddress = _addressController.text.trim();
         // One stored phone format (E.164) — compare normalized numbers.

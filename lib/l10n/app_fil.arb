@@ -122,7 +122,7 @@
   "permBlockedBody": "Hindi na ito maaaring hingin ng Melai Nuts. I-on ito sa Settings ng iyong telepono.",
   "permCameraScanFallback": "Kahit walang camera, maaari mo pa ring i-type ang SKU o barcode.",
   "permCameraProofFallback": "Kung walang camera, hindi makakakuha ng litrato bilang patunay ng delivery.",
-  "permLocationPinFallback": "Kahit walang lokasyon, maaari mo pa ring ilagay ang pin sa mapa nang mano-mano.",
+  "permLocationPinFallback": "Kahit walang lokasyon, maaari ka pa ring pumili ng branch nang mano-mano.",
   "permLocationDeliveryFallback": "Kung walang lokasyon, hindi masusundan ng mga customer ang delivery sa mapa.",
   "permNotificationsFallback": "Hindi ka makakatanggap ng update sa teleponong ito, pero makikita mo pa rin ang mga ito sa app.",
   "permissionsTitle": "Mga Pahintulot",
