@@ -439,7 +439,7 @@ select pg_temp.chk_true('report: the kept downpayment has its own line',
 create temp table ar as select pg_temp.j('dp-own',
   format($q$public.analytics_report(current_date - 1, current_date, %L::uuid)$q$, pg_temp.f('ba'))) j;
 select pg_temp.chk_true('analytics: the kept downpayment has its own line',
-  (select (j -> 'kept_downpayments' ->> 'amount')::numeric = 30 from ar));
+  (select (j -> 'summary' -> 'kept_downpayments' ->> 'amount')::numeric = 30 from ar));
 
 -- 14. A fixed amount, and a minimum order ------------------------------------------------
 select pg_temp.settings('{"cod_downpayment_type":"fixed","cod_downpayment_value":40}'::jsonb);
