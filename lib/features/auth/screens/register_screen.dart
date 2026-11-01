@@ -20,12 +20,16 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
+import 'welcome_screen.dart';
 import '../../../core/utils/app_error.dart';
 
 /// Customer account registration. Staff, owner, and delivery accounts are
 /// provisioned by an owner/admin instead (see [LoginScreen]).
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  /// Opened from Sign In, which is still underneath.
+  final bool fromSignIn;
+
+  const RegisterScreen({super.key, this.fromSignIn = false});
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -103,12 +107,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _openSignIn() {
+    if (widget.fromSignIn) {
+      Navigator.of(context).pop();
+      return;
+    }
     Navigator.of(context).pushReplacement(
       FadeSlideRoute(
         settings: const RouteSettings(name: AppRoutes.login),
         builder: (_) => const LoginScreen(),
       ),
     );
+  }
+
+  /// With nothing behind this screen, back means Welcome.
+  void _back() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(FadeSlideRoute(builder: (_) => const WelcomeScreen()));
+    }
   }
 
   Widget _sectionLabel(String text) => Padding(
@@ -127,6 +145,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return LuxeAuthFrame(
       title: 'Create your account',
       subtitle: 'Order online, track your orders and earn Golden Kernel loyalty points.',
+      onBack: _back,
       child: Form(
         key: _formKey,
         child: Column(

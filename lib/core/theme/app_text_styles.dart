@@ -35,10 +35,10 @@ class AppTextStyles {
     }
   }
 
-  /// Serif for headings (lining figures, so numbers sit level with the text).
-  static TextStyle _serif({required double size, double? height}) {
+  /// Bold, rounded headings (lining figures, so numbers sit level with the text).
+  static TextStyle _heading({required double size, double? height}) {
     try {
-      return GoogleFonts.playfairDisplay(
+      return GoogleFonts.poppins(
         fontSize: size,
         fontWeight: FontWeight.w700,
         height: height,
@@ -46,16 +46,16 @@ class AppTextStyles {
         fontFeatures: const [FontFeature.liningFigures()],
       );
     } catch (caughtError, caughtStack) {
-      AppErrors.report(caughtError, caughtStack, 'app_text_styles:serif');
+      AppErrors.report(caughtError, caughtStack, 'app_text_styles:heading');
       return TextStyle(fontSize: size, fontWeight: FontWeight.w700, height: height, color: AppColors.textPrimary, fontFamily: 'serif');
     }
   }
 
   /// The largest screen headings (Welcome, Sign In, Create Account).
-  static TextStyle display = _serif(size: 32, height: 1.15);
-  static TextStyle headlineLg = _serif(size: 26);
-  static TextStyle headlineMd = _serif(size: 22);
-  static TextStyle headlineSm = _serif(size: 19);
+  static TextStyle display = _heading(size: 32, height: 1.15);
+  static TextStyle headlineLg = _heading(size: 26);
+  static TextStyle headlineMd = _heading(size: 22);
+  static TextStyle headlineSm = _heading(size: 19);
   static TextStyle titleMd = _base(size: 16, weight: FontWeight.w600);
   static TextStyle bodyLg = _base(size: 16, weight: FontWeight.w400);
   static TextStyle bodyMd = _base(

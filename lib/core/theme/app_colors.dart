@@ -10,22 +10,22 @@ class AppColors {
   AppColors._();
 
   // ---- Canvas / surfaces ----------------------------------------------
-  static const Color canvas = Color(0xFFF3E9DA); // champagne page background
-  static const Color surface = Color(0xFFF3E9DA); // app-bar / header strip
+  static const Color canvas = Color(0xFFFFF9F0); // warm cream page background
+  static const Color surface = Color(0xFFFFF9F0); // header strip
   static const Color surfaceContainer = Color(0xFFFFFFFF); // cards, panels
-  static const Color surfaceContainerHigh = Color(0xFFE9DAC2);
-  static const Color surfaceContainerLow = Color(0xFFF9F1E3);
-  static const Color border = Color(0xFFE2CFA6); // hairlines, card borders
-  static const Color inputFill = Color(0xFFF6EEDF); // low-chrome filled text fields
-  static const Color outlineButton = Color(0xFFC9AC72); // outlined secondary buttons
+  static const Color surfaceContainerHigh = Color(0xFFFFEFD6);
+  static const Color surfaceContainerLow = Color(0xFFFFFCF6);
+  static const Color border = Color(0xFFF3E1C4); // hairlines, card borders
+  static const Color inputFill = Color(0xFFFFF6E8); // low-chrome filled text fields
+  static const Color outlineButton = Color(0xFFE5B574); // outlined secondary buttons
   static const Color outlineVariant = Color(0xFFD7C2B7);
 
   // ---- Brand / structural core -----------------------------------------
-  static const Color primary = Color(0xFF8A5A14); // antique bronze: accents and accent text
-  static const Color primaryDark = Color(0xFF6B430C); // pressed/hover
-  static const Color primaryContainer = Color(0xFFF6E3B8);
+  static const Color primary = Color(0xFFBF4409); // roasted orange: buttons, accents and accent text
+  static const Color primaryDark = Color(0xFF9A3412); // pressed/hover
+  static const Color primaryContainer = Color(0xFFFFE6C2);
   static const Color onPrimary = Color(0xFFFFFFFF);
-  static const Color ink = Color(0xFF1F120B); // deep espresso: headings and body text
+  static const Color ink = Color(0xFF1F120B); // warm near-black: headings and body text
   static const Color darkBrown = Color(0xFF2A1810); // headings / high-emphasis
   static const Color secondaryBrown = Color(0xFF7B563F);
 
@@ -43,21 +43,23 @@ class AppColors {
   static const Color textMuted = Color(0xFF52443B); // on-surface-variant
 
   // ---- Role accent colors (used for badges/portals) --------------------
-  static const Color roleOwner = Color(0xFF8A5A14);
-  static const Color roleStaff = Color(0xFF7B563F);
+  static const Color roleOwner = Color(0xFFBF4409);
+  static const Color roleStaff = Color(0xFF0F766E);
   static const Color roleDelivery = Color(0xFF387B44);
   static const Color roleCustomer = Color(0xFF91571C);
 
   // ---- Gradients and accents (hero banners, loyalty card) ----------------
   // Kept here so no screen hard-codes a colour (docs/DESIGN_GUIDE.md).
-  static const Color heroGradientStart = Color(0xFF0D0907);
-  static const Color heroGradientEnd = Color(0xFF21140C);
-  static const Color primaryDeep = Color(0xFF3A2110);
-  static const Color loyaltyGradientEnd = Color(0xFF4A2A14);
-  static const Color gold = Color(0xFFF2CF85);
-  static const Color honey = Color(0xFFE8BE6A); // rewards card, promo badges (espresso text on it)
-  static const Color honeyDeep = Color(0xFFC9983F);
-  static const Color noir = Color(0xFF0D0907); // headers and the bottom bar
+  static const Color heroGradientStart = Color(0xFFC2410C);
+  static const Color heroGradientEnd = Color(0xFFC8480A);
+  static const Color primaryDeep = Color(0xFF9A3412);
+  static const Color loyaltyGradientEnd = Color(0xFFC8480A);
+  static const Color gold = Color(0xFFFFF9EC); // warm cream: text and icons on the orange hero
+  static const Color honey = Color(0xFFFFC94D); // rewards card, promo badges, main button on the hero (dark text on it)
+  static const Color honeyDeep = Color(0xFFF5A623);
+  static const Color appBar = heroGradientStart;
+  static const Color sunStart = Color(0xFFFFF6E3); // sunny full-screen background (splash, welcome, sign in)
+  static const Color sunEnd = Color(0xFFFFD98F);
   static const Color ivory = Color(0xFFFFFCF6); // sheets and cards on dark backgrounds
   static const Color productCardGradientStart = Color(0xFFBE7B47);
 }

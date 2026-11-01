@@ -265,8 +265,8 @@ class _AddButton extends StatelessWidget {
         child: Container(
           width: 38,
           height: 38,
-          decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.darkBrown),
-          child: const Icon(Icons.add_rounded, color: AppColors.gold, size: 22),
+          decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.primary),
+          child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
         ),
       ),
     );

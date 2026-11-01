@@ -84,6 +84,79 @@ void main() {
     expect(find.byType(LoginScreen), findsNothing);
   });
 
+  group('after logging out, Sign In has nothing behind it', () {
+    Future<void> openCreateAccount(WidgetTester tester) async {
+      _phone(tester, sizes['phone']!);
+      await tester.pumpWidget(_app(const LoginScreen()));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Create Account'));
+      await tester.tap(find.text('Create Account'));
+      await tester.pumpAndSettle();
+      expect(find.byType(RegisterScreen), findsOneWidget);
+    }
+
+    testWidgets('the back arrow on Create Account returns to Sign In', (tester) async {
+      await openCreateAccount(tester);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(RegisterScreen), findsNothing);
+    });
+
+    testWidgets("the phone's back button on Create Account returns to Sign In", (tester) async {
+      await openCreateAccount(tester);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(RegisterScreen), findsNothing);
+    });
+
+    testWidgets('the back arrow still works after scrolling down the long form', (tester) async {
+      await openCreateAccount(tester);
+      await tester.scrollUntilVisible(find.text('Sign In'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(RegisterScreen), findsNothing);
+    });
+
+    testWidgets('the Sign In link on Create Account returns to Sign In', (tester) async {
+      await openCreateAccount(tester);
+      await tester.scrollUntilVisible(find.text('Sign In'), 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sign In'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.byType(RegisterScreen), findsNothing);
+    });
+
+    testWidgets("back from Sign In goes to Welcome, by arrow and by the phone's button", (tester) async {
+      _phone(tester, sizes['phone']!);
+      await tester.pumpWidget(_app(const LoginScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(WelcomeScreen), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_app(const LoginScreen()));
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(WelcomeScreen), findsOneWidget);
+    });
+  });
+
+  testWidgets('Create Account with nothing behind it goes back to Welcome', (tester) async {
+    _phone(tester, sizes['phone']!);
+    await tester.pumpWidget(_app(const RegisterScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(WelcomeScreen), findsOneWidget);
+  });
+
   testWidgets('Sign In with empty fields shows messages and stays put', (tester) async {
     _phone(tester, sizes['phone']!);
     await tester.pumpWidget(_app(const LoginScreen()));

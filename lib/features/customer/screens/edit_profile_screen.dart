@@ -17,6 +17,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/services/pending_writes_service.dart';
 import '../../../data/models/customer_profile.dart';
+import 'saved_addresses_screen.dart';
 
 /// Edits the customer's real profile (`customer_profiles` in Supabase).
 /// Email isn't editable here — it's the Firebase Auth login identity, so
@@ -227,6 +228,46 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 hint: '09171234567',
                 helperText: '11 digits. Used by the rider to reach you about a delivery.',
                 validator: ValidationUtils.validateMobile,
+              ),
+              const SizedBox(height: 14),
+              Text('DELIVERY ADDRESS', style: AppTextStyles.labelSm),
+              const SizedBox(height: 4),
+              ListenableBuilder(
+                listenable: CustomerDataStore.instance,
+                builder: (context, _) {
+                  final address = CustomerDataStore.instance.defaultAddress;
+                  return Material(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SavedAddressesScreen()),
+                      ),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.location_on_outlined, size: 18, color: AppColors.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                address?.fullAddress ?? 'Add a delivery address',
+                                style: AppTextStyles.bodyMd,
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded, color: AppColors.primary),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(

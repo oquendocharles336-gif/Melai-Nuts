@@ -555,7 +555,7 @@ class _VariantTile extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: AppColors.darkBrown,
+                        color: AppColors.primary,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
