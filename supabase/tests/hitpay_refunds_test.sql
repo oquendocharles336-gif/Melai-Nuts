@@ -214,9 +214,11 @@ select pg_temp.chk_true('audit rows for send / failed / succeeded',
 insert into fx values ('o_late', pg_temp.order_for('Online Payment (GCash, QR Ph, Card)', 'hr-key-late-1'));
 select public.hitpay_set_checkout(pg_temp.f('o_late'), 'preq-late', 'https://pay.example/late');
 select pg_temp.call_as('h-own', format($q$select public.staff_update_order_status(%L, 'cancelled')::text$q$, pg_temp.f('o_late')));
+select pg_temp.chk_true('late payment: the event is accepted',
+  public.hitpay_apply_payment(pg_temp.f('o_late'), 'success', 'qrph', 'pay-late-1', null, 'preq-late') = 'success');
+-- A separate statement: one statement cannot see what a function it calls has changed.
 select pg_temp.chk_true('late payment: it is still recorded',
-  public.hitpay_apply_payment(pg_temp.f('o_late'), 'success', 'qrph', 'pay-late-1', null, 'preq-late') = 'success'
-  and (select status = 'success' and method = 'qrph' from public.payments where order_id = pg_temp.f('o_late')));
+  (select status = 'success' and method = 'qrph' from public.payments where order_id = pg_temp.f('o_late')));
 select pg_temp.chk_true('late payment: the order stays cancelled',
   (select status = 'cancelled' from public.orders where id = pg_temp.f('o_late')));
 insert into fx select 'r_late', id from public.refund_requests where order_id = pg_temp.f('o_late');

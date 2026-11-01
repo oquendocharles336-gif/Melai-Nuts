@@ -122,12 +122,14 @@ select pg_temp.chk('the current checkout label is accepted', 'pay-c1',
 select pg_temp.chk_true('a new online order starts as online, not card',
   (select p.method = 'online' from public.payments p join public.orders o on o.id = p.order_id
    where o.payment_method = 'Online Payment (GCash, QR Ph, Card)' and o.firebase_uid = 'pay-c1'));
-select pg_temp.chk_true('a QR Ph payment is recorded as qrph',
+select pg_temp.chk_true('a QR Ph payment event is accepted',
   public.hitpay_apply_payment(
     (select id from public.orders where payment_method = 'Online Payment (GCash, QR Ph, Card)' and firebase_uid = 'pay-c1'),
-    'success', 'qrph', 'pay-qr-1', null) = 'success'
-  and (select p.method = 'qrph' from public.payments p join public.orders o on o.id = p.order_id
-       where o.payment_method = 'Online Payment (GCash, QR Ph, Card)' and o.firebase_uid = 'pay-c1'));
+    'success', 'qrph', 'pay-qr-1', null) = 'success');
+-- A separate statement: one statement cannot see what a function it calls has changed.
+select pg_temp.chk_true('a QR Ph payment is recorded as qrph',
+  (select p.method = 'qrph' from public.payments p join public.orders o on o.id = p.order_id
+   where o.payment_method = 'Online Payment (GCash, QR Ph, Card)' and o.firebase_uid = 'pay-c1'));
 
 -- Report -------------------------------------------------------------------------
 select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;
