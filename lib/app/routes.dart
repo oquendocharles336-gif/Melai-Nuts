@@ -293,6 +293,7 @@ class AppRoutes {
   // Owner is a superset of staff (matches firestore.rules); the Owner portal
   // also links into the inventory screens.
   static const _Access _staff = _Access({UserRole.staff, UserRole.owner});
+  static const _Access _staffOrDriver = _Access({UserRole.staff, UserRole.owner, UserRole.delivery});
   // Staff screens that only make sense with a management permission. Owners
   // hold every permission. UX gate only: the staff RPCs enforce the same rule.
   static const _Access _staffManageInventory = _Access(
@@ -324,7 +325,7 @@ class AppRoutes {
     notificationSettings: _anySignedIn,
     appSettings: _anySignedIn,
     accountSecurity: _anySignedIn,
-    branchSettings: _anySignedIn,
+    branchSettings: _staffOrDriver,
 
     customerHome: _customerBrowse,
     customerStore: _customerBrowse,

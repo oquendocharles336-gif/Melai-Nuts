@@ -17,8 +17,9 @@ import '../../../data/models/order.dart';
 import '../../../data/models/product.dart';
 import '../../../data/models/promotion.dart';
 import '../../../data/repositories/products_repository.dart';
-import '../../settings/screens/branch_settings_screen.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../cart_controller.dart';
+import '../widgets/branch_stock_notice.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/order_status_badge.dart';
 import '../widgets/product_card.dart';
@@ -38,7 +39,7 @@ class CustomerHomeScreen extends StatefulWidget {
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
 }
 
-class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBindingObserver {
   /// null = "All". Otherwise a real `product_categories.id` from Supabase.
   String? _selectedCategoryId;
 
@@ -50,9 +51,37 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     // state is read from ProductsRepository in build().
     final catalog = ProductsRepository.instance;
     if (!catalog.hasLoaded && !catalog.isLoading) _retryCatalog();
+    WidgetsBinding.instance.addObserver(this);
+    BranchController.instance.addListener(_showMoveNotice);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) BranchController.instance.autoSelectNearest();
+      if (mounted) refreshCustomerBranch();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    BranchController.instance.removeListener(_showMoveNotice);
+    super.dispose();
+  }
+
+  /// The branch follows the customer: check it each time the app comes back.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) refreshCustomerBranch();
+  }
+
+  /// Says what a move changed in the cart. Checkout shows it itself when it's open.
+  void _showMoveNotice() {
+    final controller = BranchController.instance;
+    if (!mounted || !controller.hasMoveNotice || ModalRoute.of(context)?.isCurrent == false) return;
+    final notice = controller.takeMoveNotice()!;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(moveNoticeLines(AppLocalizations.of(context), notice).join(' ')),
+        duration: const Duration(seconds: 8),
+      ),
+    );
   }
 
   Future<void> _retryCatalog() => ProductsRepository.instance.loadCatalog(
@@ -265,39 +294,42 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               final controller = BranchController.instance;
               final branch = controller.selectedBranch;
               final label = branch?.name ??
-                  (controller.isLocating ? 'Finding your nearest branch...' : 'Choose your branch');
-              return Semantics(
-                button: true,
-                label: branch != null ? 'Branch: ${branch.name}. Change' : label,
-                excludeSemantics: true,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.location_on_rounded, size: 18, color: AppColors.gold),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.labelLg.copyWith(color: Colors.white),
+                  (controller.isLocating
+                      ? AppLocalizations.of(context).branchFinding
+                      : AppLocalizations.of(context).branchTurnOnLocation);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Semantics(
+                    label: branch != null ? 'Branch: ${branch.name}' : label,
+                    excludeSemantics: true,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_on_rounded, size: 18, color: AppColors.gold),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.labelLg.copyWith(color: Colors.white),
+                            ),
                           ),
-                        ),
-                        if (branch != null && controller.isAutoSelected) ...[
-                          const SizedBox(width: AppSpacing.xs),
-                          Text('NEAREST', style: AppTextStyles.labelSm.copyWith(color: AppColors.gold, letterSpacing: 1.2)),
+                          if (branch != null && controller.isAutoSelected) ...[
+                            const SizedBox(width: AppSpacing.xs),
+                            Text('NEAREST', style: AppTextStyles.labelSm.copyWith(color: AppColors.gold, letterSpacing: 1.2)),
+                          ],
                         ],
-                        const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: Colors.white),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+                  if (controller.locationOff && !controller.isLocating) ...[
+                    const LocationNeededNotice(),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
+                ],
               );
             },
           ),

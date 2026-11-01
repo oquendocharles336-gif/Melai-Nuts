@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/branch_choice.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/services/checkout_attempt_store.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -35,8 +36,8 @@ import '../../../data/repositories/payment_settings_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../../payments/screens/online_payment_screen.dart';
-import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
+import '../widgets/branch_stock_notice.dart';
 import '../widgets/downpayment_note.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
 import 'order_confirmation_screen.dart';
@@ -102,6 +103,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _contactController = TextEditingController();
   bool _placingOrder = false;
 
+  /// What moving the cart to the branch changed; stays until checkout closes.
+  CartMoveNotice? _moveNotice;
+
   /// The server's answer for the current total. Null until it arrives, or if it
   /// could not be read: `place_order` decides either way.
   CodDownpaymentQuote? _codQuote;
@@ -126,6 +130,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final address = CustomerDataStore.instance.defaultAddress;
     if (address != null) _useAddress(address);
     unawaited(_loadPaymentSettings());
+    BranchController.instance.addListener(_onBranchChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(refreshCustomerBranch());
+    });
+  }
+
+  void _onBranchChanged() {
+    if (!mounted) return;
+    setState(() {
+      _moveNotice = BranchController.instance.takeMoveNotice() ?? _moveNotice;
+    });
   }
 
   Future<void> _loadPaymentSettings() async {
@@ -219,6 +234,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   @override
   void dispose() {
+    BranchController.instance.removeListener(_onBranchChanged);
+    BranchController.instance.pauseRefresh = false;
     _notesController.dispose();
     _addressController.dispose();
     _contactController.dispose();
@@ -250,7 +267,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
       return;
     }
-    if (_placingOrder) return; // no double submit
+    if (_placingOrder || BranchController.instance.isLocating) return; // no double submit
     if (!FormUtils.validateAndFocus(_formKey)) {
       return;
     }
@@ -321,6 +338,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
 
+    BranchController.instance.pauseRefresh = true;
     setState(() => _placingOrder = true);
 
     final payOnline = _payment == _PaymentMethod.online;
@@ -340,6 +358,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           AppErrorKind.orderFailed,
           flushError ?? 'Your cart changes aren\'t saved yet. Please check your connection and try again.',
         );
+      }
+      // The order goes to the branch of the server's cart: it must be the one
+      // on screen.
+      if (cart.branchId != branch.id) {
+        final move = await cart.moveToBranch(branch.id);
+        if (!move.isMoved) {
+          throw AppError(
+            AppErrorKind.orderFailed,
+            move.message ?? 'We couldn\'t move your cart to ${branch.name}. Please try again.',
+          );
+        }
+        if (move.cartChanged) {
+          throw AppError(
+            AppErrorKind.orderFailed,
+            'Your cart changed for ${branch.name}. Please review it and place your order again.',
+          );
+        }
       }
       final cartId = cart.cartId;
       if (cartId == null) {
@@ -537,6 +572,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           SnackBar(content: Text(error.message), duration: const Duration(seconds: 6)),
         );
     } finally {
+      BranchController.instance.pauseRefresh = false;
       if (mounted) setState(() => _placingOrder = false);
     }
   }
@@ -591,6 +627,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final email = AuthService.instance.currentFirebaseUser?.email ?? profile?.email;
     final phone = profile?.phone;
     final branch = BranchController.instance.selectedBranch;
+    final locating = BranchController.instance.isLocating;
+    final branchChoice = BranchController.instance.choice;
     // If the selected branch can't actually fulfil the currently chosen
     // method (e.g. it doesn't deliver), fall back to whichever method it
     // does support instead of silently charging for an unavailable one.
@@ -724,27 +762,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   boxShadow: AppShadows.sm,
                 ),
                 child: branch == null
-                    ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('NO BRANCH SELECTED', style: AppTextStyles.labelSm),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Pick a branch so we know where to fulfil this order from.',
-                      style: AppTextStyles.bodySm,
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
-                      ),
-                      child: const Text('Select Branch'),
-                    ),
-                  ],
-                )
+                    ? Text(
+                        locating ? AppLocalizations.of(context).branchFinding : AppLocalizations.of(context).branchLocationNeeded,
+                        style: AppTextStyles.bodySm,
+                      )
                     : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      locating
+                          ? AppLocalizations.of(context).branchFinding
+                          : branchChoice != null && branchChoice.branch.id == branch.id
+                              ? orderingFromText(AppLocalizations.of(context), branchChoice)
+                              : AppLocalizations.of(context).orderingFrom(branch.name),
+                      style: AppTextStyles.labelLg,
+                    ),
+                    const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -777,6 +810,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ],
                 ),
               ),
+              if (_moveNotice != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                CartMoveNoticeCard(notice: _moveNotice!),
+              ],
+              if (BranchController.instance.locationOff && !locating) ...[
+                const SizedBox(height: AppSpacing.sm),
+                const LocationNeededNotice(),
+              ],
               if (_fulfillment == _FulfillmentMethod.delivery) ...[
                 const SizedBox(height: AppSpacing.md),
                 Text('Delivery Details', style: AppTextStyles.titleMd),
@@ -1011,7 +1052,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     label: _payment == _PaymentMethod.online || payingDownpayment ? 'Place Order & Pay' : 'Place Order',
                     icon: Icons.arrow_forward_rounded,
                     loading: _placingOrder,
-                    onPressed: cart.lines.isEmpty ? null : _placeOrder,
+                    onPressed: cart.lines.isEmpty || locating || branch == null ? null : _placeOrder,
                   ),
                 ),
               ],

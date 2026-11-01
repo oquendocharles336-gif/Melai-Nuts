@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/services/branch_choice.dart' show BranchStock;
 import '../../core/services/supabase_service.dart';
 import '../../core/utils/app_error.dart';
 import '../catalog_store.dart';
@@ -526,6 +527,31 @@ class ProductsRepository extends ChangeNotifier {
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'products_repository:checkLiveStock');
       return const LiveStock.checkFailed();
+    }
+  }
+
+  /// Live stock of [variantIds] at every branch, straight from
+  /// `branch_inventory`. A row the branch doesn't carry is left out. Returns
+  /// null (never "out of stock") when the check itself fails.
+  Future<BranchStock?> fetchStockByBranch(List<String> variantIds) async {
+    final ids = variantIds.where((id) => id.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return <String, Map<String, int>>{};
+    try {
+      final raw = await _client
+          .from('branch_inventory')
+          .select('branch_id,variant_id,quantity,is_carried')
+          .inFilter('variant_id', ids);
+      final stock = <String, Map<String, int>>{};
+      for (final row in List<Map<String, dynamic>>.from(raw)) {
+        if (row['is_carried'] == false) continue;
+        final shelf = stock.putIfAbsent(row['branch_id'] as String, () => <String, int>{});
+        final variantId = row['variant_id'] as String;
+        shelf[variantId] = (shelf[variantId] ?? 0) + (row['quantity'] as num).toInt();
+      }
+      return stock;
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:fetchStockByBranch');
+      return null;
     }
   }
 

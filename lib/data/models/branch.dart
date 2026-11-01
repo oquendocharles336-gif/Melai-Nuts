@@ -25,6 +25,10 @@ class Branch {
   /// Branches a customer can pick: open for pickup or delivery, not a warehouse.
   bool get servesCustomers => !isWarehouse && (supportsPickup || supportsDelivery);
 
+  /// A branch checkout may choose. Hours are free text and a pickup order can
+  /// be collected later, so "open" does not depend on the time of day.
+  bool get isOpenForPickup => isActive && supportsPickup && !isWarehouse;
+
   /// Map position of the branch (`branches.latitude/longitude`); null until
   /// the owner sets it. Used to center the customer's map picker and to warn
   /// about pins far away from the branch.

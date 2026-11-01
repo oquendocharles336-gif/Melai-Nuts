@@ -133,7 +133,7 @@ class ProductCard extends StatelessWidget {
                 // Real stock/availability state — only shown when it isn't
                 // the default "In Stock" (nothing to flag there). Before a
                 // branch is chosen the catalog holds the all-branches total,
-                // so it says "Choose a branch" instead of implying stock here.
+                // so it says "Turn on location" instead of implying stock here.
                 Positioned(
                   top: 6,
                   right: 6,
@@ -277,7 +277,7 @@ class _AddButton extends StatelessWidget {
 /// so with no branch chosen the catalog's all-branches total is not shown as
 /// "In Stock" (the customer could then fail at their real branch).
 class CustomerStockChip {
-  static const String chooseBranchLabel = 'Choose a branch to see stock';
+  static const String chooseBranchLabel = 'Turn on location to see stock';
 
   final String label;
   final Color foreground;
