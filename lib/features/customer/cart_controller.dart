@@ -1,19 +1,22 @@
 import 'dart:async';
 import '../../core/config/delivery_config.dart';
 import 'dart:convert';
+import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
+import '../../core/services/auth_service.dart';
+import '../../core/services/branch_choice.dart';
 import '../../core/services/branch_controller.dart';
 import '../../core/services/customer_data_store.dart';
+import '../../core/services/device_location.dart';
+import '../../core/services/permission_service.dart';
 import '../../data/catalog_store.dart';
 import '../../data/models/product.dart';
-import '../../data/repositories/branch_repository.dart';
 import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/icon_registry.dart';
 import '../../data/repositories/products_repository.dart';
-import '../settings/screens/branch_settings_screen.dart';
 import 'screens/cart_screen.dart';
 import '../../core/utils/app_error.dart';
 import '../../core/utils/format_utils.dart';
@@ -99,7 +102,7 @@ class CartController extends ChangeNotifier {
   double get displayTotal => DeliveryConfig.customerDeliveryEnabled ? total : (toCents(total) - toCents(deliveryFee)) / 100;
   double get total => _pricing.total;
   int get itemCount => _lines.fold(0, (sum, line) => sum + line.quantity);
-  String get currentBranch => BranchController.instance.selectedBranch?.name ?? 'Select a branch';
+  String get currentBranch => BranchController.instance.selectedBranch?.name ?? 'Finding your branch';
   String? get cartId => _cartId;
   String? get branchId => _branchId;
 
@@ -119,8 +122,12 @@ class CartController extends ChangeNotifier {
 
   Future<void> hydrate(String firebaseUid, {String? branchId}) async {
     _firebaseUid = firebaseUid;
+    // Set before the first wait, so moving the cart never mistakes a cart that
+    // has not loaded yet for an empty one.
+    _hydrating = true;
     final resolvedBranch = branchId ?? await _resolveBranchId();
     if (resolvedBranch == null) {
+      _hydrating = false;
       _branchId = null;
       _storageKey = null;
       _cartId = null;
@@ -238,6 +245,127 @@ class CartController extends ChangeNotifier {
     }
     await hydrate(uid, branchId: branchId);
     return true;
+  }
+
+  /// What the cart needs from a branch's shelf.
+  List<CartNeed> get stockNeeds => [
+        for (final line in _lines)
+          CartNeed(variantId: line.variant.id, name: line.product.name, quantity: line.quantity),
+      ];
+
+  /// Reads live stock for the move check. Tests replace it.
+  @visibleForTesting
+  Future<BranchStock?> Function(List<String> variantIds) stockLoader =
+      (variantIds) => ProductsRepository.instance.fetchStockByBranch(variantIds);
+
+  /// Waits (10 seconds at most) for the cart of [expectedUid] to finish loading.
+  Future<void> _waitUntilLoaded(String? expectedUid) async {
+    for (var i = 0; i < 100; i++) {
+      final bound = expectedUid == null || _firebaseUid == expectedUid;
+      if (bound && !_hydrating) return;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  /// Moves the cart on screen to [branchId], unlike [switchBranch], which shows
+  /// that branch's own cart. The lines, voucher and points choice go along, any
+  /// older cart there is replaced, and the old branch's cart is emptied.
+  ///
+  /// The customer has nowhere else to go, so lines are lowered to what the new
+  /// branch has, or removed, and the result says which. If stock can't be read
+  /// or the server can't be reached, nothing changes. [expectedUid] is the
+  /// signed-in customer, when their cart may not have started loading yet.
+  Future<CartMoveResult> moveToBranch(String branchId, {String? expectedUid}) async {
+    await _waitUntilLoaded(expectedUid);
+    if (_hydrating) {
+      return const CartMoveResult.failed('Your cart is still loading. Please try again in a moment.');
+    }
+    if (_branchId == branchId) return const CartMoveResult.moved();
+    final uid = _firebaseUid;
+    if (uid == null || _lines.isEmpty) {
+      final switched = await switchBranch(branchId);
+      return switched ? const CartMoveResult.moved() : CartMoveResult.failed(lastError);
+    }
+    final flushError = await flush();
+    if (flushError != null) return CartMoveResult.failed(flushError);
+
+    final needs = stockNeeds;
+    final stock = await stockLoader([for (final need in needs) need.variantId]);
+    if (stock == null) {
+      return const CartMoveResult.failed('We couldn\'t check stock right now. Please try again.');
+    }
+    final short = shortfallsAt(branchId, needs, stock);
+    final shelf = stock[branchId] ?? const <String, int>{};
+    final items = [
+      for (final line in _lines)
+        if ((shelf[line.variant.id] ?? 0) > 0)
+          {
+            'product_id': line.product.id,
+            'variant_id': line.variant.id,
+            'quantity': min(line.quantity, shelf[line.variant.id]!),
+          },
+    ];
+
+    final oldBranch = _branchId;
+    final oldKey = _storageKey;
+    final hadDiscounts = appliedVoucherCode != null || redeemPoints;
+    var droppedDiscounts = false;
+    CartRemoteState moved;
+    try {
+      moved = await CartRepository.instance.syncCart(
+        branchId: branchId,
+        voucherCode: appliedVoucherCode,
+        redeemPoints: redeemPoints,
+        items: items,
+      );
+    } catch (e) {
+      if (!hadDiscounts || !isServerRefusal(e)) return CartMoveResult.failed(_messageFor(e));
+      // The smaller cart may no longer qualify: move it without the discounts.
+      try {
+        moved = await CartRepository.instance.syncCart(
+          branchId: branchId,
+          voucherCode: null,
+          redeemPoints: false,
+          items: items,
+        );
+        droppedDiscounts = true;
+      } catch (e) {
+        return CartMoveResult.failed(_messageFor(e));
+      }
+    }
+
+    for (final line in _lines) {
+      final available = shelf[line.variant.id] ?? 0;
+      if (available < line.quantity) line.quantity = available;
+    }
+    _lines.removeWhere((line) => line.quantity <= 0);
+    _branchId = branchId;
+    _storageKey = _keyFor(uid, branchId);
+    _cartId = moved.cartId;
+    _pricing = moved.pricing;
+    appliedVoucherCode = moved.voucherCode;
+    redeemPoints = moved.redeemPoints;
+    _dirty = false;
+    lastError = null;
+    await _saveLocalSnapshot(dirty: false);
+    if (oldKey != null) await _removeSnapshot(oldKey);
+    notifyListeners();
+
+    // The move already worked: if this fails, only a leftover cart at the old
+    // branch remains, which the customer sees if they go back there.
+    if (oldBranch != null) {
+      try {
+        await CartRepository.instance.syncCart(
+          branchId: oldBranch,
+          voucherCode: null,
+          redeemPoints: false,
+          items: const [],
+        );
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'cart_controller:moveToBranch');
+      }
+    }
+    return CartMoveResult.moved(shortfalls: short, droppedDiscounts: droppedDiscounts);
   }
 
   Future<String?> _flushCurrentBranch() async {
@@ -1046,7 +1174,7 @@ class AddToCartResult {
       case AddToCartFailure.notSignedIn:
         return 'Please sign in before adding items to your cart.';
       case AddToCartFailure.noBranch:
-        return 'Please select a branch first.';
+        return 'Please turn on location so we can find your branch.';
       case AddToCartFailure.branchSwitchFailed:
         return 'We couldn\'t switch branches while your cart is waiting to sync. Please try again in a moment.';
       case AddToCartFailure.unavailable:
@@ -1063,38 +1191,41 @@ class AddToCartResult {
   }
 }
 
-/// Makes sure a signed-in customer has a branch before adding to the cart.
-/// Auto-selects the only open customer branch; otherwise opens the branch
-/// picker. Returns true when a branch is selected afterwards.
+/// Sets the branch from the phone's location and moves the cart with it. Call
+/// when the app opens or comes back, and when checkout opens.
+Future<void> refreshCustomerBranch() {
+  return BranchController.instance.refreshBranch(
+    cart: BranchCartLink(
+      move: (branchId) => CartController.instance.moveToBranch(
+        branchId,
+        expectedUid: AuthService.instance.currentFirebaseUser?.uid,
+      ),
+      branchId: () => CartController.instance.branchId,
+    ),
+  );
+}
+
+/// Asks the customer to turn location on, then sets the branch. The app comes
+/// back from the device's settings by itself, which refreshes the branch too.
+Future<void> turnOnLocationForBranch(BuildContext context) async {
+  if (!await DeviceLocation.servicesEnabled()) {
+    await DeviceLocation.openSettings(locationServices: true);
+    return;
+  }
+  if (!context.mounted) return;
+  await PermissionService.instance.requestLocation(context, PermissionPurpose.pinAddress);
+  await refreshCustomerBranch();
+}
+
+/// Makes sure the customer has a branch before adding to the cart: sets it
+/// automatically, and asks for location when nothing else can decide. Returns
+/// true when a branch is set afterwards.
 Future<bool> ensureBranchSelected(BuildContext context) async {
   if (BranchController.instance.selectedBranch != null) return true;
-  if (kBranches.isEmpty) {
-    try {
-      await BranchRepository.instance.loadBranches();
-    } catch (caughtError, caughtStack) {
-      AppErrors.report(caughtError, caughtStack, 'cart_controller:ensureBranchSelected');
-    }
-  }
+  await refreshCustomerBranch();
+  if (BranchController.instance.selectedBranch != null) return true;
   if (!context.mounted) return false;
-  final open = kBranches.where((b) => b.servesCustomers && b.isActive).toList();
-  if (open.length == 1) {
-    final branch = open.single;
-    final cart = CartController.instance;
-    if (cart.signedInUid != null) {
-      final switched = await cart.switchBranch(branch.id);
-      if (!switched) return false;
-    }
-    await BranchController.instance.selectBranch(branch, firebaseUid: cart.signedInUid);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Shopping at ${branch.name}. You can change this in Settings.')),
-      );
-    }
-    return BranchController.instance.selectedBranch != null;
-  }
-  await Navigator.of(context).push(
-    MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
-  );
+  await turnOnLocationForBranch(context);
   return BranchController.instance.selectedBranch != null;
 }
 

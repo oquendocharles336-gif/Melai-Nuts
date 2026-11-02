@@ -162,6 +162,9 @@ class Order {
   final DateTime date;
   final OrderStatus status;
   final String branch;
+
+  /// `orders.branch_id`; null only when the branch was deleted.
+  final String? branchId;
   final bool isDelivery;
   final List<OrderItem> items;
   final double discount;
@@ -205,6 +208,7 @@ class Order {
     required this.date,
     required this.status,
     required this.branch,
+    this.branchId,
     required this.isDelivery,
     required this.items,
     this.discount = 0,
@@ -241,6 +245,7 @@ class Order {
       date: DateTime.parse(row['created_at'] as String).toLocal(),
       status: OrderStatus.values.byName(row['status'] as String),
       branch: row['branch_name'] as String,
+      branchId: row['branch_id'] as String?,
       isDelivery: row['is_delivery'] as bool,
       items: itemRows.map(OrderItem.fromRow).toList(),
       discount: (row['discount'] as num).toDouble(),
