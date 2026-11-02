@@ -27,6 +27,7 @@ class AccessControlTest extends TestCase
         $staff = $this->staff();
         $this->actingAs($staff)->get('/admin/payments')->assertForbidden();
         $this->actingAs($staff)->post('/admin/payments/ORD-1/mark-paid')->assertForbidden();
+        $this->actingAs($staff)->post('/admin/payments/ORD-1/confirm-online', ['reason' => 'HitPay shows it paid'])->assertForbidden();
         $this->actingAs($staff)->get('/admin/refunds')->assertForbidden();
         $this->actingAs($staff)->post('/admin/refunds/ORD-1/approve')->assertForbidden();
         $this->actingAs($staff)->post('/admin/refunds/ORD-1/reject', ['reason' => 'x'])->assertForbidden();

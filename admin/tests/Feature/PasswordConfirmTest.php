@@ -33,6 +33,16 @@ class PasswordConfirmTest extends TestCase
         $this->assertStringContainsString('<x-password-confirm />', file_get_contents(resource_path('views/admin/payments/index.blade.php')));
     }
 
+    public function test_confirming_an_online_payment_needs_the_password(): void
+    {
+        $this->useFakeSupabase();
+        $owner = $this->linkedLogin('uid-owner');
+        $this->signedIn($owner)->from('/admin/payments')
+            ->post(route('admin.payments.confirm-online', 'ORD-1'), ['reason' => 'HitPay shows it paid'])
+            ->assertSessionHasErrors('current_password');
+        $this->assertNotContains('owner_confirm_online_payment', $this->db->calledFunctions('uid-owner'));
+    }
+
     public function test_a_wrong_password_is_refused_and_rate_limited(): void
     {
         $this->useFakeSupabase();

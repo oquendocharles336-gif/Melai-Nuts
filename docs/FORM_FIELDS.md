@@ -90,7 +90,8 @@ Conventions used by every form (Criterion 6):
 | Purchase receipt create / update / cancel | `StorePurchaseReceiptRequest`, `UpdatePurchaseReceiptRequest`, `CancelPurchaseReceiptRequest` (reason required) |
 | POS order, receive stock | `StorePosOrderRequest`, `ReceiveStockRequest` |
 | Loyalty settings | `UpdateLoyaltySettingsRequest` |
-| Mark paid | `MarkPaidRequest` |
+| Mark paid (cash) | `MarkPaidRequest` |
+| Confirm online payment (owner fallback) | `ConfirmOnlinePaymentRequest` (reason required, logged) |
 
 Destructive website actions (deactivate user, reject refund, void payment, delete product/card,
 cancel receipt) open the shared confirm modal (`resources/views/components/confirm-modal.blade.php`)

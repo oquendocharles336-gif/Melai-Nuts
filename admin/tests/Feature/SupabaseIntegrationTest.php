@@ -154,7 +154,11 @@ class SupabaseIntegrationTest extends TestCase
 
     private function completeOrder(string $orderId, ?string $reference = null): void
     {
-        $this->asAppUser($this->fx['owner'], 'select public.staff_confirm_payment(?, ?)::text', [$orderId, $reference]);
+        if ($reference === null) {
+            $this->asAppUser($this->fx['owner'], 'select public.staff_confirm_payment(?)::text', [$orderId]);
+        } else {
+            $this->asAppUser($this->fx['owner'], 'select public.owner_confirm_online_payment(?, ?, ?)', [$orderId, 'Test: paid, no webhook', $reference]);
+        }
         foreach (['confirmed', 'preparing', 'readyForPickup', 'completed'] as $st) {
             $this->asAppUser($this->fx['owner'], 'select public.staff_update_order_status(?, ?)::text', [$orderId, $st]);
         }
@@ -434,6 +438,27 @@ class SupabaseIntegrationTest extends TestCase
         // Second click: refused, nothing changes.
         $this->actingAs($admin)->post(route('admin.payments.mark-paid', $order))->assertSessionHasErrors('order');
         $this->assertSame(1, (int) $this->db()->selectOne('select count(*) as n from public.payments where order_id = ?', [$order])->n);
+    }
+
+    public function test_the_owner_confirms_a_stuck_online_payment_with_a_logged_reason(): void
+    {
+        $order = $this->placeOrder('a', 'GCash E-Wallet');
+        $admin = $this->portalAdmin();
+
+        $this->actingAs($admin)->get('/admin/payments')->assertSee('Confirm online payment');
+        $this->actingAs($admin)->post(route('admin.payments.mark-paid', $order))->assertSessionHasErrors('order');
+        $this->actingAs($admin)->post(route('admin.payments.confirm-online', $order), ['reason' => 'short'])->assertSessionHasErrors('reason');
+        $this->assertNotSame('success', $this->db()->selectOne('select status from public.payments where order_id = ?', [$order])->status);
+
+        $this->actingAs($admin)->post(route('admin.payments.confirm-online', $order), ['reason' => 'HitPay shows it paid', 'reference' => 'HP-1'])->assertSessionHas('status');
+        $pay = $this->db()->selectOne('select status, reference_number from public.payments where order_id = ?', [$order]);
+        $this->assertSame('success', $pay->status);
+        $this->assertSame('HP-1', $pay->reference_number);
+        $log = $this->db()->selectOne("select metadata::text as m from public.staff_audit_logs where action = 'payment.owner_confirmed_online' and entity_id = ?", [$order]);
+        $this->assertSame('HitPay shows it paid', json_decode($log->m, true)['reason']);
+
+        // Second click: refused.
+        $this->actingAs($admin)->post(route('admin.payments.confirm-online', $order), ['reason' => 'HitPay shows it paid'])->assertSessionHasErrors('order');
     }
 
     public function test_cash_refund_is_completed_in_the_app_with_stock_and_points_handled_by_the_database(): void

@@ -427,14 +427,12 @@ insert into gaps select '(no key supplied) same transfer request sent twice -> N
   (select count(*)::text from public.stock_transfers
    where from_branch_id = (select v from fx where k='bb')::uuid and to_branch_id = (select v from fx where k='ba')::uuid
      and status = 'requested' and note = 'xb' and requested_by = 'x-sa');
-select pg_temp.call_as('x-sb', format($q$select public.staff_confirm_payment(%L, 'REUSED-REF-1')::text$q$, (select v from fx where k='order2')));
 insert into fx select 'order3', pg_temp.call_as('x-c1', format($q$select public.place_order(%L::uuid, false, null, 'GCash E-Wallet', '', 'xb-key-3')$q$,
   pg_temp.call_as('x-c1', format($q$select (public.sync_customer_cart(%L::uuid,
     jsonb_build_array(jsonb_build_object('product_id', %L, 'variant_id', %L, 'quantity', 1)), null, false) ->> 'cart_id')$q$,
     (select v from fx where k='bb'), (select v from fx where k='prod'), (select v from fx where k='var')))));
-select pg_temp.call_as('x-sb', format($q$select public.staff_confirm_payment(%L, 'REUSED-REF-1')::text$q$, (select v from fx where k='order3')));
-insert into gaps select 'same payment reference accepted on two different orders -> N payments (want 1)',
-  (select count(*)::text from public.payments where reference_number = 'REUSED-REF-1');
+select pg_temp.chk('B staff cannot mark an online order paid by typing a reference', 'x-sb',
+  format($$select public.staff_confirm_payment(%L, 'REUSED-REF-1')$$, (select v from fx where k='order3')), 'error');
 
 -- Report ---------------------------------------------------------------------
 select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;

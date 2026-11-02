@@ -397,10 +397,18 @@ class SupabaseRepository
 
     // ---- actions (each one transaction; the SQL functions lock rows and check permissions) ----
 
-    /** Confirms a pending payment (cash needs no reference; other methods need one). */
-    public function confirmPayment(string $orderId, ?string $reference = null): void
+    /** Confirms a pending cash payment. The database refuses online payments. */
+    public function confirmPayment(string $orderId): void
     {
-        $this->call('select public.staff_confirm_payment(?::text, ?::text)::text as r', [$orderId, $reference]);
+        $this->call('select public.staff_confirm_payment(?::text)::text as r', [$orderId]);
+        $this->forget();
+    }
+
+    /** Owner fallback when HitPay's confirmation never arrived. The database logs the reason. */
+    public function ownerConfirmOnlinePayment(string $orderId, string $reason, ?string $reference = null): void
+    {
+        // The gateway decodes every result as JSON, and this function returns plain text.
+        $this->call('select to_jsonb(public.owner_confirm_online_payment(?::text, ?::text, ?::text))::text as r', [$orderId, $reason, $reference]);
         $this->forget();
     }
 
