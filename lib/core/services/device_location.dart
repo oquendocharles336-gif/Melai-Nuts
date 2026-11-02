@@ -54,6 +54,7 @@ class DeviceLocation {
   static Future<DeviceLocationResult> current({
     Duration timeout = const Duration(seconds: 20),
     LocationAccuracy accuracy = LocationAccuracy.high,
+    bool askPermission = true,
   }) async {
     if (!supported) {
       return const DeviceLocationResult.failed(
@@ -66,7 +67,7 @@ class DeviceLocation {
             needsSettings: true);
       }
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied && askPermission) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.deniedForever) {
@@ -89,6 +90,18 @@ class DeviceLocation {
       AppErrors.report(caughtError, caughtStack, 'device_location:83');
       return const DeviceLocationResult.failed(
           'Your location could not be read. Move the map to place the pin by hand.');
+    }
+  }
+
+  /// Whether the device's location is switched on. Quietly true where it can't
+  /// be read, so the permission step decides.
+  static Future<bool> servicesEnabled() async {
+    if (!supported) return true;
+    try {
+      return await Geolocator.isLocationServiceEnabled();
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'device_location:servicesEnabled');
+      return true;
     }
   }
 

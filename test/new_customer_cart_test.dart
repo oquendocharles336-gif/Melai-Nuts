@@ -134,7 +134,7 @@ void main() {
       final live = await cart.addProductWithLiveCheck(p, p.variants.first);
       for (final r in [direct, live]) {
         expect(r.failure, AddToCartFailure.noBranch);
-        expect(r.message, 'Please select a branch first.');
+        expect(r.message, 'Please turn on location so we can find your branch.');
       }
     });
 

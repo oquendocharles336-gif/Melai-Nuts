@@ -198,7 +198,7 @@
   "permBlockedBody": "Melai Nuts can no longer ask for it. Turn it on in your phone's Settings.",
   "permCameraScanFallback": "Without the camera you can still type the SKU or barcode.",
   "permCameraProofFallback": "Without the camera the proof-of-delivery photo cannot be taken.",
-  "permLocationPinFallback": "Without location you can still choose your branch by hand.",
+  "permLocationPinFallback": "Without location, we'll use the branch from your last order.",
   "permLocationDeliveryFallback": "Without location, customers cannot follow the delivery on the map.",
   "permNotificationsFallback": "You will not get updates on this phone, but you can still see them in the app.",
   "permissionsTitle": "Permissions",
@@ -379,5 +379,46 @@
   "startupFailedMessage": "Please check your internet connection and open the app again. If this keeps happening, contact Melai Nuts support.",
   "screenErrorTitle": "This part of the screen could not be shown",
   "screenErrorMessage": "Go back and try again. Your data is safe.",
-  "sortRelevance": "Best match"
+  "sortRelevance": "Best match",
+  "branchFinding": "Finding your nearest branch…",
+  "branchLocationNeeded": "Turn on location so we can use your nearest branch.",
+  "branchTurnOnLocation": "Turn on location",
+  "orderingFromNearest": "Ordering from: {branch} (nearest to you)",
+  "@orderingFromNearest": {
+    "placeholders": {
+      "branch": {"type": "String"}
+    }
+  },
+  "orderingFromLastOrder": "Ordering from: {branch} (your last order)",
+  "@orderingFromLastOrder": {
+    "placeholders": {
+      "branch": {"type": "String"}
+    }
+  },
+  "orderingFrom": "Ordering from: {branch}",
+  "@orderingFrom": {
+    "placeholders": {
+      "branch": {"type": "String"}
+    }
+  },
+  "cartMovedTo": "Your cart moved to {branch}.",
+  "@cartMovedTo": {
+    "placeholders": {
+      "branch": {"type": "String"}
+    }
+  },
+  "cartItemLowered": "{item}: only {count} left, so we changed the quantity.",
+  "@cartItemLowered": {
+    "placeholders": {
+      "item": {"type": "String"},
+      "count": {"type": "String"}
+    }
+  },
+  "cartItemRemoved": "{item}: out of stock, so we removed it.",
+  "@cartItemRemoved": {
+    "placeholders": {
+      "item": {"type": "String"}
+    }
+  },
+  "cartDiscountsRemoved": "Your voucher or points no longer apply, so we removed them."
 }

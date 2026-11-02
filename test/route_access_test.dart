@@ -43,6 +43,14 @@ void main() {
     expect(AppRoutes.canOpen(AppRoutes.deliveryCreate, UserRole.delivery), isFalse);
   });
 
+  test('customers and guests cannot reach the branch settings', () {
+    expect(AppRoutes.canOpen(AppRoutes.branchSettings, UserRole.customer), isFalse);
+    expect(AppRoutes.canOpen(AppRoutes.branchSettings, null, signedIn: false), isFalse);
+    expect(AppRoutes.canOpen(AppRoutes.branchSettings, UserRole.staff), isTrue);
+    expect(AppRoutes.canOpen(AppRoutes.branchSettings, UserRole.owner), isTrue);
+    expect(AppRoutes.canOpen(AppRoutes.branchSettings, UserRole.delivery), isTrue);
+  });
+
   test('stock receiving and refunds need their staff permission', () {
     expect(AppRoutes.permissionsFor(AppRoutes.inventoryReceive), contains(StaffPermission.manageInventory));
     expect(AppRoutes.permissionsFor(AppRoutes.staffRefunds), contains(StaffPermission.manageRefunds));

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../data/models/user_role.dart';
 import '../../../core/services/locale_controller.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -95,12 +97,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     MaterialPageRoute(builder: (_) => const SecurityScreen()),
                   ),
                 ),
-                if (!isStaff) ...[
+                // Customers never pick a branch: it follows their location.
+                if (!isStaff && AuthService.instance.currentProfile?.role == UserRole.delivery) ...[
                   const Divider(height: 1),
                   _Tile(
                     icon: Icons.storefront_outlined,
                     title: 'Branch Settings',
-                    subtitle: 'Set your preferred branch',
+                    subtitle: 'Your assigned branch',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const BranchSettingsScreen()),
                     ),
