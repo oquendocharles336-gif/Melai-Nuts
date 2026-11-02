@@ -2,17 +2,19 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Requests\ConfirmOnlinePaymentRequest;
 use App\Http\Requests\MarkPaidRequest;
 use App\Http\Controllers\Controller;
 use App\Services\ActivityLogger;
 use App\Services\OrderQueryService;
 use App\Services\Platform;
+use App\Services\Supabase\StaffIdentity;
 use App\Services\Supabase\SupabaseRepository;
 use App\Support\ListTools;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
-/** Payments of the app's orders, from the shared database. Admin can confirm cash payments. */
+/** Payments of the app's orders, from the shared database. Admin can confirm cash; the owner has a logged fallback for online money. */
 class PaymentController extends Controller
 {
     public function index(Request $request, \App\Contracts\DataSource $data)
@@ -41,6 +43,7 @@ class PaymentController extends Controller
             'methods' => $this->platform()->paymentMethods(),
             'cashMethod' => $this->platform()->cashMethod(),
             'liveData' => $this->platform()->isSupabase(),
+            'isOwner' => $this->platform()->isSupabase() && app(StaffIdentity::class)->isOwner(),
             'filters' => $filters,
         ]);
     }
@@ -79,6 +82,9 @@ class PaymentController extends Controller
         if ($order['effectivePaymentStatus'] === 'paid') {
             throw ValidationException::withMessages(['order' => 'This order is already marked as paid.']);
         }
+        if (! self::awaitingCash($order, $this->platform()->cashMethod())) {
+            throw ValidationException::withMessages(['order' => 'This order is still waiting for its online downpayment.']);
+        }
 
         // Same function the staff app uses: locks the order + payment, checks the branch,
         // refuses if already paid/cancelled, notifies the customer. Points are awarded by the
@@ -91,5 +97,53 @@ class PaymentController extends Controller
         ]);
 
         return back()->with('status', "Order {$orderId} marked as paid.");
+    }
+
+    /**
+     * Owner only (checked by the database): HitPay's confirmation never arrived, but the owner
+     * has checked the money is there. The database writes the reason to its audit log.
+     */
+    public function confirmOnline(ConfirmOnlinePaymentRequest $request, string $orderId)
+    {
+        $order = $this->orders()->find($orderId);
+        abort_if(! $order, 404);
+
+        if (! self::awaitingOnlineMoney($order, $this->platform()->cashMethod())) {
+            throw ValidationException::withMessages(['order' => 'This order has no online payment waiting for confirmation.']);
+        }
+
+        $data = $request->validated();
+        app(SupabaseRepository::class)->ownerConfirmOnlinePayment($orderId, $data['reason'], $data['reference'] ?? null);
+        $this->orders()->refresh();
+        ActivityLogger::log('payment.owner_confirmed_online', "Confirmed online payment for order {$orderId} by hand", null, [
+            'order_id' => $orderId, 'reason' => $data['reason'], 'reference' => $data['reference'] ?? null,
+            'by' => $request->user()->id, 'source' => 'supabase',
+        ]);
+
+        return back()->with('status', "Online payment for order {$orderId} confirmed.");
+    }
+
+    /** An open order whose online money (full payment or downpayment) is not recorded as paid yet. */
+    public static function awaitingOnlineMoney(array $o, string $cashMethod): bool
+    {
+        if (in_array($o['status'], ['cancelled', 'refundRequested', 'refunded'], true)) {
+            return false;
+        }
+        if (($o['downpaymentStatus'] ?? null) !== null) {
+            return self::downpaymentOpen($o);
+        }
+
+        return $o['paymentMethod'] !== $cashMethod && in_array($o['effectivePaymentStatus'], ['pending', 'failed'], true);
+    }
+
+    private static function downpaymentOpen(array $o): bool
+    {
+        return in_array($o['downpaymentStatus'] ?? null, ['pending', 'processing', 'failed'], true);
+    }
+
+    /** Cash can be taken once any downpayment is paid; staff do not see the order before that. */
+    public static function awaitingCash(array $o, string $cashMethod): bool
+    {
+        return $o['paymentMethod'] === $cashMethod && $o['effectivePaymentStatus'] === 'pending' && ! self::downpaymentOpen($o);
     }
 }

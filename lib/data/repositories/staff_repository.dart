@@ -365,8 +365,10 @@ class StaffRepository {
   Future<void> updateOrderStatus(String orderId, String status, {String? note}) =>
       _rpc('staff_update_order_status', {'p_order_id': orderId, 'p_status': status, 'p_note': note});
 
-  Future<void> confirmPayment(String orderId, {String? reference}) =>
-      _rpc('staff_confirm_payment', {'p_order_id': orderId, 'p_reference': reference});
+  /// Cash only: online payments are confirmed by HitPay, or by the owner on the
+  /// admin website.
+  Future<void> confirmPayment(String orderId) =>
+      _rpc('staff_confirm_payment', {'p_order_id': orderId});
 
   Future<List<CustomerMatch>> lookupCustomer(String query) async =>
       _list(await _rpc('staff_lookup_customer', {'p_query': query}))

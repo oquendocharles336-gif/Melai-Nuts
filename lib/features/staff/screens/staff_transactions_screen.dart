@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -97,26 +96,16 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       _run(() => StaffRepository.instance.updateOrderStatus(o.id, status), done);
 
   Future<void> _confirmPayment(StaffOrder o) async {
-    final method = o.payment?.method ?? '';
-    String? ref;
-    if (method != 'cash') {
-      ref = await showDialog<String>(
-        context: context,
-        builder: (ctx) => const _PaymentReferenceDialog(),
-      );
-      if (ref == null) return;
-    } else {
-      final ok = await ConfirmDialog.show(
-        context,
-        title: 'Confirm cash received',
-        message: 'Confirm that ${peso(o.total)} in cash was received for ${o.id}?',
-        confirmLabel: 'Yes, received',
-        destructive: false,
-        icon: Icons.payments_outlined,
-      );
-      if (!ok) return;
-    }
-    await _run(() => StaffRepository.instance.confirmPayment(o.id, reference: ref), 'Payment confirmed.');
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Confirm cash received',
+      message: 'Confirm that ${peso(o.total)} in cash was received for ${o.id}?',
+      confirmLabel: 'Yes, received',
+      destructive: false,
+      icon: Icons.payments_outlined,
+    );
+    if (!ok) return;
+    await _run(() => StaffRepository.instance.confirmPayment(o.id), 'Payment confirmed.');
   }
 
   Future<void> _cancel(StaffOrder o) async {
@@ -236,11 +225,18 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
     final open = o.status.isActive;
     final payment = o.payment;
     if (open && payment != null && (payment.status == 'pending' || payment.status == 'processing')) {
-      add(OutlinedButton.icon(
-        onPressed: _busy ? null : () => _confirmPayment(o),
-        icon: const Icon(Icons.payments_outlined),
-        label: Text(payment.method == 'cash' ? 'Confirm Cash Received' : 'Confirm Payment'),
-      ));
+      if (payment.method == 'cash') {
+        add(OutlinedButton.icon(
+          onPressed: _busy ? null : () => _confirmPayment(o),
+          icon: const Icon(Icons.payments_outlined),
+          label: const Text('Confirm Cash Received'),
+        ));
+      } else {
+        add(Text(
+          'Waiting for HitPay to confirm this online payment. If it looks stuck, ask the owner to check it.',
+          style: AppTextStyles.bodySm,
+        ));
+      }
     }
     if (o.isPos && o.status == OrderStatus.completed) {
       add(OutlinedButton.icon(
@@ -405,56 +401,6 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       ],
     ),
   );
-}
-
-
-/// Owns its own [TextEditingController] so it is disposed together with the
-/// dialog (after the close animation) rather than while the field is still
-/// on screen.
-class _PaymentReferenceDialog extends StatefulWidget {
-  const _PaymentReferenceDialog();
-
-  @override
-  State<_PaymentReferenceDialog> createState() => _PaymentReferenceDialogState();
-}
-
-class _PaymentReferenceDialogState extends State<_PaymentReferenceDialog> {
-  final _controller = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (_formKey.currentState?.validate() ?? false) Navigator.pop(context, _controller.text.trim());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Confirm payment'),
-      content: Form(
-        key: _formKey,
-        child: TextFormField(
-          controller: _controller,
-          autofocus: true,
-          maxLength: 40,
-          textCapitalization: TextCapitalization.characters,
-          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\-]'))],
-          decoration: const InputDecoration(labelText: 'Payment reference number', counterText: ''),
-          validator: (v) => (v ?? '').trim().length < 4 ? 'Enter the reference (at least 4 characters).' : null,
-          onFieldSubmitted: (_) => _submit(),
-        ),
-      ),
-      actions: [
-        TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _submit, child: const Text('Confirm')),
-      ],
-    );
-  }
 }
 
 

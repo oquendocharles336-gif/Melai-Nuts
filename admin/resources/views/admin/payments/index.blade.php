@@ -57,12 +57,28 @@
                 <td><span class="status {{ $o['effectivePaymentStatus'] === 'failed' ? 'low' : 'average' }}">{{ ucfirst($o['effectivePaymentStatus']) }}</span></td>
                 <td>{{ $o['createdAt']->format('M j, g:i A') }}</td>
                 <td>
-                    @if ($o['paymentMethod'] === $cashMethod && $o['effectivePaymentStatus'] === 'pending')
+                    @if (\App\Http\Controllers\Admin\PaymentController::awaitingCash($o, $cashMethod))
                         <form method="POST" action="{{ route('admin.payments.mark-paid', $o['id']) }}" data-confirm="Mark order {{ $o['id'] }} as paid? Only do this once the cash has been collected." data-confirm-title="Mark as paid?" data-confirm-label="Mark as paid" data-confirm-safe">
                             @csrf
                             <x-password-confirm />
                             <button class="btn-outline" type="submit" style="padding:.3rem .8rem">Mark as paid</button>
                         </form>
+                    @elseif ($isOwner && \App\Http\Controllers\Admin\PaymentController::awaitingOnlineMoney($o, $cashMethod))
+                        <button class="btn-outline" type="button" style="padding:.3rem .8rem" onclick="document.getElementById('confirm-online-{{ $o['id'] }}').showModal()">Confirm online payment</button>
+                        <dialog id="confirm-online-{{ $o['id'] }}" class="reject-dialog">
+                            <form method="POST" action="{{ route('admin.payments.confirm-online', $o['id']) }}">
+                                @csrf
+                                <p><strong>Confirm online payment for {{ $o['id'] }}</strong></p>
+                                <p class="muted">Only do this after checking your HitPay account shows the money arrived and its confirmation never reached this system. The reason is logged.</p>
+                                <textarea class="light-input" name="reason" rows="3" minlength="10" maxlength="300" placeholder="Reason (required)" required></textarea>
+                                <input class="light-input" type="text" name="reference" maxlength="100" placeholder="HitPay reference (optional)" style="margin-top:.5rem">
+                                <div style="margin-top:.5rem"><x-password-confirm /></div>
+                                <div class="btn-row" style="justify-content:flex-start;margin-top:.75rem">
+                                    <button class="btn-solid" type="submit" style="padding:.45rem 1rem">Confirm payment</button>
+                                    <button class="btn-outline" type="button" style="padding:.45rem 1rem" onclick="this.closest('dialog').close()">Cancel</button>
+                                </div>
+                            </form>
+                        </dialog>
                     @endif
                 </td>
             </tr>
