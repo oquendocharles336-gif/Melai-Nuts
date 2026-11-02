@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:melai_nuts/app/routes.dart';
 import 'package:melai_nuts/core/config/payment_config.dart';
 import 'package:melai_nuts/core/services/customer_data_store.dart';
 import 'package:melai_nuts/core/theme/app_colors.dart';
@@ -7,6 +8,7 @@ import 'package:melai_nuts/core/theme/app_spacing.dart';
 import 'package:melai_nuts/core/theme/app_text_styles.dart';
 import 'package:melai_nuts/core/widgets/melai_app_bar.dart';
 import 'package:melai_nuts/data/models/order.dart';
+import 'package:melai_nuts/data/models/refund.dart';
 import 'package:melai_nuts/features/payments/screens/online_payment_screen.dart';
 import 'package:melai_nuts/features/customer/widgets/downpayment_note.dart';
 import 'package:melai_nuts/features/customer/widgets/order_refund_info.dart';
@@ -29,6 +31,13 @@ class OrderDetailsScreen extends StatelessWidget {
     final d = order.downpayment;
     return order.status == OrderStatus.awaitingDownpayment && d != null && d.isOpen && d.pickupDays != null;
   }
+
+  /// A completed order with no open request; a rejected request can be retried.
+  /// `request_refund` re-checks all of this server-side.
+  bool get _canRequestRefund =>
+      order.status == OrderStatus.completed &&
+      !CustomerDataStore.instance.refunds
+          .any((r) => r.orderId == order.id && r.status != RefundStatus.rejected);
 
   bool get _canPayOnline {
     if (!PaymentConfig.onlinePaymentEnabled) return false;
@@ -306,6 +315,24 @@ class OrderDetailsScreen extends StatelessWidget {
                 label: const Text('Repeat Order'),
               ),
             ],
+            // Listens to the store so the button goes away once a request is sent.
+            ListenableBuilder(
+              listenable: CustomerDataStore.instance,
+              builder: (context, _) {
+                if (!_canRequestRefund) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).pushNamed(
+                      AppRoutes.customerRefundRequest,
+                      arguments: order,
+                    ),
+                    icon: const Icon(Icons.assignment_return_outlined),
+                    label: const Text('Request Refund'),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),

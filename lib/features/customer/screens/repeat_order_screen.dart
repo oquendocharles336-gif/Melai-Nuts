@@ -122,7 +122,7 @@ class RepeatOrderScreen extends StatelessWidget {
   }
 
   Future<void> _handleRepeat(BuildContext context) async {
-    // Stock is per branch: pick one first (or auto-pick the only one) rather
+    // Stock is per branch: set it first (asking for location if needed) rather
     // than reporting every line as unavailable.
     if (CartController.instance.signedInUid != null &&
         BranchController.instance.selectedBranch == null) {
@@ -131,7 +131,7 @@ class RepeatOrderScreen extends StatelessWidget {
       if (!picked) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(const SnackBar(content: Text('Please select a branch to repeat this order.')));
+          ..showSnackBar(const SnackBar(content: Text('Please turn on location to repeat this order.')));
         return;
       }
     }
