@@ -8,6 +8,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/staff_repository.dart';
+import 'staff_photo_crop_screen.dart';
 
 /// A staff member's picture, or their initials when they have none or it
 /// cannot be loaded.
@@ -60,10 +61,12 @@ class _StaffAvatarState extends State<StaffAvatar> {
       ),
     );
     final url = _url;
+    // The picture fills the whole circle (BoxFit.cover, centred). The white
+    // ring is painted on top as a foreground decoration: as a normal border it
+    // would also pad the child, shrinking and shifting the picture inside it.
     return Container(
       width: size,
       height: size,
-      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: const LinearGradient(
@@ -71,17 +74,26 @@ class _StaffAvatarState extends State<StaffAvatar> {
           end: Alignment.bottomRight,
           colors: [AppColors.roleStaff, Color(0xFF14B8A6)],
         ),
-        border: Border.all(color: Colors.white, width: size > 60 ? 3 : 1.5),
         boxShadow: AppShadows.sm,
       ),
-      child: url == null
-          ? initials
-          : Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stack) => initials,
-              semanticLabel: 'Profile picture',
-            ),
+      foregroundDecoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: size > 60 ? 3 : 1.5),
+      ),
+      child: ClipOval(
+        child: url == null
+            ? initials
+            : Image.network(
+                url,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (context, error, stack) => initials,
+                semanticLabel: 'Profile picture',
+              ),
+      ),
     );
   }
 }
@@ -128,31 +140,28 @@ Future<void> changeStaffPhoto(BuildContext context) async {
       await store.removeProfilePhoto();
       messenger.showSnackBar(const SnackBar(content: Text('Profile picture removed.')));
     } else if (choice == 'pick') {
+      // Large enough to stay sharp when zoomed in during the crop step.
       final file = await ImagePicker().pickImage(
         source: ImageSource.gallery,
-        maxWidth: 800,
-        maxHeight: 800,
-        imageQuality: 82,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 90,
       );
       if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (bytes.length > StaffRepository.maxProfilePhotoBytes) {
+      final picked = await file.readAsBytes();
+      if (!context.mounted) return;
+      // Move and zoom into a square; the upload is that square as a PNG.
+      final cropped = await StaffPhotoCropScreen.open(context, picked);
+      if (cropped == null) return;
+      if (cropped.length > StaffRepository.maxProfilePhotoBytes) {
         messenger.showSnackBar(const SnackBar(content: Text('That picture is too large. Please choose another one.')));
         return;
       }
-      await store.setProfilePhoto(bytes, contentType: _imageType(file.mimeType, file.name));
+      await store.setProfilePhoto(cropped, contentType: 'image/png');
       messenger.showSnackBar(const SnackBar(content: Text('Profile picture updated.')));
     }
   } catch (e, stack) {
     AppErrors.report(e, stack, 'staff_avatar:changeStaffPhoto');
     messenger.showSnackBar(SnackBar(content: Text('Could not save your picture. ${AppErrors.from(e).message}')));
   }
-}
-
-String _imageType(String? mimeType, String name) {
-  if (mimeType != null && mimeType.startsWith('image/')) return mimeType;
-  final lower = name.toLowerCase();
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  return 'image/jpeg';
 }
