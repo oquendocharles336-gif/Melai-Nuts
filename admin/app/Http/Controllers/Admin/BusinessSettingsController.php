@@ -13,7 +13,8 @@ use Illuminate\Http\Request;
 /**
  * Owner-editable business settings (migration 20261018000000_business_settings.sql): restock
  * threshold fallback, stock-health and sales-rating ratios, daily sales targets, healthy margin,
- * the pickup downpayment (migrations 20261101083000, 20261101120000), and every branch's address / phone / hours / delivery fee. Stored ONLY in the shared database;
+ * the pickup downpayment (migrations 20261101083000, 20261101120000), the customer refund window
+ * (20261107120000), and every branch's address / phone / hours / delivery fee. Stored ONLY in the shared database;
  * an empty field means "Not set" (nothing is filled in). The database checks that the caller is
  * the active owner; this controller only shapes the form.
  */
@@ -34,6 +35,7 @@ class BusinessSettingsController extends Controller
         'cod_downpayment_min_order' => ['cod_downpayment_min_order', 1],
         'cod_downpayment_expiry_minutes' => ['cod_downpayment_expiry_minutes', 1],
         'cod_downpayment_pickup_days' => ['cod_downpayment_pickup_days', 1],
+        'refund_request_days' => ['refund_request_days', 1],
     ];
 
     public function __construct(private SupabaseRepository $repo) {}
@@ -83,7 +85,7 @@ class BusinessSettingsController extends Controller
             $v = $data[$field] ?? null;
             $values[$key] = $v === null || $v === '' ? null : round(((float) $v) / $div, 4);
         }
-        foreach (['restock_threshold_default', 'expiry_alert_days', 'low_stock_badge_qty', 'cod_downpayment_expiry_minutes', 'cod_downpayment_pickup_days'] as $int) {
+        foreach (['restock_threshold_default', 'expiry_alert_days', 'low_stock_badge_qty', 'cod_downpayment_expiry_minutes', 'cod_downpayment_pickup_days', 'refund_request_days'] as $int) {
             $values[$int] = $values[$int] === null ? null : (int) $values[$int];
         }
 

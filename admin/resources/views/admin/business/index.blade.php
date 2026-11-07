@@ -80,6 +80,10 @@
                 <input class="light-input" id="cod_downpayment_pickup_days" name="cod_downpayment_pickup_days" type="number" min="1" max="30" step="1"
                        value="{{ old('cod_downpayment_pickup_days', $s['cod_downpayment_pickup_days'] ?? null) }}" placeholder="Not set">
                 <p class="note">Counted from when staff mark the order Ready for Pickup. After that the order is cancelled, its stock is returned, and the shop keeps the downpayment. If the shop cancels instead, the downpayment is refunded.</p></div>
+            <div class="field"><label for="refund_request_days">Customers can request a refund within (days after pickup)</label>
+                <input class="light-input" id="refund_request_days" name="refund_request_days" type="number" min="1" max="365" step="1"
+                       value="{{ old('refund_request_days', $s['refund_request_days'] ?? null) }}" placeholder="Not set">
+                <p class="note">Counted from when the order was first completed. After that the app no longer offers "Request Refund". Staff counter returns are not limited. Not set: no limit.</p></div>
             <button class="btn-solid" type="submit">Save settings</button>
         </form>
     </x-card>

@@ -107,6 +107,27 @@ class BusinessSettingsTest extends TestCase
         $this->assertNull($this->db->settings['cod_downpayment_value']);
     }
 
+    public function test_owner_sets_and_clears_the_refund_request_window(): void
+    {
+        $this->useFakeSupabase();
+        $owner = $this->linkedLogin('uid-owner');
+
+        $this->signedIn($owner)->get('/admin/business-settings')->assertOk()
+            ->assertSee('Customers can request a refund within (days after pickup)');
+
+        $this->signedIn($owner)->put('/admin/business-settings', ['refund_request_days' => '7'])
+            ->assertRedirect(route('admin.business.index'));
+        $this->assertSame(7, $this->db->settings['refund_request_days']);
+
+        foreach (['0', '366', '2.5'] as $bad) {
+            $this->signedIn($owner)->put('/admin/business-settings', ['refund_request_days' => $bad])->assertSessionHasErrors('refund_request_days');
+            $this->assertSame(7, $this->db->settings['refund_request_days'], $bad);
+        }
+
+        $this->signedIn($owner)->put('/admin/business-settings', [])->assertRedirect(route('admin.business.index'));
+        $this->assertNull($this->db->settings['refund_request_days']);
+    }
+
     public function test_an_incomplete_or_invalid_pickup_downpayment_is_refused(): void
     {
         $this->useFakeSupabase();

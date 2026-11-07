@@ -26,8 +26,7 @@
     </section>
     <section>
         <h2>5. Loyalty points</h2>
-        <p>Makakakuha ka ng points kapag nakumpleto ang isang order. Binabawi ang points mula sa order na na-refund. Walang katumbas na pera ang points, hindi maililipat sa ibang tao, at magagamit lamang para sa rewards sa app na ito. Maaaring baguhin ng Melai Nuts ang mga patakaran sa pag-ipon at rewards; ipinapakita muna sa app ang pagbabago bago ito ipatupad.</p>
-        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
+        <p>Makakakuha ka ng points kapag nakumpleto ang isang order. Binabawi ang points mula sa order na na-refund. Walang katumbas na pera ang points, hindi maililipat sa ibang tao, at magagamit lamang para sa rewards sa app na ito. Maaaring baguhin ng Melai Nuts ang mga patakaran sa pag-ipon at rewards; ipinapakita muna sa app ang pagbabago nang hindi bababa sa 30 araw bago ito ipatupad.</p>
     </section>
     <section>
         <h2>6. Pagkuha ng order at downpayment</h2>
@@ -43,7 +42,7 @@
     </section>
     <section>
         <h2>9. Pakikipag-ugnayan</h2>
-        <p>Para sa tanong tungkol sa iyong account, order o sa mga tuntuning ito, makipag-ugnayan sa alinmang branch ng Melai Nuts. Nakalista ang numero ng mga branch sa app sa Settings &gt; Branch Settings.</p>
+        <p>Para sa tanong tungkol sa iyong account, order o sa mga tuntuning ito, makipag-ugnayan sa alinmang branch ng Melai Nuts. Makikita ang numero ng branch sa app, sa order details at sa checkout.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Bumalik</a> · <a class="link" href="{{ route('legal.privacy', ['lang' => 'fil']) }}">Patakaran sa Privacy</a></p>
 </article>
@@ -69,8 +68,7 @@
     </section>
     <section>
         <h2>5. Loyalty points</h2>
-        <p>You earn points when an order is completed. Points from an order that is refunded are taken back. Points have no cash value, cannot be transferred to another person and are used only for rewards in this app. Melai Nuts may change the earning and reward rules; changes are shown in the app before they apply.</p>
-        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
+        <p>You earn points when an order is completed. Points from an order that is refunded are taken back. Points have no cash value, cannot be transferred to another person and are used only for rewards in this app. Melai Nuts may change the earning and reward rules; changes are shown in the app at least 30 days before they apply.</p>
     </section>
     <section>
         <h2>6. Pickup and downpayment</h2>
@@ -86,7 +84,7 @@
     </section>
     <section>
         <h2>9. Contact</h2>
-        <p>For questions about your account, an order or these terms, contact any Melai Nuts branch. Branch phone numbers are listed in the app under Settings &gt; Branch Settings.</p>
+        <p>For questions about your account, an order or these terms, contact any Melai Nuts branch. Branch phone numbers are shown in the app on the order details and checkout screens.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Go back</a> · <a class="link" href="{{ route('legal.privacy', ['lang' => 'en']) }}">Privacy Policy</a></p>
 </article>

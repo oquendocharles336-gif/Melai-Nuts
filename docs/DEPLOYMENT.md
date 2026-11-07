@@ -40,6 +40,8 @@ Tick each line on staging, then again on production. Nothing here is done by the
 - [ ] Restock threshold, stock / sales ratios, daily target, healthy margin, expiry-alert days,
       "Only N left" — or leave *Not set* on purpose (the app then shows plain figures, no ratings).
 - [ ] Loyalty earn and redeem rules (no rule = customers earn no points).
+- [ ] "Customers can request a refund within (days after pickup)": **7** (owner decision, Terms section 4).
+      Not set = no limit.
 - [ ] Product costs entered in the app (profit and stock value stay *Not set* without them).
 
 **Server pieces**
