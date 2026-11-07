@@ -56,6 +56,13 @@ class AdminSecurityTest extends TestCase
     {
         $this->get('/terms')->assertOk()->assertSee('Terms and Conditions')->assertSee('Loyalty points');
         $this->get('/privacy')->assertOk()->assertSee('Republic Act No. 10173')->assertSee('National Privacy Commission');
+        // Owner-approved wording (2026-11-07), in English and Filipino (?lang=fil).
+        $this->get('/terms')->assertOk()->assertSee('Pickup and downpayment')->assertSee('within 7 days after you pick up')
+            ->assertSee('/terms?lang=fil', false);
+        $this->get('/terms?lang=fil')->assertOk()->assertSee('Mga Tuntunin at Kundisyon')
+            ->assertSee('Pagkuha ng order at downpayment')->assertSee('sa loob ng 7 araw');
+        $this->get('/privacy')->assertOk()->assertSee('Melai Nuts Retailing')->assertSee('melaioraya5&#64;gmail.com', false);
+        $this->get('/privacy?lang=fil')->assertOk()->assertSee('Patakaran sa Privacy')->assertSee('iniingatan nang 5 taon');
         $this->get('/login')->assertOk()->assertSee(route('legal.terms'), false)->assertSee(route('legal.privacy'), false);
         $this->get('/register')->assertOk()->assertSee('name="terms"', false)->assertDontSee('name="terms" value="1" checked', false);
 
