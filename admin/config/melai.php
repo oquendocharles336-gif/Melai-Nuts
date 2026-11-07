@@ -15,7 +15,7 @@ return [
     ],
     // Terms and Conditions / Privacy Policy shown at /terms and /privacy (same text as the app's
     // lib/features/legal). Bump the version when the wording changes; registration records it.
-    'legal' => ['terms_version' => env('MELAI_TERMS_VERSION', '2026-10-11')],
+    'legal' => ['terms_version' => env('MELAI_TERMS_VERSION', '2026-11-07')],
 
     // Login rate limit (per email + IP): after max_attempts failures the login is locked for
     // decay_seconds ("Too many attempts, try again in N seconds").

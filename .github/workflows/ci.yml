@@ -31,6 +31,8 @@ jobs:
         run: python3 -m unittest scripts/test_check_no_fixture_data.py
       - name: Resync file matches the migrations
         run: bash scripts/build-resync.sh --check
+      - name: Website Terms / Privacy pages match the app text
+        run: python3 scripts/gen_legal_pages.py --check
 
   flutter:
     name: Flutter analyze + test

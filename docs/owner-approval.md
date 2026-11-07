@@ -1,6 +1,15 @@
 # For the owner: approve or decide
 
-Nothing here is in the app yet. Mark each item **Approved**, **Change** (with your edits) or give your answer.
+**Status (2026-11-07): sections 1 and 2 approved as written, with these answers. The wording is in the app and on the admin website (Terms and Privacy version `2026-11-07`).**
+
+- Business name: Melai Nuts Retailing
+- Data Protection Officer: the owner of Melai Nuts Retailing, melaioraya5@gmail.com
+- Kept for: orders, payments and refunds 5 years (tax and accounting). Account details deleted within 30 days of a deletion request, except records the law requires
+- Deletion requests and privacy questions: melaioraya5@gmail.com
+- Refund time limit: 7 days after pickup
+- Customer cancels: downpayment refunded (current behaviour). Only a no-show keeps it
+
+Still open: how many days' notice before loyalty rule changes (Terms 5), and the HitPay live steps (section 4).
 
 ---
 
