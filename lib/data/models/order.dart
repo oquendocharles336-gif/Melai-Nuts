@@ -124,12 +124,19 @@ class OrderTimelineStep {
   final bool done;
   final bool current;
 
+  /// The status this step records and when (null for steps not built from
+  /// `order_status_events`).
+  final OrderStatus? status;
+  final DateTime? at;
+
   const OrderTimelineStep({
     required this.label,
     required this.description,
     required this.time,
     this.done = false,
     this.current = false,
+    this.status,
+    this.at,
   });
 
   /// Builds the real timeline from `order_status_events` rows (oldest
@@ -149,6 +156,8 @@ class OrderTimelineStep {
           time: '${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}',
           done: true,
           current: isLast,
+          status: status,
+          at: createdAt,
         ),
       );
     }
@@ -232,6 +241,24 @@ class Order {
 
   /// What is left to pay in cash at pickup after the downpayment.
   double get cashBalance => total - (downpayment?.amount ?? 0);
+
+  /// When the order was picked up: the FIRST time it became Completed (a
+  /// rejected refund makes it Completed again, which must not count), or
+  /// when it was placed if the history has no such step. Same rule as the
+  /// server's `_order_picked_up_at`.
+  DateTime get pickedUpAt {
+    DateTime? first;
+    for (final step in timeline) {
+      final at = step.at;
+      if (step.status == OrderStatus.completed && at != null && (first == null || at.isBefore(first))) first = at;
+    }
+    return first ?? date;
+  }
+
+  /// The last moment a refund can be requested, or null when the owner set
+  /// no limit ([refundDays] null).
+  DateTime? refundDeadline(int? refundDays) =>
+      refundDays == null ? null : pickedUpAt.add(Duration(days: refundDays));
 
   factory Order.fromRow(
     Map<String, dynamic> row, {

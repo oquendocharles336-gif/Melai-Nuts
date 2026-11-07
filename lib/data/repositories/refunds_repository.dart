@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/customer_local_db.dart';
 import '../../core/services/supabase_service.dart';
@@ -86,6 +87,39 @@ class RefundsRepository {
       }
       return out;
     }, scope: ErrorScope.refund);
+  }
+
+  /// Tests replace the database call with this.
+  @visibleForTesting
+  static Future<int?> Function()? refundDaysOverride;
+
+  Future<int?>? _refundDays;
+  DateTime? _refundDaysAt;
+
+  /// How many days after pickup a customer can request a refund: the
+  /// owner's Business setting (`public.refund_request_days()`), kept for
+  /// 5 minutes. null = no limit, or it could not be read; `request_refund`
+  /// checks the window again on the server either way, so this only decides
+  /// whether to offer the button.
+  Future<int?> refundRequestDays() async {
+    final override = refundDaysOverride;
+    if (override != null) return override();
+    final now = DateTime.now();
+    final at = _refundDaysAt;
+    if (_refundDays == null || at == null || now.difference(at) > const Duration(minutes: 5)) {
+      _refundDaysAt = now;
+      _refundDays = _client
+          .rpc('refund_request_days')
+          .timeout(AppErrors.rpcTimeout)
+          .then((v) => (v as num?)?.toInt());
+    }
+    try {
+      return await _refundDays!;
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'refunds_repository:refundRequestDays');
+      _refundDays = null; // try again next time
+      return null;
+    }
   }
 
   Future<Map<String, OrderRefundSummary>>? _myRefunds;

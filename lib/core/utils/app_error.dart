@@ -343,6 +343,15 @@ class AppErrors {
         'Your payment didn\'t go through. Please check your payment method and try again.',
       );
     }
+    // request_refund: "Refunds can only be requested within 7 days after pickup. ..."
+    final window = RegExp(r'within (\d+) days after pickup').firstMatch(t);
+    if (window != null) {
+      return AppError(
+        AppErrorKind.refundFailed,
+        'Refunds can only be requested within ${window.group(1)} days after pickup, and this order is past that. '
+        'Please contact the branch if you need help.',
+      );
+    }
     if (t.contains('refund')) {
       return const AppError(
         AppErrorKind.refundFailed,

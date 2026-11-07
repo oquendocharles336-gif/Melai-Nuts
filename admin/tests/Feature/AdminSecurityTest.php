@@ -58,7 +58,9 @@ class AdminSecurityTest extends TestCase
         $this->get('/privacy')->assertOk()->assertSee('Republic Act No. 10173')->assertSee('National Privacy Commission');
         // Owner-approved wording (2026-11-07), in English and Filipino (?lang=fil).
         $this->get('/terms')->assertOk()->assertSee('Pickup and downpayment')->assertSee('within 7 days after you pick up')
-            ->assertSee('/terms?lang=fil', false);
+            ->assertSee('/terms?lang=fil', false)
+            ->assertSee('at least 30 days before they apply')->assertSee('on the order details and checkout screens')
+            ->assertDontSee('Draft wording');
         $this->get('/terms?lang=fil')->assertOk()->assertSee('Mga Tuntunin at Kundisyon')
             ->assertSee('Pagkuha ng order at downpayment')->assertSee('sa loob ng 7 araw');
         $this->get('/privacy')->assertOk()->assertSee('Melai Nuts Retailing')->assertSee('melaioraya5&#64;gmail.com', false);

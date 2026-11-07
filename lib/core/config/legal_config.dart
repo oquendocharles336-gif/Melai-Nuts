@@ -7,10 +7,9 @@
 /// acceptance is recorded in `public.legal_acceptances` and on the profile
 /// (`terms_version`, `terms_accepted_at`).
 ///
-/// TODO(owner): the sections marked [ownerReviewSections] are plain-language
-/// drafts. Melai Nuts must confirm them (loyalty rule changes notice period)
-/// before release, then bump the versions. The rest was approved by the owner
-/// on 2026-11-07 (docs/owner-approval.md).
+/// Sections listed in [ownerReviewSections] are drafts still waiting for the
+/// owner and show a "draft" note. Every section was approved by the owner on
+/// 2026-11-07 (docs/owner-approval.md), so the set is empty.
 class LegalConfig {
   LegalConfig._();
 
@@ -19,7 +18,5 @@ class LegalConfig {
 
   /// Section numbers whose wording still needs the owner's confirmation.
   /// They show a small "draft" note until this set is emptied.
-  static const Set<String> ownerReviewSections = {
-    'terms.5', // loyalty rule changes notice period
-  };
+  static const Set<String> ownerReviewSections = {};
 }

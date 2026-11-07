@@ -7,8 +7,10 @@ import 'package:melai_nuts/core/theme/app_colors.dart';
 import 'package:melai_nuts/core/theme/app_spacing.dart';
 import 'package:melai_nuts/core/theme/app_text_styles.dart';
 import 'package:melai_nuts/core/widgets/melai_app_bar.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import 'package:melai_nuts/data/models/order.dart';
 import 'package:melai_nuts/data/models/refund.dart';
+import 'package:melai_nuts/data/repositories/refunds_repository.dart';
 import 'package:melai_nuts/features/payments/screens/online_payment_screen.dart';
 import 'package:melai_nuts/features/customer/widgets/downpayment_note.dart';
 import 'package:melai_nuts/features/customer/widgets/order_refund_info.dart';
@@ -32,8 +34,20 @@ class OrderDetailsScreen extends StatelessWidget {
     return order.status == OrderStatus.awaitingDownpayment && d != null && d.isOpen && d.pickupDays != null;
   }
 
+  /// The phone number of the branch fulfilling this order, when it has one.
+  String? get _branchPhone {
+    for (final b in kBranches) {
+      if ((order.branchId != null && b.id == order.branchId) || (order.branchId == null && b.name == order.branch)) {
+        final phone = b.contactPhone?.trim();
+        return phone == null || phone.isEmpty ? null : phone;
+      }
+    }
+    return null;
+  }
+
   /// A completed order with no open request; a rejected request can be retried.
-  /// `request_refund` re-checks all of this server-side.
+  /// The time limit is checked by [_RefundAction]. `request_refund` re-checks
+  /// all of this server-side.
   bool get _canRequestRefund =>
       order.status == OrderStatus.completed &&
       !CustomerDataStore.instance.refunds
@@ -106,6 +120,7 @@ class OrderDetailsScreen extends StatelessWidget {
                           children: [
                             Text('BRANCH', style: AppTextStyles.labelSm.copyWith(color: AppColors.textMuted)),
                             Text(order.branch, style: AppTextStyles.bodyMd),
+                            if (_branchPhone != null) Text(_branchPhone!, style: AppTextStyles.bodySm),
                           ],
                         ),
                       ),
@@ -320,21 +335,62 @@ class OrderDetailsScreen extends StatelessWidget {
               listenable: CustomerDataStore.instance,
               builder: (context, _) {
                 if (!_canRequestRefund) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context).pushNamed(
-                      AppRoutes.customerRefundRequest,
-                      arguments: order,
-                    ),
-                    icon: const Icon(Icons.assignment_return_outlined),
-                    label: const Text('Request Refund'),
-                  ),
-                );
+                return _RefundAction(order: order);
               },
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "Request Refund", or the date the refund window closed. The window is the
+/// owner's setting (days after pickup); while it loads, or when it cannot be
+/// read, the button is shown and the server decides.
+class _RefundAction extends StatefulWidget {
+  final Order order;
+
+  const _RefundAction({required this.order});
+
+  @override
+  State<_RefundAction> createState() => _RefundActionState();
+}
+
+class _RefundActionState extends State<_RefundAction> {
+  int? _days;
+
+  @override
+  void initState() {
+    super.initState();
+    RefundsRepository.instance.refundRequestDays().then((days) {
+      if (mounted) setState(() => _days = days);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final deadline = widget.order.refundDeadline(_days);
+    if (deadline != null && DateTime.now().isAfter(deadline)) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Text(
+          'Refunds can be requested up to $_days days after pickup. '
+          "This order's window closed on ${deadline.month}/${deadline.day}/${deadline.year}.",
+          style: AppTextStyles.bodySm.copyWith(color: AppColors.textMuted),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.of(context).pushNamed(
+          AppRoutes.customerRefundRequest,
+          arguments: widget.order,
+        ),
+        icon: const Icon(Icons.assignment_return_outlined),
+        label: const Text('Request Refund'),
       ),
     );
   }

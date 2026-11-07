@@ -9,7 +9,9 @@
 - Refund time limit: 7 days after pickup
 - Customer cancels: downpayment refunded (current behaviour). Only a no-show keeps it
 
-Still open: how many days' notice before loyalty rule changes (Terms 5), and the HitPay live steps (section 4).
+Also approved by the owner (2026-11-07): Terms 5, 30 days' notice before loyalty rule changes; Terms 9, branch phone numbers are on the order details and checkout screens. The 7-day refund window is enforced by migration `20261107120000`; the owner types **7** in Business settings ("Customers can request a refund within (days after pickup)").
+
+Still open: the HitPay live steps (section 4).
 
 ---
 

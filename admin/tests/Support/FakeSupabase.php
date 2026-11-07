@@ -47,7 +47,7 @@ class FakeSupabase extends SupabaseGateway
         'restock_threshold_default' => null, 'stock_low_ratio' => null, 'stock_plenty_ratio' => null,
         'sales_low_ratio' => null, 'sales_high_ratio' => null, 'default_daily_sales_target' => null,
         'healthy_margin_percent' => null, 'expiry_alert_days' => null, 'low_stock_badge_qty' => null,
-        'cod_downpayment_type' => null, 'cod_downpayment_value' => null, 'cod_downpayment_min_order' => null, 'cod_downpayment_expiry_minutes' => null, 'cod_downpayment_pickup_days' => null, 'carried_over' => false,
+        'cod_downpayment_type' => null, 'cod_downpayment_value' => null, 'cod_downpayment_min_order' => null, 'cod_downpayment_expiry_minutes' => null, 'cod_downpayment_pickup_days' => null, 'refund_request_days' => null, 'carried_over' => false,
         'loyalty' => ['earn_pesos_per_point' => null, 'points_per_peso' => null, 'max_discount_percent' => null],
         'online_payment_enabled' => false, 'online_payment_disabled_message' => 'Online payment is temporarily unavailable.',
     ];
