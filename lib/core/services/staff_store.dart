@@ -70,6 +70,9 @@ class StaffStore extends ChangeNotifier {
     final old = current.profileImage;
     profile = current.withProfileImage(path);
     notifyListeners();
+    // The session (and its offline copy) was loaded before the change: update
+    // it too, or the next rebuild from it shows the initials again.
+    await StaffSessionStore.instance.applyOwnProfileImage(current.uid, path);
     if (old != null && old.isNotEmpty) unawaited(StaffRepository.instance.deleteProfilePhotoFile(old));
   }
 
@@ -81,6 +84,7 @@ class StaffStore extends ChangeNotifier {
     await StaffRepository.instance.clearProfilePhoto();
     profile = current.withProfileImage(null);
     notifyListeners();
+    await StaffSessionStore.instance.applyOwnProfileImage(current.uid, null);
     unawaited(StaffRepository.instance.deleteProfilePhotoFile(old));
   }
 

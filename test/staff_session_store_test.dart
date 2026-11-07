@@ -104,6 +104,45 @@ void main() {
       expect(cached, isNotNull, reason: 'a server confirmation is saved for offline starts');
     });
 
+    test('a new profile picture survives a rebuild from the session and the offline copy', () async {
+      auth.uid = 'staff-a';
+      var calls = 0;
+      final store = buildStore((uid) async {
+        calls++;
+        return ok(uid);
+      });
+      await store.loadForStaff('staff-a');
+      final confirmedAt = store.context!.loadedAt;
+
+      await store.applyOwnProfileImage('staff-a', 'staff-a/1.jpg');
+
+      // What StaffStore.start() does after a reload: no new server read.
+      expect(await store.loadForStaff('staff-a'), StaffSessionStatus.ready);
+      expect(calls, 1);
+      expect(store.context!.profile.profileImage, 'staff-a/1.jpg');
+      expect(store.can(StaffPermission.manageInventory), isTrue, reason: 'permissions are untouched');
+
+      final cached = await local.loadContext('staff-a');
+      expect(cached!.context.profile.profileImage, 'staff-a/1.jpg');
+      expect(cached.validatedAt, confirmedAt, reason: 'the offline limit is not extended');
+
+      await store.applyOwnProfileImage('staff-a', null);
+      expect(store.context!.profile.profileImage, isNull);
+      expect((await local.loadContext('staff-a'))!.context.profile.profileImage, isNull);
+    });
+
+    test("a picture for another account is never applied", () async {
+      auth.uid = 'staff-a';
+      final store = buildStore(servesActive);
+      await store.loadForStaff('staff-a');
+
+      await store.applyOwnProfileImage('staff-b', 'staff-b/1.jpg');
+
+      expect(store.context!.profile.profileImage, isNull);
+      expect((await local.loadContext('staff-a'))!.context.profile.profileImage, isNull);
+      expect(await local.loadContext('staff-b'), isNull);
+    });
+
     test('Firebase says someone else is signed in: the store is not ready for them', () async {
       auth.uid = 'staff-a';
       final store = buildStore(servesActive);

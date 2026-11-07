@@ -135,6 +135,16 @@ class StaffContext {
         authorizedBranches = List<StaffBranchRef>.unmodifiable(authorizedBranches),
         loadedAt = loadedAt ?? DateTime.now();
 
+  /// The same context with an updated [profile]. Permissions, branch access and
+  /// [loadedAt] (the server confirmation time) are kept as they are.
+  StaffContext withProfile(StaffProfile profile) => StaffContext(
+        firebaseUid: firebaseUid,
+        profile: profile,
+        permissions: permissions,
+        authorizedBranches: authorizedBranches,
+        loadedAt: loadedAt,
+      );
+
   StaffRole get role => StaffRole.parse(profile.role);
   bool get isOwner => profile.isOwner;
   String? get branchId => profile.branchId;
