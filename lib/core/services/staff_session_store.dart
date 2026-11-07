@@ -537,6 +537,24 @@ class StaffSessionStore extends ChangeNotifier {
     }
   }
 
+  /// The signed-in staff member changed their own picture ([path], null = no
+  /// picture). The server already has it (`staff_set_my_photo`); this keeps
+  /// the session's copy and the offline copy in step, so a screen rebuilt from
+  /// the session, or an offline start, does not bring back the old picture.
+  /// Only display data changes: the confirmation time, and so the offline
+  /// limit, stays as it was. Ignored for any account other than the one held.
+  Future<void> applyOwnProfileImage(String uid, String? path) async {
+    final ctx = _context;
+    if (ctx == null || ctx.firebaseUid != uid || _ownerUid != uid) return;
+    final generation = _generation;
+    final updated = ctx.withProfile(ctx.profile.withProfileImage(path));
+    _context = updated;
+    notifyListeners();
+    await _writeCache(updated);
+    // Signed out or switched while we wrote: leave no copy behind.
+    if (!_isCurrent(generation, uid)) await _clearCache(uid);
+  }
+
   Future<void> _clearCache(String uid) async {
     final local = _local;
     if (local == null) return;
