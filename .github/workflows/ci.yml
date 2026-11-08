@@ -44,6 +44,23 @@ jobs:
           channel: stable
           cache: true
       - run: flutter --version
+      # The sqlite3 package's build step downloads a prebuilt SQLite from GitHub releases with no
+      # retry and no check of the HTTP answer, so a throttled or failed download on a shared runner
+      # fails the build ("Hash of downloaded file libsqlite3.x64.linux.so is ..., expected ...").
+      # Tests don't need that bundled copy: on this Linux runner they use the system SQLite instead
+      # (the package's `source: system` option), so nothing is downloaded. Only this CI checkout's
+      # pubspec.yaml is changed; app builds keep the bundled SQLite.
+      - name: Use the runner's SQLite for tests (no download)
+        run: |
+          if ! ldconfig -p | grep -q 'libsqlite3\.so '; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+          fi
+          if grep -q '^hooks:' pubspec.yaml; then
+            echo "::error::pubspec.yaml now has its own hooks: section; add 'sqlite3: source: {linux: system}' for CI there instead."
+            exit 1
+          fi
+          printf '\nhooks:\n  user_defines:\n    sqlite3:\n      source:\n        linux: system\n' >> pubspec.yaml
+          tail -n 6 pubspec.yaml
       - run: flutter pub get
       - name: generate translations (lib/l10n -> lib/l10n/generated)
         run: flutter gen-l10n
