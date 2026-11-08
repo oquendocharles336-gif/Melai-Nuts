@@ -6,9 +6,9 @@
 @source '../**/*.js';
 
 /* Tailwind utilities read the brand tokens from resources/css/melai.css, so `bg-surface`,
-   `text-muted`, `bg-accent` etc. follow the theme (light / dark) and the accent swatch. */
+   `text-muted`, `bg-accent` etc. follow the theme (light / dark). */
 @theme inline {
-    --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
     --color-canvas: var(--bg);
     --color-surface: var(--surface);
     --color-surface-2: var(--surface-2);

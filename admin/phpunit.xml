@@ -24,6 +24,9 @@
         <env name="APP_ENV" value="testing"/>
         <!-- Tests sign admins in directly; tests/Feature/AdminSecurityTest.php turns these back on. -->
         <env name="MELAI_WRITE_LIMIT_PER_MINUTE" value="100000"/>
+        <env name="MELAI_ACCOUNT_CHECK_SECONDS" value="0"/>
+        <env name="SUPABASE_URL" value=""/>
+        <env name="SUPABASE_ANON_KEY" value=""/>
         <env name="FIREBASE_WEB_API_KEY" value="test-web-api-key"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

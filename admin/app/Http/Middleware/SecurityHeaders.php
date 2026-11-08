@@ -42,17 +42,23 @@ class SecurityHeaders
 
     public static function csp(): string
     {
+        // Shop product photos live in the app's Supabase storage (same images as the app).
+        $supabase = parse_url((string) config('melai.shop.supabase_url'), PHP_URL_HOST);
+        $images = is_string($supabase) && $supabase !== '' ? ' https://'.$supabase : '';
+
         return implode('; ', [
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
-            "img-src 'self' data: blob:",
+            "img-src 'self' data: blob:".$images,
             "connect-src 'self' blob: data:",
             "worker-src 'self' blob:",
             "object-src 'none'",
             "base-uri 'self'",
-            "form-action 'self'",
+            // Checkout and "Pay now" redirect to HitPay's hosted payment page (browsers apply
+            // form-action to a form's redirect too). Sandbox and live are both under hit-pay.com.
+            "form-action 'self' https://*.hit-pay.com",
             "frame-ancestors 'none'",
         ]);
     }

@@ -88,6 +88,9 @@
                     @endforeach
                 </div>
             @endforeach
+            <div class="side-group">
+                <a href="{{ route('shop.home') }}" class="nav-item" data-hard><x-icon name="store" :size="17" /> <span>View shop</span></a>
+            </div>
         </nav>
 
         {{-- Plan / usage card: this month's net sales against the sales target (config) or last month. --}}
