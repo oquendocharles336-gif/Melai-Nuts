@@ -164,6 +164,18 @@ class CustomerLockoutTest extends TestCase
         $this->assertAuthenticated('web');
     }
 
+    public function test_an_app_account_with_no_profile_and_no_staff_row_goes_to_the_shop_email_step_never_the_admin_side(): void
+    {
+        // Same case as the live-database test: a Firebase account that is neither a known customer
+        // profile nor staff is an unfinished customer sign-up, so it goes to "confirm your email".
+        $this->fb->addAccount('newbie@example.com', 'uid-newbie', 'Kasoy#Roast9');
+        $this->post('/login', ['_panel' => 'sign-in', 'email' => 'newbie@example.com', 'password' => 'Kasoy#Roast9'])
+            ->assertSessionHasNoErrors()->assertRedirect(route('shop.verify'));
+        $this->assertGuest('web');
+        $this->assertSame(0, \App\Models\User::where('email', 'newbie@example.com')->count(), 'no website (admin) login is made');
+        $this->get('/dashboard')->assertRedirect(route('login'));
+    }
+
     public function test_a_customer_sign_in_mistake_or_refusal_shows_in_the_panel(): void
     {
         $this->fb->addAccount('rider2@example.com', 'rider-2', 'Kasoy#Roast9', verified: true);

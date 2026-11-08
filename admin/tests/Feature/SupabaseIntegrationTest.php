@@ -862,14 +862,18 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertNull($this->actingAs($staff)->get('/dashboard')->assertOk()->viewData('staff'));
     }
 
-    public function test_firebase_account_without_app_profile_is_refused_and_unknown_accounts_get_the_generic_error(): void
+    public function test_an_app_customer_goes_to_the_shop_side_never_the_admin_side_and_unknown_accounts_get_the_generic_error(): void
     {
-        // A customer of the app: real Firebase account, not in the staff registry.
+        // A customer of the app: real Firebase account, not in the staff registry. With one sign-in
+        // for everyone it goes to the SHOP side (here: confirm the email first, it is unverified),
+        // never into the admin website: no admin login, no website user row.
         $this->fb->addAccount("cust-{$this->sfx}@test.local", $this->fx['customer'], 'Cust#Pass1');
-        $this->post('/login', ['email' => "cust-{$this->sfx}@test.local", 'password' => 'Cust#Pass1'])->assertSessionHasErrors('auth');
-        $this->assertStringContainsString('not registered as staff or owner', session('errors')->first('auth'));
+        $this->post('/login', ['_panel' => 'sign-in', 'email' => "cust-{$this->sfx}@test.local", 'password' => 'Cust#Pass1'])
+            ->assertSessionHasNoErrors()->assertRedirect(route('shop.verify'));
         $this->assertDatabaseMissing('users', ['email' => "cust-{$this->sfx}@test.local"]);
-        $this->assertGuest();
+        $this->assertGuest('web');
+        $this->get('/dashboard')->assertRedirect(route('login'));
+        $this->post('/shop/verify-email/cancel');
 
         // No Firebase account at all: generic message (Firebase does not reveal which emails exist).
         $this->post('/login', ['email' => "nobody-{$this->sfx}@test.local", 'password' => 'x'])
