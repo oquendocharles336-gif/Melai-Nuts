@@ -2,6 +2,7 @@
 @section('title', 'Sign in · Melai Nuts')
 @section('heading1', 'Welcome')
 @section('heading2', 'Back')
+@section('pill', 'CUSTOMERS · STAFF · OWNERS')
 @section('blurb', 'One sign-in for everyone, with your Melai Nuts app account (the same email and password as in the app). Customers go to the shop; staff and owners go to the dashboard.')
 @section('form')
 <form method="POST" action="{{ route('login') }}" novalidate x-cloak

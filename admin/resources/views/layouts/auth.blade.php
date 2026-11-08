@@ -8,7 +8,7 @@
         <p class="eyebrow">MELAI NUTS</p>
         <h1 class="auth-title">@yield('heading1')<span>@yield('heading2')</span></h1>
         <p class="auth-desc">@yield('blurb')</p>
-        <span class="pill">ADMINISTRATION PORTAL</span>
+        <span class="pill">@yield('pill', 'ADMINISTRATION PORTAL')</span>
     </section>
     <section class="glass">@yield('form')</section>
 </div>
