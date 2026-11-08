@@ -141,10 +141,18 @@ class CartController extends ChangeNotifier {
   Future<void> startGuestSession() async {
     if (_firebaseUid != null) return;
     _storageKey = guestStorageKey;
-    await _loadLocalSnapshot();
-    if (_firebaseUid != null) return;
+    final revision = _revision;
+    final saved = await _readGuestLines();
+    // Signed in meanwhile, or the guest already changed the cart while the
+    // device copy was being read (e.g. added something right after signing
+    // out): what's on screen is newer, and has been saved over that copy.
+    if (_firebaseUid != null || _revision != revision || _storageKey != guestStorageKey) return;
+    _lines
+      ..clear()
+      ..addAll(saved);
     // Guests have no server cart, so nothing here is ever "waiting to sync".
     _dirty = false;
+    _cartId = null;
     appliedVoucherCode = null;
     redeemPoints = false;
     _pricing = _localPricing();

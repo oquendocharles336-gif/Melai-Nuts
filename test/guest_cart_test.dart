@@ -221,6 +221,26 @@ void main() {
       expect((account['items'] as List).single['quantity'], 2);
     });
 
+    test('an item added while the guest cart is still loading is kept', () async {
+      // Right after sign-out the device copy is read; the guest adds
+      // something before that read finishes.
+      final loading = cart.startGuestSession();
+      // No awaits until the add is done: the device read is still pending.
+      // (A guest's branch switch finishes before its first await.)
+      final switched = cart.switchBranch('branch-1');
+      expect(cart.addProduct(p1, p1.variants.first).ok, isTrue);
+      await loading;
+      expect(await switched, isTrue);
+      expect(_quantities(cart), {'p1': 1}, reason: 'the empty device copy must not wipe the new item');
+    });
+
+    test('the saved guest cart is shown when the app starts as a guest', () async {
+      await guestWith({p2: 3});
+      cart.endSession();
+      await cart.startGuestSession();
+      expect(_quantities(cart), {'p2': 3});
+    });
+
     test('two loads at once add the guest lines only once', () async {
       await guestWith({p1: 2});
       cart.endSession(); // only the device copy is left

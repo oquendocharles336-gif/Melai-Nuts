@@ -108,10 +108,10 @@ class CartIconButton extends StatelessWidget {
         return IconButton(
           tooltip: count > 0 ? 'Cart, $count items' : 'Cart',
           onPressed: () => Navigator.of(context).push(FadeSlideRoute(builder: (_) => const CartScreen())),
+          // Honey with dark text, like the Store header's badge: it stays
+          // readable on the orange app bar (orange on orange didn't).
           icon: BumpingCountBadge(
             count: count,
-            background: AppColors.primary,
-            foreground: AppColors.onPrimary,
             child: Icon(Icons.shopping_bag_outlined, color: iconColor),
           ),
         );
