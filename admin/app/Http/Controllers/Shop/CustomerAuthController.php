@@ -8,25 +8,27 @@ use App\Services\Shop\CustomerAccounts;
 use App\Services\Shop\CustomerSession;
 use App\Services\Shop\ShopCart;
 use App\Services\Shop\ShopException;
+use App\Support\AuthPanel;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
- * Customer sign-in / sign-up for the shop with the Melai Nuts app account (Firebase).
- * Staff, owners and riders are refused here (they have their own sign-in), and nothing here ever
- * signs anyone in to the admin website.
+ * Customer sign-up, email check and password reset for the shop with the Melai Nuts app account
+ * (Firebase). The forms live in the sign-in panel on the homepage (AuthPanel); the old addresses
+ * open the matching panel. Nothing here ever signs anyone in to the admin website.
  */
 class CustomerAuthController extends ShopController
 {
     public function __construct(private CustomerAccounts $accounts, private CustomerSession $customer, private ShopCart $cart) {}
 
-    /** Everyone signs in on the single login page (/login); old shop links land there. */
+    /** Everyone signs in in the homepage's sign-in panel; old shop links open it. */
     public function showLogin()
     {
         if ($this->customer->check()) {
             return redirect()->route('shop.home');
         }
 
-        return redirect()->route('login');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN));
     }
 
     public function showRegister()
@@ -35,13 +37,30 @@ class CustomerAuthController extends ShopController
             return redirect()->route('shop.home');
         }
 
-        return view('shop.auth.register');
+        return redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT));
     }
 
     /** Same rules as the app's Create Account (name, PH mobile, password strength, Terms). */
     public function register(Request $request)
     {
-        $data = $request->validate([
+        try {
+            $data = $this->validateSignUp($request);
+        } catch (ValidationException $e) {
+            throw AuthPanel::back($e, AuthPanel::CREATE_ACCOUNT);
+        }
+        try {
+            $this->accounts->startSignUp(trim($data['name']), $data['email'], $data['phone'], $data['password'], $request->boolean('order_updates'));
+        } catch (ShopException $e) {
+            return redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT))
+                ->withInput($request->except(['password', 'password_confirmation']))->with('shop_error', $e->getMessage());
+        }
+
+        return redirect()->route('shop.verify');
+    }
+
+    private function validateSignUp(Request $request): array
+    {
+        return $request->validate([
             'name' => Rules::name(),
             'email' => Rules::email(),
             'phone' => Rules::phone(true),
@@ -52,20 +71,13 @@ class CustomerAuthController extends ShopController
             'terms.accepted' => 'Please agree to the Terms and Conditions and the Privacy Policy.',
             'password.confirmed' => 'The two passwords don\'t match.',
         ]);
-        try {
-            $this->accounts->startSignUp(trim($data['name']), $data['email'], $data['phone'], $data['password'], $request->boolean('order_updates'));
-        } catch (ShopException $e) {
-            return back()->withInput($request->except(['password', 'password_confirmation']))->with('shop_error', $e->getMessage());
-        }
-
-        return redirect()->route('shop.verify');
     }
 
     public function showVerify()
     {
         $email = $this->accounts->pendingEmail();
         if ($email === null) {
-            return redirect()->route($this->customer->check() ? 'shop.home' : 'shop.register');
+            return $this->customer->check() ? redirect()->route('shop.home') : redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT));
         }
 
         return view('shop.auth.verify', ['email' => $email]);
@@ -102,19 +114,23 @@ class CustomerAuthController extends ShopController
 
     public function showForgot()
     {
-        return view('shop.auth.forgot');
+        return redirect()->to(AuthPanel::url(AuthPanel::RESET_PASSWORD));
     }
 
     public function forgot(Request $request)
     {
-        $data = $request->validate(['email' => ['required', 'email', 'max:'.Rules::EMAIL_MAX]]);
+        try {
+            $data = $request->validate(['email' => ['required', 'email', 'max:'.Rules::EMAIL_MAX]]);
+        } catch (ValidationException $e) {
+            throw AuthPanel::back($e, AuthPanel::RESET_PASSWORD);
+        }
         try {
             $this->accounts->sendPasswordReset($data['email']);
         } catch (ShopException $e) {
-            return back()->withInput()->with('shop_error', $e->getMessage());
+            return redirect()->to(AuthPanel::url(AuthPanel::RESET_PASSWORD))->withInput()->with('shop_error', $e->getMessage());
         }
 
-        return redirect()->route('login')->with('status', 'If that email has an account, we\'ve sent a link to reset your password.');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If that email has an account, we\'ve sent a link to reset your password.');
     }
 
     /** ONE logout for everything (same as the admin side's): every sign-in of this session ends. */

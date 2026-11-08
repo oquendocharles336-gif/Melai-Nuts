@@ -58,6 +58,9 @@ class AppServiceProvider extends ServiceProvider
                 'shopStaff' => ! $customer->check() && auth()->check() ? (auth()->user()->isAdmin() ? 'owner' : 'staff') : null,
                 'shopCartCount' => app(\App\Services\Shop\ShopCart::class)->count(),
                 'shopBranch' => $branch,
+                // The sign-in panel lives on the homepage, for people who are not signed in at all.
+                'authPanelHere' => request()->routeIs('shop.home') && \App\Support\AuthPanel::guest(),
+                'authPanel' => request()->routeIs('shop.home') ? \App\Support\AuthPanel::open(request()) : null,
             ]);
         });
 

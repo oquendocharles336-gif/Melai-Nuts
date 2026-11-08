@@ -145,9 +145,34 @@ class CustomerLockoutTest extends TestCase
         $this->get('/dashboard')->assertOk();
     }
 
-    public function test_the_old_shop_sign_in_address_forwards_to_the_single_login(): void
+    public function test_the_old_shop_sign_in_address_opens_the_sign_in_panel(): void
     {
-        $this->get('/shop/login')->assertRedirect(route('login'));
+        $this->get('/shop/login')->assertRedirect('/?panel=sign-in');
+    }
+
+    public function test_admin_pages_send_guests_to_the_sign_in_panel_and_back_after_sign_in(): void
+    {
+        // "Please sign in": /dashboard -> /login -> the homepage with the panel open.
+        $this->get('/orders')->assertRedirect(route('login'));
+        $this->get('/login')->assertRedirect('/?panel=sign-in');
+        $this->get('/?panel=sign-in')->assertOk()->assertSee('data-start-open', false);
+
+        // Staff sign in from the panel and land where they were headed.
+        $owner = $this->owner();
+        $s = $this->db->staff[$owner];
+        $this->post('/login', ['_panel' => 'sign-in', 'email' => $s['email'], 'password' => "$owner#Pass1"])->assertRedirect(route('orders.index'));
+        $this->assertAuthenticated('web');
+    }
+
+    public function test_a_customer_sign_in_mistake_or_refusal_shows_in_the_panel(): void
+    {
+        $this->fb->addAccount('rider2@example.com', 'rider-2', 'Kasoy#Roast9', verified: true);
+        $this->fb->profiles['rider-2'] = ['email' => 'rider2@example.com', 'name' => 'Rio', 'role' => 'delivery', 'isActive' => true];
+        $this->post('/login', ['_panel' => 'sign-in', 'email' => 'rider2@example.com', 'password' => 'Kasoy#Roast9'])
+            ->assertRedirect('/?panel=sign-in');
+        $this->get('/?panel=sign-in')->assertSee('This is a rider account. Riders use the Melai Nuts app.');
+        $this->assertGuest('web');
+        $this->assertFalse(session()->has('shop_customer'));
     }
 
     public function test_a_rider_account_is_refused_on_the_single_login(): void
@@ -205,7 +230,7 @@ class CustomerLockoutTest extends TestCase
         // Staff signing out from the admin side ends the admin login AND anything else in the session.
         $login = $this->linkedLogin($this->owner());
         $this->signedIn($login)->withSession(['shop_customer' => ['uid' => 'x'], 'shop_guest_cart' => ['v' => 1]])
-            ->post('/logout')->assertRedirect(route('login'));
+            ->post('/logout')->assertRedirect(route('shop.home'));
         $this->assertGuest('web');
         $this->assertFalse(session()->has('shop_customer'));
         $this->assertFalse(session()->has('firebase_auth'));

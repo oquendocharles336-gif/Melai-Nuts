@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\AuthPanel;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 
@@ -23,6 +24,12 @@ class RegisterRequest extends FormRequest
         ]);
     }
 
+    /** Mistakes come back to the staff-access panel on the homepage. */
+    protected function getRedirectUrl()
+    {
+        return AuthPanel::url(AuthPanel::STAFF_ACCESS);
+    }
+
     public function rules(): array
     {
         return [
@@ -31,7 +38,7 @@ class RegisterRequest extends FormRequest
             'email' => [...Rules::email(), 'unique:users,email'],
             'password' => Rules::newPassword($this->input('email'), $this->input('name')),
             'password_confirmation' => ['required', 'same:password'],
-            // An active choice: the box is never pre-ticked (resources/views/auth/register.blade.php).
+            // An active choice: the box is never pre-ticked (the staff-access panel, shop/partials/auth-panel).
             'terms' => ['accepted'],
         ];
     }

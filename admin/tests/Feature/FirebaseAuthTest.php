@@ -159,7 +159,7 @@ class FirebaseAuthTest extends TestCase
 
         $this->post('/login', ['email' => 'pat@example.com', 'password' => 'anything'])->assertSessionHasErrors('auth');
         $this->assertStringContainsString('FIREBASE_WEB_API_KEY', session('errors')->first('auth'));
-        $this->get('/login')->assertSee('FIREBASE_WEB_API_KEY'); // shown on the page, not only in the session
+        $this->get('/?panel=sign-in')->assertSee('FIREBASE_WEB_API_KEY'); // shown in the panel, not only in the session
     }
 
     public function test_forgot_password_sends_a_firebase_reset_link_without_revealing_accounts(): void

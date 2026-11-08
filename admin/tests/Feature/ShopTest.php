@@ -114,6 +114,24 @@ class ShopTest extends TestCase
         $this->assertSame([], $this->fb->accounts);
     }
 
+    public function test_sign_up_mistakes_show_inside_the_create_account_panel(): void
+    {
+        $this->post('/shop/register', ['_panel' => 'create-account', 'name' => 'Bea Santos', 'email' => 'bea@example.com', 'phone' => '12345',
+            'password' => 'Pili#Nut2026', 'password_confirmation' => 'Pili#Nut2026', 'terms' => '1'])
+            ->assertRedirect('/?panel=create-account')->assertSessionHasErrors('phone');
+        $page = $this->get('/')->assertOk()->assertSee('data-start-open', false)->assertSee('data-shown="create-account"', false)
+            ->assertSee('value="Bea Santos"', false)->assertDontSee('Pili#Nut2026');
+        $this->assertStringContainsString('has-err', $page->getContent());
+        $this->assertSame([], $this->fb->accounts);
+    }
+
+    public function test_reset_password_from_the_panel_comes_back_to_sign_in_with_a_note(): void
+    {
+        $this->post('/shop/forgot-password', ['_panel' => 'reset-password', 'email' => 'nope'])->assertRedirect('/?panel=reset-password')->assertSessionHasErrors('email');
+        $this->post('/shop/forgot-password', ['_panel' => 'reset-password', 'email' => 'bea@example.com'])->assertRedirect('/?panel=sign-in');
+        $this->get('/?panel=sign-in')->assertSee("we've sent a link to reset your password");
+    }
+
     public function test_sign_up_verifies_the_email_then_creates_the_same_profiles_as_the_app(): void
     {
         $this->post('/shop/register', [

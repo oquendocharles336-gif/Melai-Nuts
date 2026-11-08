@@ -126,7 +126,7 @@
                 @if ($shopCustomer ?? null)
                     <a href="{{ route('shop.points') }}" class="s-btn dark">See my points <x-icon name="arrow-right" :size="17" class="ico-arrow" /></a>
                 @elseif (! ($shopStaff ?? null))
-                    <a href="{{ route('shop.register') }}" class="s-btn dark">Create a free account <x-icon name="arrow-right" :size="17" class="ico-arrow" /></a>
+                    <a href="{{ \App\Support\AuthPanel::url(\App\Support\AuthPanel::CREATE_ACCOUNT) }}" class="s-btn dark" data-panel-open="create-account" aria-haspopup="dialog">Create a free account <x-icon name="arrow-right" :size="17" class="ico-arrow" /></a>
                 @endif
             </div>
             <div class="coin" aria-hidden="true"><span><b>+pts</b>on every order</span></div>

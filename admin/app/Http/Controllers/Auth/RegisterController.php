@@ -18,6 +18,7 @@ use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseConfig;
 use App\Services\Firebase\FirebaseSession;
 use App\Services\Firebase\FirebaseTokenVerifier;
+use App\Support\AuthPanel;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -40,12 +41,23 @@ use Illuminate\Validation\ValidationException;
  */
 class RegisterController extends Controller
 {
+    /** The request form is the "Request staff access" panel on the shop homepage. */
     public function create()
     {
-        return view('auth.register');
+        return redirect()->to(AuthPanel::url(AuthPanel::STAFF_ACCESS));
     }
 
     public function store(RegisterRequest $request, FirebaseConfig $config, FirebaseLogin $login, FirebaseAuthClient $client,
+        FirebaseTokenVerifier $verifier, FirebaseSession $session, AccountLinkStatus $status)
+    {
+        try {
+            return $this->register($request, $config, $login, $client, $verifier, $session, $status);
+        } catch (ValidationException $e) {
+            throw AuthPanel::back($e, AuthPanel::STAFF_ACCESS);   // every refusal shows inside the panel
+        }
+    }
+
+    private function register(RegisterRequest $request, FirebaseConfig $config, FirebaseLogin $login, FirebaseAuthClient $client,
         FirebaseTokenVerifier $verifier, FirebaseSession $session, AccountLinkStatus $status)
     {
         $data = $request->validated();

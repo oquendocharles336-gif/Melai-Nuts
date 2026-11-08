@@ -46,7 +46,7 @@ async function postJson(url, body, method = 'POST') {
     });
     let data = {};
     try { data = await res.json(); } catch { /* empty body */ }
-    if (res.status === 401 && data.signed_out) window.location.href = '/shop/login';
+    if (res.status === 401 && data.signed_out) window.location.href = '/?panel=sign-in';
     if (!res.ok) throw new Error(data.message || 'Something went wrong. Please try again.');
     return data;
 }
@@ -237,3 +237,79 @@ document.querySelectorAll('img[data-skel-img]').forEach((img) => {
     }));
     sync();
 })();
+
+/**
+ * Sign-in panel: the only sign-in. "Sign in" opens it on top of the homepage without leaving the
+ * page, the links inside switch panels in place, and the address follows (/?panel=...) so Back and
+ * sharing work. Without JavaScript the same links reload the homepage with that panel open.
+ */
+(() => {
+    const dlg = document.querySelector('[data-auth-panel]');
+    if (!dlg || typeof dlg.showModal !== 'function') return;
+    const fine = window.matchMedia('(pointer: fine)').matches;   // no surprise keyboard on phones
+
+    const setUrl = (name) => {
+        try {
+            const u = new URL(window.location.href);
+            if (name) u.searchParams.set('panel', name); else u.searchParams.delete('panel');
+            history.replaceState(history.state, '', u);
+        } catch { /* old browser */ }
+    };
+    const show = (name) => {
+        const sections = [...dlg.querySelectorAll('[data-panel]')];
+        const target = sections.find((s) => s.dataset.panel === name) || sections.find((s) => s.dataset.panel === 'sign-in');
+        sections.forEach((s) => { s.hidden = s !== target; });
+        dlg.dataset.shown = target.dataset.panel;
+        dlg.setAttribute('aria-labelledby', `ap-${target.dataset.panel}-title`);
+        return target;
+    };
+    const focusIn = (section, always = false) => {
+        if (!fine && !always) return;
+        const input = section.querySelector('.has-err input, .has-err textarea') || section.querySelector('input:not([type=hidden]):not([type=checkbox])');
+        input?.focus({ preventScroll: true });
+    };
+    const open = (name) => {
+        const section = show(name);
+        if (!dlg.open) dlg.showModal();
+        dlg.scrollTop = 0;
+        setUrl(dlg.dataset.shown);
+        focusIn(section);
+    };
+
+    // Opened by the server (/?panel=..., or after a failed submit): make it a real modal
+    // (focus stays inside, Esc closes) and put the cursor on the first field with an error.
+    if (dlg.hasAttribute('data-start-open')) {
+        dlg.removeAttribute('open');   // not close(): that would fire "close" and drop ?panel= from the address
+        dlg.showModal();
+        const section = dlg.querySelector('[data-panel]:not([hidden])');
+        focusIn(section, !!section.querySelector('.has-err'));
+    }
+
+    dlg.addEventListener('close', () => setUrl(null));
+    document.addEventListener('click', (e) => {
+        const opener = e.target.closest('[data-panel-open]');
+        if (opener) { e.preventDefault(); open(opener.dataset.panelOpen); return; }
+        if (e.target.closest('[data-panel-close]')) { e.preventDefault(); dlg.close(); }
+    });
+    // A click on the dimmed area closes it (only when the press also started there, so selecting
+    // text in a field and letting go outside never closes the panel).
+    let downOnBackdrop = false;
+    dlg.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === dlg; });
+    dlg.addEventListener('click', (e) => { if (downOnBackdrop && e.target === dlg) dlg.close(); downOnBackdrop = false; });
+})();
+
+/** Forms that take a moment (sign-in, sign-up): say so on the button and stop double sends. */
+document.addEventListener('submit', (e) => {
+    const form = e.target.closest('form[data-busy]');
+    if (!form || e.defaultPrevented) return;
+    const btn = form.querySelector('button[type=submit]');
+    if (!btn) return;
+    if (btn.getAttribute('aria-busy') === 'true') { e.preventDefault(); return; }
+    btn.setAttribute('aria-busy', 'true');
+    btn.dataset.label = btn.textContent;
+    btn.textContent = form.dataset.busy;
+});
+window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return;   // back from the next page: the buttons work again
+    document.querySelectorAll('form[data-busy] button[aria-busy="true"]').forEach((b) => { b.removeAttribute('aria-busy'); if (b.dataset.label) b.textContent = b.dataset.label; });
+});

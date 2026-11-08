@@ -5,6 +5,6 @@
 <main class="center-page"><div class="card" role="alert">
     <h1>Your session expired</h1>
     <p>For your security you were signed out after a period of inactivity. Please sign in again; nothing was changed.</p>
-    <div class="btn-row"><a class="btn-solid" href="{{ route('login') }}">Sign in again</a></div>
+    <div class="btn-row"><a class="btn-solid" href="{{ \App\Support\AuthPanel::url() }}">Sign in again</a></div>
 </div></main>
 @endsection

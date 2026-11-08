@@ -19,6 +19,7 @@ use App\Services\Firebase\FirebaseTokenVerifier;
 use App\Services\Shop\CustomerAccounts;
 use App\Services\Shop\CustomerSession;
 use App\Services\Shop\ShopException;
+use App\Support\AuthPanel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -41,18 +42,23 @@ use Illuminate\Validation\ValidationException;
  *    it AS that UID (active, same email, admin <-> owner, staff <-> staff).
  *
  * When the link is impossible (no matching owner / staff row, inactive account, ...) the reason is
- * shown right here on the login page and nobody is signed in: no one lands on a dead-end page.
+ * shown right in the sign-in panel and nobody is signed in: no one lands on a dead-end page.
+ *
+ * There is no separate sign-in page: the form is the sign-in panel on the shop homepage
+ * (AuthPanel). /login, and every "please sign in" redirect that goes through it, opens that panel.
  * Passwords are never stored or logged.
  */
 class LoginController extends Controller
 {
-    public function create(CustomerSession $customer)
+    /** /login opens the homepage with the sign-in panel (messages such as "please sign in" come along). */
+    public function create(Request $request, CustomerSession $customer)
     {
         if ($customer->check()) {
             return redirect()->route('shop.home');
         }
+        $request->session()->reflash();
 
-        return view('auth.login');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN));
     }
 
     public function store(LoginRequest $request, FirebaseConfig $config, FirebaseLogin $firebase, FirebaseSession $session, AutoLinker $linker,
@@ -84,7 +90,7 @@ class LoginController extends Controller
             } catch (AccountLinkException $e) {
                 // Correct app password, but this account may not use the website (reason in the message).
                 ActivityLogger::log('auth.login_refused', 'App sign-in refused for '.$email, null, ['state' => $e->state]);
-                throw ValidationException::withMessages(['auth' => $e->getMessage()]);
+                throw AuthPanel::back(ValidationException::withMessages(['auth' => $e->getMessage()]), AuthPanel::SIGN_IN);
             }
 
             if (isset($user)) {
@@ -198,24 +204,25 @@ class LoginController extends Controller
         $request->session()->invalidate(); // drops the admin login, the shop sign-in and every token of this session
         $request->session()->regenerateToken();
 
-        return redirect()->route('login')->with('status', "You're signed out.");
+        return redirect()->route('shop.home')->with('shop_status', "You're signed out.");
     }
 
     /** Password reset for app accounts: Firebase emails the reset link. Never says whether the email exists. */
     public function forgot(Request $request, FirebaseConfig $config, FirebaseAuthClient $client)
     {
         $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
+        $panel = redirect()->to(AuthPanel::url(AuthPanel::RESET_PASSWORD));
         if (! $config->ready()) {
-            return back()->with('error', $config->missingMessage());
+            return $panel->with('error', $config->missingMessage());
         }
         try {
             $client->sendPasswordReset(Str::lower(trim($data['email'])));
         } catch (FirebaseAuthException $e) {
             if ($e->reason === FirebaseAuthException::CONFIG || $e->isTemporary()) {
-                return back()->withInput()->with('error', $e->getMessage());
+                return $panel->withInput()->with('error', $e->getMessage());
             }
         }
 
-        return back()->with('status', 'If a Melai Nuts app account uses that email, Firebase has sent it a password-reset link. The new password works in the app and on this website.');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If a Melai Nuts app account uses that email, Firebase has sent it a password-reset link. The new password works in the app and on this website.');
     }
 }

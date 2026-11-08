@@ -53,7 +53,8 @@
             @elseif ($shopCustomer)
                 <a href="{{ route('shop.account') }}" @class(['is-on' => request()->routeIs('shop.account')]) aria-label="Your account"><x-icon name="user" :size="18" /><span class="hide-sm">{{ $shopCustomer['first'] }}</span></a>
             @else
-                <a href="{{ route('login') }}" class="s-signin">Sign in</a>
+                {{-- The ONLY way in: opens the sign-in panel (on the homepage, without leaving the page). --}}
+                <a href="{{ \App\Support\AuthPanel::url() }}" class="s-signin" data-panel-open="sign-in" aria-haspopup="dialog">Sign in</a>
             @endif
         </nav>
     </div>
@@ -87,7 +88,8 @@
         @if (session('shop_status'))
             <div class="s-flash ok" role="status"><x-icon name="check" :size="18" />{{ session('shop_status') }}</div>
         @endif
-        @if (session('shop_error'))
+        {{-- With the sign-in panel open, its messages show inside the panel instead. --}}
+        @if (session('shop_error') && ! $authPanel)
             <div class="s-flash bad" role="alert"><x-icon name="alert" :size="18" />{{ session('shop_error') }}</div>
         @endif
         @if (session('shop_note'))
@@ -129,8 +131,6 @@
                 <ul>
                     <li><a href="{{ route('legal.terms') }}">Terms and Conditions</a></li>
                     <li><a href="{{ route('legal.privacy') }}">Privacy Policy</a></li>
-                    <li><a href="{{ route('shop.forgot') }}">Reset your password</a></li>
-                    <li><a href="{{ route('login') }}">Staff and owners: sign in</a></li>
                 </ul>
             </div>
         </div>
@@ -143,5 +143,9 @@
         </div>
     </div>
 </footer>
+
+@if ($authPanelHere)
+    @include('shop.partials.auth-panel', ['open' => $authPanel])
+@endif
 </body>
 </html>

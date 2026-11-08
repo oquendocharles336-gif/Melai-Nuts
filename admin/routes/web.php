@@ -81,14 +81,14 @@ Route::name('shop.')->group(function () {
 // ---------------------------------------------------------------------------------------------
 // Admin website (owners and staff). Customers never get past `no.customers` + `auth`.
 // ---------------------------------------------------------------------------------------------
-
-// Staff sign-in pages (logged-in admins are redirected to the dashboard)
+// Sign-in addresses (logged-in admins are redirected to the dashboard). There are no sign-in pages:
+// each address opens its panel on the shop homepage (App\Support\AuthPanel); the POSTs do the work.
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'create'])->name('login');
     Route::post('/login', [LoginController::class, 'store']);
     Route::get('/register', [RegisterController::class, 'create'])->name('register');
     Route::post('/register', [RegisterController::class, 'store'])->middleware('throttle:10,1');
-    Route::view('/forgot-password', 'auth.forgot')->name('password.request');
+    Route::redirect('/forgot-password', '/?panel=reset-password')->name('password.request');   // the reset panel on the homepage
     Route::post('/forgot-password', [LoginController::class, 'forgot'])->name('password.email')->middleware('throttle:5,1');
 });
 
