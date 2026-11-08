@@ -9,7 +9,7 @@ class SecurityHeadersTest extends TestCase
 {
     public function test_every_page_sends_the_security_headers(): void
     {
-        $r = $this->get('/login')->assertOk();
+        $r = $this->get('/?panel=sign-in')->assertOk();   // the sign-in panel's page
         $r->assertHeader('X-Content-Type-Options', 'nosniff');
         $r->assertHeader('X-Frame-Options', 'DENY');
         $r->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin');

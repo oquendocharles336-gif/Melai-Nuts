@@ -22,7 +22,7 @@ class FirestoreProfiles
      *
      * @throws FirebaseAuthException
      */
-    public function create(string $ownerIdToken, string $uid, string $email, string $name, string $role, ?string $branch): string
+    public function create(string $ownerIdToken, string $uid, string $email, string $name, string $role, ?string $branch, ?string $phone = null): string
     {
         $doc = $this->docName($uid);
         $fields = [
@@ -33,6 +33,11 @@ class FirestoreProfiles
         ];
         if ($branch !== null) {
             $fields['branch'] = ['stringValue' => $branch];
+        }
+        // A shop customer's own sign-up (their own ID token, like the app's registration):
+        // the same fields the app writes (AppUser.toFirestore).
+        if ($phone !== null) {
+            $fields['phone'] = ['stringValue' => $phone];
         }
 
         $r = $this->send(fn () => Http::withToken($ownerIdToken)->timeout(15)->acceptJson()

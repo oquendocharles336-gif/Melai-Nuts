@@ -75,6 +75,8 @@ supabase secrets set \
   HITPAY_SALT=<webhook endpoint salt> \
   HITPAY_ENV=sandbox \
   HITPAY_REDIRECT_URL=<page shown after paying, https only>
+# optional: website shop payers (return_to: "web") come back to https://<website>/shop/payment/return
+#   HITPAY_WEB_REDIRECT_URL=<that page>
 
 supabase functions deploy hitpay-webhook --no-verify-jwt
 supabase functions deploy hitpay-create-payment --no-verify-jwt

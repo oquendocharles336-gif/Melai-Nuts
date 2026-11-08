@@ -12,7 +12,8 @@
 // SQL function hitpay_set_checkout.
 //
 // Env: HITPAY_API_KEY (secret), HITPAY_ENV ('live' | anything else = sandbox),
-// HITPAY_REDIRECT_URL (required when online payment is on), HITPAY_LINK_MAX_AGE_MINUTES (optional,
+// HITPAY_REDIRECT_URL (required when online payment is on), HITPAY_WEB_REDIRECT_URL (optional: the
+// website shop's return page, used for requests with return_to: "web"), HITPAY_LINK_MAX_AGE_MINUTES (optional,
 // default 60: a stored link older than this is never reused; keep it at or below HitPay's expiry). SUPABASE_URL / SUPABASE_ANON_KEY /
 // SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 //

@@ -33,9 +33,14 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
   if (!authorization) return json({ error: "Please sign in again." }, 401);
 
   let orderId = "";
+  // Where HitPay sends the payer afterwards: the app's page (default) or the website's
+  // (`return_to: "web"`, the customer shop). Only these two fixed URLs from the secrets are
+  // ever used; a URL in the request is never accepted.
+  let returnTo: "app" | "web" = "app";
   try {
     const body = await req.json();
     orderId = typeof body?.order_id === "string" ? body.order_id.trim() : "";
+    returnTo = body?.return_to === "web" ? "web" : "app";
   } catch (_) {
     return json({ error: "Invalid request." }, 400);
   }
@@ -70,7 +75,9 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
 
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
   const apiKey = env("HITPAY_API_KEY");
-  const redirectUrl = env("HITPAY_REDIRECT_URL");
+  // Website payers return to the shop (HITPAY_WEB_REDIRECT_URL, optional); until it is set
+  // they get the same page as the app.
+  const redirectUrl = (returnTo === "web" ? env("HITPAY_WEB_REDIRECT_URL") : undefined) || env("HITPAY_REDIRECT_URL");
   if (!serviceKey || !apiKey || !redirectUrl) {
     console.error("hitpay-create-payment: missing environment configuration");
     return json({ error: "Online payment is not configured." }, 500);

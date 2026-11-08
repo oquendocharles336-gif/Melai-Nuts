@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Services\ActivityLogger;
+use App\Support\AuthPanel;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
@@ -32,6 +33,12 @@ class LoginRequest extends FormRequest
         ];
     }
 
+    /** A missing email or password comes back to the sign-in panel. */
+    protected function getRedirectUrl()
+    {
+        return AuthPanel::url(AuthPanel::SIGN_IN);
+    }
+
     public function messages(): array
     {
         return ['email.required' => 'Email is required.', 'password.required' => 'Password is required.'];
@@ -54,7 +61,7 @@ class LoginRequest extends FormRequest
     {
         RateLimiter::hit($this->throttleKey(), config('melai.login.decay_seconds'));
 
-        throw ValidationException::withMessages(['auth' => $message]);
+        throw AuthPanel::back(ValidationException::withMessages(['auth' => $message]), AuthPanel::SIGN_IN);
     }
 
     public function succeeded(): void
@@ -72,9 +79,9 @@ class LoginRequest extends FormRequest
         ActivityLogger::log('auth.lockout', 'Too many login attempts for '.$this->input('email'));
         $seconds = RateLimiter::availableIn($this->throttleKey());
 
-        throw ValidationException::withMessages([
+        throw AuthPanel::back(ValidationException::withMessages([
             'auth' => "Too many login attempts. Please try again in {$seconds} seconds.",
-        ]);
+        ]), AuthPanel::SIGN_IN);
     }
 
     protected function throttleKey(): string

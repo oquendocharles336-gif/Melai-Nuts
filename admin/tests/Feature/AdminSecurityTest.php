@@ -65,8 +65,11 @@ class AdminSecurityTest extends TestCase
             ->assertSee('Pagkuha ng order at downpayment')->assertSee('sa loob ng 7 araw');
         $this->get('/privacy')->assertOk()->assertSee('Melai Nuts Retailing')->assertSee('melaioraya5&#64;gmail.com', false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('Patakaran sa Privacy')->assertSee('iniingatan nang 5 taon');
-        $this->get('/login')->assertOk()->assertSee(route('legal.terms'), false)->assertSee(route('legal.privacy'), false);
-        $this->get('/register')->assertOk()->assertSee('name="terms"', false)->assertDontSee('name="terms" value="1" checked', false);
+        // The staff-access request lives in the homepage's sign-in panel; consent is never pre-ticked.
+        $this->get('/register')->assertRedirect('/?panel=staff-access');
+        $this->get('/?panel=staff-access')->assertOk()->assertSee(route('legal.terms'), false)->assertSee(route('legal.privacy'), false)
+            ->assertSee('action="'.route('register').'"', false)->assertSee('name="terms"', false)
+            ->assertDontSee('name="terms" value="1" checked', false);
 
         $this->post('/register', ['name' => 'Ana Reyes', 'email' => 'ana@example.com',
             'password' => 'Kasoy#Tanim42', 'password_confirmation' => 'Kasoy#Tanim42'])

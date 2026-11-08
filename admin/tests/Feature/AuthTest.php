@@ -29,9 +29,49 @@ class AuthTest extends TestCase
     private function admin(): User { return User::factory()->create(['role' => 'admin', 'has_access' => true]); }
     private function staff(): User { return User::factory()->create(['role' => 'staff', 'has_access' => false]); }
 
-    public function test_landing_shows_welcome_admin(): void
+    public function test_home_is_the_shop_and_the_only_way_in_is_the_header_sign_in_button(): void
     {
-        $this->get('/')->assertOk()->assertSee('WELCOME ADMIN');
+        // "/" is the shop. Its header "Sign in" opens the sign-in panel; there is no other sign-in link.
+        $home = $this->get('/')->assertOk()->assertSee('the slow way.')
+            ->assertSee('data-panel-open="sign-in"', false)->assertSee('data-auth-panel', false)
+            ->assertDontSee('Staff and owners: sign in')->assertDontSee('Staff sign in')->assertDontSee('data-start-open', false);
+        $this->assertSame(1, substr_count($home->getContent(), 'class="s-signin"'), 'one sign-in button, in the header');
+        // There is no separate sign-in page: /login opens the panel on the homepage.
+        $this->get('/login')->assertRedirect('/?panel=sign-in');
+        $this->get('/?panel=sign-in')->assertOk()->assertSee('data-start-open', false)->assertSee('Welcome back')
+            ->assertSee('action="'.route('login').'"', false)->assertDontSee('Administration portal', false);
+    }
+
+    public function test_every_old_sign_in_address_opens_its_panel(): void
+    {
+        $this->get('/login')->assertRedirect('/?panel=sign-in');
+        $this->get('/shop/login')->assertRedirect('/?panel=sign-in');
+        $this->get('/register')->assertRedirect('/?panel=staff-access');
+        $this->get('/shop/register')->assertRedirect('/?panel=create-account');
+        $this->get('/forgot-password')->assertRedirect('/?panel=reset-password');
+        $this->get('/shop/forgot-password')->assertRedirect('/?panel=reset-password');
+        foreach (['sign-in' => 'Welcome back', 'create-account' => 'Create your account', 'reset-password' => 'Reset your password', 'staff-access' => 'Request staff access'] as $panel => $title) {
+            $page = $this->get('/?panel='.$panel)->assertOk()->assertSee('data-shown="'.$panel.'"', false)->assertSee($title);
+            $this->assertMatchesRegularExpression('/data-panel="'.$panel.'"\s+aria-labelledby/', $page->getContent(), $panel.' is the visible one');
+        }
+        $this->get('/?panel=nonsense')->assertOk()->assertDontSee('data-start-open', false);
+    }
+
+    public function test_a_wrong_password_shows_inside_the_sign_in_panel(): void
+    {
+        $this->from('/?panel=sign-in')->post('/login', ['_panel' => 'sign-in', 'email' => 'nobody@example.com', 'password' => 'Wrong#Pass1'])
+            ->assertRedirect('/?panel=sign-in')->assertSessionHasErrors('auth');
+        $this->assertGuest();
+        $this->get('/?panel=sign-in')->assertOk()->assertSee('Invalid email or password')
+            ->assertSee('value="nobody@example.com"', false)->assertDontSee('Wrong#Pass1');
+        // Empty fields come back to the panel too, with the message under the field.
+        $this->post('/login', ['_panel' => 'sign-in'])->assertRedirect('/?panel=sign-in')->assertSessionHasErrors(['email', 'password']);
+        $this->get('/')->assertOk()->assertSee('data-start-open', false)->assertSee('Email is required.');
+    }
+
+    public function test_signed_in_people_never_see_the_panel(): void
+    {
+        $this->actingAs($this->admin())->get('/?panel=sign-in')->assertOk()->assertDontSee('data-auth-panel', false)->assertSee('Back to dashboard');
     }
 
     public function test_empty_fields(): void
@@ -144,7 +184,7 @@ class AuthTest extends TestCase
 
     public function test_logout_invalidates_session(): void
     {
-        $this->actingAs($this->admin())->post('/logout')->assertRedirect(route('landing'));
+        $this->actingAs($this->admin())->post('/logout')->assertRedirect(route('shop.home'))->assertSessionHas('shop_status', "You're signed out.");
         $this->assertGuest();
         $this->get('/dashboard')->assertRedirect(route('login'));
     }
@@ -336,7 +376,8 @@ class AuthTest extends TestCase
         $this->signedIn($owner, expiresIn: 30)->get('/dashboard')->assertRedirect(route('login'))->assertSessionHasErrors('auth');
         $this->assertGuest();
         $this->assertStringContainsString('Please sign in again', session('errors')->first('auth'));
-        $this->get('/login')->assertOk()->assertSee('Please sign in again')->assertDontSee('Account not linked');
+        $this->followingRedirects()->get('/login')->assertOk()->assertSee('data-start-open', false)
+            ->assertSee('Please sign in again')->assertDontSee('Account not linked');
     }
 
     public function test_the_old_link_page_is_gone(): void

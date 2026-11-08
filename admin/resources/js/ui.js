@@ -14,13 +14,6 @@ const store = (k, v) => { try { v === undefined ? localStorage.removeItem(k) : l
 const read = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export const ACCENTS = {
-    yellow: { label: 'Yellow', color: '#F2C14E' },
-    mint: { label: 'Mint', color: '#5CC9A7' },
-    pink: { label: 'Pink', color: '#F28DB2' },
-    blue: { label: 'Blue', color: '#6FA8F5' },
-};
-
 // ---- sessionStorage: small per-user cache of JSON answers (≈30 s) ---------------------------
 const SS_TTL = 30000;
 const ssKey = (name) => `melai.${uid()}.${name}`;
@@ -125,15 +118,12 @@ export function registerUi(Alpine) {
     // ---- stores ---------------------------------------------------------------------------
     Alpine.store('ui', {
         theme: read(`melai.theme.${uid()}`) || 'light',
-        accent: read(`melai.accent.${uid()}`) || 'yellow',
         toastsOn: read(`melai.toasts.${uid()}`) !== 'off',
         liveRefresh: read(`melai.live.${uid()}`) !== 'off',
-        accents: ACCENTS,
         toasts: [],
         nav: false,
         palette: false,
         setTheme(t) { this.theme = t; store(`melai.theme.${uid()}`, t); document.documentElement.dataset.theme = t; },
-        setAccent(a) { if (!ACCENTS[a]) return; this.accent = a; store(`melai.accent.${uid()}`, a); document.documentElement.dataset.accent = a; },
         setToasts(on) { this.toastsOn = on; store(`melai.toasts.${uid()}`, on ? 'on' : 'off'); },
         setLive(on) { this.liveRefresh = on; store(`melai.live.${uid()}`, on ? 'on' : 'off'); },
         toast(message, tone = 'ok', force = false) {
@@ -207,11 +197,10 @@ export function registerUi(Alpine) {
     Alpine.data('newOrder', (opts) => newOrderComponent(opts));
 }
 
-/** Theme + accent, keyboard shortcuts, flash → toast, badge refresh. Runs once per page. */
+/** Theme, keyboard shortcuts, flash → toast, badge refresh. Runs once per page. */
 export function bootUi(Alpine) {
     const ui = Alpine.store('ui');
     document.documentElement.dataset.theme = ui.theme;
-    document.documentElement.dataset.accent = ui.accent;
 
     if (document.querySelector('[data-app-shell]')) {
         Alpine.store('counts').refresh();
@@ -611,7 +600,9 @@ function fetchFragment(url) {
     const href = cleanUrl(url);
     if (!inflight.has(href)) {
         inflight.set(href, (async () => {
-            const r = await fetch(href, { headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' }, credentials: 'same-origin' });
+            // cache: 'no-store': the content-only answer must never become the browser's copy of this URL
+            // (Back/Forward would then show it without the page's stylesheets). The server says so too.
+            const r = await fetch(href, { headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' }, credentials: 'same-origin', cache: 'no-store' });
             if (!r.ok || !(r.headers.get('content-type') || '').includes('text/html')) throw new Error('status ' + r.status);
             const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
             const frag = doc.querySelector('[data-fragment]');
@@ -806,7 +797,7 @@ function bootSoftForms() {
         const top = scroller?.scrollTop ?? 0;
         progress(true);
         try {
-            const r = await fetch(action, { method: 'POST', body, credentials: 'same-origin', headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' } });
+            const r = await fetch(action, { method: 'POST', body, credentials: 'same-origin', cache: 'no-store', headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' } });
             if (r.status === 419) { ui.toast('Your session expired. Reloading the page…', 'bad'); setTimeout(() => location.reload(), 1200); return; }
             const html = (r.headers.get('content-type') || '').includes('text/html') ? await r.text() : '';
             const doc = new DOMParser().parseFromString(html, 'text/html');
