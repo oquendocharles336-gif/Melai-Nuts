@@ -32,7 +32,7 @@ class AuthTest extends TestCase
     public function test_home_is_the_shop_with_a_staff_sign_in_link(): void
     {
         // "/" is the customer shop; staff sign in at /login (linked in the shop's footer).
-        $this->get('/')->assertOk()->assertSee('Fresh-roasted nuts')->assertSee('Staff sign in')->assertSee(route('login'), false);
+        $this->get('/')->assertOk()->assertSee('the slow way.')->assertSee('Staff and owners: sign in')->assertSee(route('login'), false);
         $this->get('/login')->assertOk();
     }
 

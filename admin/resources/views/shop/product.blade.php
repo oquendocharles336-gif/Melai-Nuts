@@ -7,14 +7,15 @@
         $first = collect($product['variants'])->first(fn ($v) => ! $branch || $v['stock'] > 0) ?? ($product['variants'][0] ?? null);
         $canBuy = $first !== null && (! $branch || $product['stock'] > 0);
     @endphp
-    <nav aria-label="Breadcrumb" class="s-sub"><a href="{{ route('shop.home') }}">Shop</a> / <a href="{{ route('shop.search') }}">All nuts</a> / {{ $product['name'] }}</nav>
+    <nav aria-label="Breadcrumb" class="s-crumbs"><a href="{{ route('shop.home') }}">Shop</a> / <a href="{{ route('shop.search') }}">All nuts</a> / <span aria-current="page">{{ $product['name'] }}</span></nav>
 
     <div class="s-product">
-        <div class="s-photo">
+        @php($art = $product['art'] ?? \App\Services\Shop\ShopCatalog::artFor($product['name']))
+        <div @class(['s-photo', 's-skel' => (bool) $product['images']]) style="--tint: {{ \App\Services\Shop\ShopCatalog::tintFor($art) }}" data-fly-src>
             @if ($product['images'])
-                <img src="{{ $product['images'][0] }}" alt="{{ $product['name'] }}">
+                <img src="{{ $product['images'][0] }}" alt="{{ $product['name'] }}" data-skel-img>
             @else
-                <span class="s-initial" aria-hidden="true">{{ mb_strtoupper(mb_substr($product['name'], 0, 1)) }}</span>
+                @include('shop.partials.art', ['kind' => $art, 'label' => $product['name']])
             @endif
             @if ($product['badge'])<span class="s-pill left">{{ $product['badge'] }}</span>@endif
         </div>
@@ -22,7 +23,7 @@
         <div class="s-product-info">
             <div>
                 <h1>{{ $product['name'] }}</h1>
-                <div class="s-price" style="margin-top:8px">
+                <div class="s-price" style="margin-top:12px">
                     <b>{{ \App\Support\Format::peso($first['price'] ?? $product['price'], 0) }}</b>
                     @if ($product['original_price'] && $product['original_price'] > $product['price'])
                         <s>{{ \App\Support\Format::peso($product['original_price'], 0) }}</s>
@@ -90,10 +91,10 @@
 
     @if ($related)
         <section class="s-section" aria-labelledby="rel-title">
-            <div class="s-section-head"><h2 id="rel-title">You might also like</h2></div>
+            <div class="s-section-head"><div><span class="s-eyebrow">More to try</span><h2 id="rel-title">You might also like</h2></div></div>
             <div class="s-grid">
-                @foreach ($related as $p)
-                    @include('shop.partials.card', ['p' => $p, 'branch' => $branch])
+                @foreach ($related as $i => $p)
+                    @include('shop.partials.card', ['p' => $p, 'branch' => $branch, 'i' => $i])
                 @endforeach
             </div>
         </section>

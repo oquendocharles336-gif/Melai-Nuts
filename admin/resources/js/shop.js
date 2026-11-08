@@ -63,6 +63,7 @@ document.addEventListener('submit', async (e) => {
         const body = Object.fromEntries(new FormData(form));
         delete body._token;
         const data = await postJson(form.action, body);
+        await flyToCart(form);
         setBadge(data.count);
         toast(data.message, { link: { href: '/shop/cart', label: 'View cart' } });
         if (btn) {
@@ -177,3 +178,62 @@ if (poll) {
     };
     setTimeout(tick, 2500);
 }
+
+// ---- Motion helpers ----------------------------------------------------------------------------
+const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** A copy of the product picture flies into the cart icon, then the badge bumps. */
+function flyToCart(form) {
+    const target = document.querySelector('[data-cart-target]');
+    const source = form.closest('.s-card, .s-product')?.querySelector('[data-fly-src]');
+    if (!target || !source || reduceMotion() || !source.animate) return Promise.resolve();
+    const from = source.getBoundingClientRect();
+    const to = target.getBoundingClientRect();
+    const size = Math.min(from.width, from.height, 140);
+    const fly = document.createElement('div');
+    fly.className = 's-fly';
+    fly.setAttribute('aria-hidden', 'true');
+    fly.innerHTML = (source.querySelector('img, svg')?.outerHTML) || '';
+    Object.assign(fly.style, { width: size + 'px', height: size + 'px', left: (from.left + from.width / 2 - size / 2) + 'px', top: (from.top + from.height / 2 - size / 2) + 'px' });
+    document.body.appendChild(fly);
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+    const anim = fly.animate([
+        { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+        { transform: `translate(${dx * 0.55}px, ${dy * 0.55 - 70}px) scale(.55)`, opacity: 1, offset: 0.6 },
+        { transform: `translate(${dx}px, ${dy}px) scale(.12)`, opacity: 0.4 },
+    ], { duration: 700, easing: 'cubic-bezier(.5, 0, .2, 1)' });
+    return anim.finished.catch(() => {}).then(() => fly.remove());
+}
+
+/** Scroll reveal: sections glide in once as they come into view (everything visible without JS). */
+(() => {
+    const items = document.querySelectorAll('[data-reveal]');
+    if (!items.length) return;
+    if (reduceMotion() || !('IntersectionObserver' in window)) { items.forEach((el) => el.classList.add('is-in')); return; }
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+        if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+    }), { rootMargin: '0px 0px -6% 0px', threshold: 0.08 });
+    items.forEach((el) => io.observe(el));
+    // Restored from the back/forward cache: never leave anything hidden.
+    window.addEventListener('pageshow', (e) => { if (e.persisted) items.forEach((el) => el.classList.add('is-in')); });
+})();
+
+/** Product photos: a soft shimmer until the picture has loaded. */
+document.querySelectorAll('img[data-skel-img]').forEach((img) => {
+    const done = () => { img.classList.add('is-loaded'); img.closest('.s-skel')?.classList.remove('s-skel'); };
+    if (img.complete && img.naturalWidth) done(); else { img.addEventListener('load', done, { once: true }); img.addEventListener('error', done, { once: true }); }
+});
+
+/** Light / dark: light by default; dark only when chosen here (saved in this browser). */
+(() => {
+    const buttons = document.querySelectorAll('[data-theme-set]');
+    const sync = () => buttons.forEach((b) => b.setAttribute('aria-pressed', String((document.documentElement.dataset.theme || 'light') === b.dataset.themeSet)));
+    buttons.forEach((b) => b.addEventListener('click', () => {
+        const theme = b.dataset.themeSet === 'dark' ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+        try { localStorage.setItem('melai.shop.theme', theme); } catch { /* storage blocked */ }
+        sync();
+    }));
+    sync();
+})();

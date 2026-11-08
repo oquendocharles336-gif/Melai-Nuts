@@ -46,7 +46,7 @@ class ShopTest extends TestCase
     public function test_the_shop_is_the_home_page_and_shows_real_products(): void
     {
         $this->get('/')->assertOk()
-            ->assertSee('Fresh-roasted nuts, ready when you are.')
+            ->assertSee('Small-batch nuts, <em>roasted</em> the slow way.', false)
             ->assertSee('Chili Garlic Peanuts')
             ->assertSee('Roasted Cashew')
             ->assertSee('Pickup at')       // the only open branch is picked automatically

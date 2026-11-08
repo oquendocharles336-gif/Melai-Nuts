@@ -76,8 +76,8 @@
             <div class="s-lines">
                 @foreach ($cart['lines'] as $line)
                     <div class="s-line" style="grid-template-columns:48px minmax(0,1fr) auto;gap:10px;padding:10px 0">
-                        <div class="s-thumb" style="width:48px;height:48px;border-radius:12px;font-size:1rem">
-                            @if ($line['image'])<img src="{{ $line['image'] }}" alt="" loading="lazy">@else{{ mb_strtoupper(mb_substr($line['name'], 0, 1)) }}@endif
+                        <div class="s-thumb" style="width:48px;height:48px;border-radius:12px;--tint: {{ \App\Services\Shop\ShopCatalog::tintFor(\App\Services\Shop\ShopCatalog::artFor($line['name'])) }}">
+                            @if ($line['image'])<img src="{{ $line['image'] }}" alt="" loading="lazy">@else @include('shop.partials.art', ['kind' => \App\Services\Shop\ShopCatalog::artFor($line['name']), 'label' => $line['name']]) @endif
                         </div>
                         <div style="min-width:0"><b style="font-size:14px">{{ $line['name'] }}</b><small>{{ $line['qty'] }} × {{ $line['variant_label'] }}</small></div>
                         <span class="tabular">{{ \App\Support\Format::peso($line['line_total']) }}</span>

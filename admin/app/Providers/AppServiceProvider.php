@@ -47,6 +47,13 @@ class AppServiceProvider extends ServiceProvider
             }
             $view->with([
                 'shopCustomer' => $customer->check() ? ['name' => $customer->name(), 'first' => $customer->firstName()] : null,
+                'shopBranches' => (function () {
+                    try {
+                        return app(\App\Services\Shop\ShopCatalog::class)->branches();
+                    } catch (\Throwable) {
+                        return [];
+                    }
+                })(),
                 // Staff / owner / admin browsing with their admin login ("View shop"): browse only.
                 'shopStaff' => ! $customer->check() && auth()->check() ? (auth()->user()->isAdmin() ? 'owner' : 'staff') : null,
                 'shopCartCount' => app(\App\Services\Shop\ShopCart::class)->count(),

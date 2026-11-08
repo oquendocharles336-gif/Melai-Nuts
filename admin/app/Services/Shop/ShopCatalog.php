@@ -33,6 +33,7 @@ class ShopCatalog
             'id' => (string) $c['id'],
             'name' => (string) ($c['label'] ?? ''),   // the column is `label` (ProductCategory.fromRow in the app)
             'product_count' => $counts[$c['id']] ?? 0,
+            'art' => self::artFor((string) ($c['label'] ?? '')),
         ], $this->categoryRows()), fn ($c) => $c['product_count'] > 0));
     }
 
@@ -132,6 +133,31 @@ class ShopCatalog
         return null;
     }
 
+    /**
+     * The illustration shown while a product (or category) has no photo, picked from its name:
+     * peanut | chili | cashew | mixed | gift (resources/views/shop/partials/art.blade.php).
+     */
+    public static function artFor(string $name): string
+    {
+        $n = mb_strtolower($name);
+
+        return match (true) {
+            str_contains($n, 'gift') || str_contains($n, 'box') || str_contains($n, 'pasalubong') => 'gift',
+            str_contains($n, 'mix') || str_contains($n, 'trail') || str_contains($n, 'raisin') => 'mixed',
+            str_contains($n, 'cashew') || str_contains($n, 'kasoy') => 'cashew',
+            str_contains($n, 'chili') || str_contains($n, 'garlic') || str_contains($n, 'spicy') || str_contains($n, 'flavor') => 'chili',
+            default => 'peanut',
+        };
+    }
+
+    /** Soft card background per illustration (app palette: surfaceContainerHigh, primaryContainer, sunStart...). */
+    public static function tintFor(string $art): string
+    {
+        return match ($art) {
+            'gift' => '#FFE6C2', 'mixed' => '#FFF6E3', 'cashew' => '#FFF6E8', 'chili' => '#FFEFD6', default => '#FFF6E3',
+        };
+    }
+
     /** Forget cached reads (after an order changes stock). */
     public function forgetStock(?string $branchId): void
     {
@@ -216,6 +242,7 @@ class ShopCatalog
                 'stock' => $stock,
                 'only_left' => $onlyLeft,
                 'stock_label' => $stock <= 0 ? 'Out of stock' : ($onlyLeft !== null ? "Only $onlyLeft left" : 'In stock'),
+                'art' => self::artFor((string) $r['name']),
             ];
         }, $rows);
     }

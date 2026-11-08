@@ -51,8 +51,8 @@
         </div>
     @else
         <div class="s-grid">
-            @foreach ($results as $p)
-                @include('shop.partials.card', ['p' => $p, 'branch' => $branch])
+            @foreach ($results as $i => $p)
+                @include('shop.partials.card', ['p' => $p, 'branch' => $branch, 'i' => $i])
             @endforeach
         </div>
     @endif

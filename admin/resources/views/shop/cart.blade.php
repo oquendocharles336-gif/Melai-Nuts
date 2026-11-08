@@ -26,8 +26,8 @@
                 <div class="s-lines">
                     @foreach ($cart['lines'] as $line)
                         <div class="s-line">
-                            <div class="s-thumb">
-                                @if ($line['image'])<img src="{{ $line['image'] }}" alt="" loading="lazy">@else{{ mb_strtoupper(mb_substr($line['name'], 0, 1)) }}@endif
+                            <div class="s-thumb" style="--tint: {{ \App\Services\Shop\ShopCatalog::tintFor(\App\Services\Shop\ShopCatalog::artFor($line['name'])) }}">
+                                @if ($line['image'])<img src="{{ $line['image'] }}" alt="" loading="lazy">@else @include('shop.partials.art', ['kind' => \App\Services\Shop\ShopCatalog::artFor($line['name']), 'label' => $line['name']]) @endif
                             </div>
                             <div style="min-width:0">
                                 <a href="{{ route('shop.product', $line['product_id']) }}" class="s-line-name">{{ $line['name'] }}</a>
