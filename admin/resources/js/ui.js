@@ -600,7 +600,9 @@ function fetchFragment(url) {
     const href = cleanUrl(url);
     if (!inflight.has(href)) {
         inflight.set(href, (async () => {
-            const r = await fetch(href, { headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' }, credentials: 'same-origin' });
+            // cache: 'no-store': the content-only answer must never become the browser's copy of this URL
+            // (Back/Forward would then show it without the page's stylesheets). The server says so too.
+            const r = await fetch(href, { headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' }, credentials: 'same-origin', cache: 'no-store' });
             if (!r.ok || !(r.headers.get('content-type') || '').includes('text/html')) throw new Error('status ' + r.status);
             const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
             const frag = doc.querySelector('[data-fragment]');
@@ -795,7 +797,7 @@ function bootSoftForms() {
         const top = scroller?.scrollTop ?? 0;
         progress(true);
         try {
-            const r = await fetch(action, { method: 'POST', body, credentials: 'same-origin', headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' } });
+            const r = await fetch(action, { method: 'POST', body, credentials: 'same-origin', cache: 'no-store', headers: { 'X-Melai-Fragment': '1', Accept: 'text/html' } });
             if (r.status === 419) { ui.toast('Your session expired. Reloading the page…', 'bad'); setTimeout(() => location.reload(), 1200); return; }
             const html = (r.headers.get('content-type') || '').includes('text/html') ? await r.text() : '';
             const doc = new DOMParser().parseFromString(html, 'text/html');

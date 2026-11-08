@@ -49,6 +49,8 @@ return Application::configure(basePath: dirname(__DIR__))
         );
         // Every POST / PUT / PATCH / DELETE on the website is rate limited (config melai.write_limit_per_minute).
         $middleware->appendToGroup('web', \App\Http\Middleware\ThrottleWrites::class);
+        // Content-only answers of the in-page navigation are never kept by the browser (Back/Forward bug).
+        $middleware->appendToGroup('web', \App\Http\Middleware\FragmentCaching::class);
         $middleware->redirectGuestsTo(fn () => route('login'));    // guests -> login
         $middleware->redirectUsersTo(fn () => route('dashboard')); // logged-in -> dashboard
     })
