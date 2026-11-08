@@ -5,9 +5,11 @@ import '../../../core/services/push_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/order.dart';
+import '../widgets/storefront_widgets.dart';
 import 'customer_portal_screen.dart';
 import 'order_tracking_screen.dart';
 
@@ -31,13 +33,21 @@ class OrderConfirmationScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
+            const CheckoutSteps(current: 2),
             const SizedBox(height: 12),
+            // The check pops in once, unless the system asks for less motion.
             Center(
-              child: Container(
-                width: 84,
-                height: 84,
-                decoration: const BoxDecoration(color: AppColors.successBg, shape: BoxShape.circle),
-                child: const Icon(Icons.check_rounded, color: AppColors.success, size: 44),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: (MediaQuery.maybeDisableAnimationsOf(context) ?? false) ? 1 : 0.4, end: 1),
+                duration: const Duration(milliseconds: 650),
+                curve: Curves.elasticOut,
+                builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                child: Container(
+                  width: 84,
+                  height: 84,
+                  decoration: const BoxDecoration(color: AppColors.successBg, shape: BoxShape.circle),
+                  child: const Icon(Icons.check_rounded, color: AppColors.success, size: 44),
+                ),
               ),
             ),
             const SizedBox(height: 14),
@@ -64,7 +74,7 @@ class OrderConfirmationScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppColors.surfaceContainer,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
                 boxShadow: AppShadows.sm,
@@ -155,7 +165,7 @@ class OrderConfirmationScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppColors.surfaceContainer,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
                 boxShadow: AppShadows.md,
@@ -197,14 +207,14 @@ class OrderConfirmationScreen extends StatelessWidget {
               label: 'Track Live Order Progress',
               icon: Icons.local_shipping_outlined,
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: order)),
+                FadeSlideRoute(builder: (_) => OrderTrackingScreen(order: order)),
               ),
             ),
             const SizedBox(height: 10),
             SecondaryButton(
               label: 'Continue Shopping',
               onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const CustomerPortalScreen()),
+                FadeSlideRoute(builder: (_) => const CustomerPortalScreen()),
                     (route) => false,
               ),
             ),

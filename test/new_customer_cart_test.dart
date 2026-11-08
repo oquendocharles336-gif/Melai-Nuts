@@ -115,16 +115,27 @@ void main() {
     final cart = CartController.instance;
     tearDown(() => cart.debugBind(null));
 
-    test('not signed in is not "out of stock"', () async {
+    test('a guest without a branch is asked for one, never told "out of stock"', () async {
       cart.debugBind(null);
       final p = _product();
       final direct = cart.addProduct(p, p.variants.first);
       final live = await cart.addProductWithLiveCheck(p, p.variants.first);
       for (final r in [direct, live]) {
         expect(r.ok, isFalse);
-        expect(r.failure, AddToCartFailure.notSignedIn);
+        expect(r.failure, AddToCartFailure.noBranch);
         expect(r.message, isNot(contains('out of stock')));
       }
+    });
+
+    test('a guest with a branch can fill a cart', () {
+      cart.debugBind(null, branchId: 'b1');
+      final p = _product();
+      final r = cart.addProduct(p, p.variants.first, quantity: 2);
+      expect(r.ok, isTrue);
+      expect(cart.itemCount, 2);
+      expect(cart.isGuest, isTrue);
+      // Nothing to sync for a guest, so checkout's sign-in prompt isn't blocked.
+      expect(cart.hasUnsyncedChanges, isFalse);
     });
 
     test('signed in without a branch asks for a branch', () async {

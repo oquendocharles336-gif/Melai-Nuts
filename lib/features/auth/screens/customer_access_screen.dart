@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../app/post_sign_in.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -98,9 +99,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Welcome, ${user.name}!')),
       );
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(AppRoutes.homeFor(UserRole.customer), (r) => false);
+      PostSignIn.go(Navigator.of(context), UserRole.customer);
     } on EmailVerificationRequiredException {
       // Signed up earlier but never finished verifying: resume.
       if (!mounted) return;

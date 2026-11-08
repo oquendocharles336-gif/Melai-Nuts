@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../app/routes.dart';
+import '../../../app/post_sign_in.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -88,10 +88,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Signed in as ${user.name} (${user.role.label})')),
     );
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      AppRoutes.homeFor(user.role),
-      (r) => false,
-    );
+    PostSignIn.go(Navigator.of(context), user.role);
   }
 
   Future<void> _sendCode({bool resend = false}) async {

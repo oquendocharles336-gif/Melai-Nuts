@@ -80,6 +80,11 @@ class CustomerDataStore extends ChangeNotifier {
   /// saved copy when the server can't be reached — see [CacheStatus]).
   bool get hasLoaded => _uid != null;
 
+  /// True once a customer has signed in on this device (from the first step
+  /// of [rememberCustomer]) until sign-out clears the store. False for guests
+  /// and staff. Doesn't wait for the records to load.
+  bool get hasCustomer => _requestedUid != null || _uid != null;
+
   int pointsBalance = 0;
 
   /// Pesos per point earned (owner setting); null = Not set (orders earn no

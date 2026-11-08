@@ -39,6 +39,8 @@ import '../../payments/screens/online_payment_screen.dart';
 import '../cart_controller.dart';
 import '../widgets/branch_stock_notice.dart';
 import '../widgets/downpayment_note.dart';
+import '../widgets/storefront_widgets.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
 import 'order_confirmation_screen.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -483,7 +485,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           );
         await Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
+          FadeSlideRoute(
             builder: (_) => OrderConfirmationScreen(
               order: placed.order,
               itemCount: itemCount,
@@ -538,7 +540,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
+          FadeSlideRoute(
             builder: (_) => OnlinePaymentScreen(order: order, itemCount: itemCount, startError: startError),
           ),
         );
@@ -547,7 +549,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
+        FadeSlideRoute(
           builder: (_) =>
               OrderConfirmationScreen(order: order, itemCount: itemCount, total: order.total),
         ),
@@ -674,10 +676,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
+              const CheckoutSteps(current: 1),
+              const SizedBox(height: AppSpacing.sm),
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surfaceContainer,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                   border: Border.all(color: AppColors.border),
                   boxShadow: AppShadows.sm,
@@ -756,7 +760,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surfaceContainer,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                   border: Border.all(color: AppColors.primary, width: 1.4),
                   boxShadow: AppShadows.sm,
@@ -934,7 +938,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surfaceContainer,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                   border: Border.all(color: AppColors.border),
                   boxShadow: AppShadows.md,
@@ -1020,7 +1024,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.surfaceContainer,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -1117,7 +1121,7 @@ class _OptionCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: selected && !disabled ? AppColors.primaryContainer.withValues(alpha: 0.3) : Colors.white,
+            color: selected && !disabled ? AppColors.primaryContainer.withValues(alpha: 0.3) : AppColors.surfaceContainer,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: selected && !disabled ? AppColors.primary : AppColors.border,
@@ -1179,7 +1183,7 @@ class _PaymentTile extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 48),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surfaceContainer,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
           ),
@@ -1243,7 +1247,7 @@ class _DeliveryPinReview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surfaceContainer,
         borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
         border: Border.all(color: pin == null ? AppColors.warning : AppColors.border),
       ),

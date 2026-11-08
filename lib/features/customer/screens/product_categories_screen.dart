@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/models/product.dart';
 import '../../../data/repositories/products_repository.dart';
@@ -97,7 +98,7 @@ class _ProductCategoriesScreenState extends State<ProductCategoriesScreen> {
                 return InkWell(
                   borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
+                    FadeSlideRoute(
                       builder: (_) =>
                           ProductListScreen(categoryId: category.id),
                     ),
@@ -105,7 +106,7 @@ class _ProductCategoriesScreenState extends State<ProductCategoriesScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.surfaceContainer,
                       borderRadius:
                           BorderRadius.circular(AppSpacing.radiusMd),
                       border: Border.all(color: AppColors.border),

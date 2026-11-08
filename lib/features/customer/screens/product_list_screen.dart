@@ -3,6 +3,7 @@ import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/catalog_store.dart';
 import '../../../data/models/product.dart';
@@ -106,7 +107,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                         product: product,
                         quantityInCart: 0,
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
+                          FadeSlideRoute(
                             builder: (_) =>
                                 ProductDetailsScreen(product: product),
                           ),
@@ -123,13 +124,15 @@ class _ProductListScreenState extends State<ProductListScreen> {
                         quantityInCart:
                             cart.quantityFor(product.id, variant.label),
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
+                          FadeSlideRoute(
                             builder: (_) =>
                                 ProductDetailsScreen(product: product),
                           ),
                         ),
                         onAdd: () =>
                             addToCartWithFeedback(context, product, variant),
+                        onDecrease: () =>
+                            decreaseInCartWithFeedback(context, product, variant),
                       ),
                     );
                   },

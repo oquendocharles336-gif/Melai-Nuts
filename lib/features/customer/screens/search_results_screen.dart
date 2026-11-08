@@ -5,6 +5,8 @@ import '../../../core/services/branch_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/motion.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/models/product.dart';
 import '../../../data/repositories/products_repository.dart';
@@ -330,14 +332,9 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                     if (cart.itemCount == 0) return const SizedBox.shrink();
                     return Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, -4),
-                          ),
-                        ],
+                        color: AppColors.surfaceContainer,
+                        border: const Border(top: BorderSide(color: AppColors.border)),
+                        boxShadow: AppShadows.sm,
                       ),
                       child: SafeArea(
                         top: false,
@@ -347,7 +344,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                             label: 'View Cart (${cart.itemCount})',
                             icon: Icons.shopping_bag_outlined,
                             onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
+                              FadeSlideRoute(
                                 builder: (_) => const CartScreen(),
                               ),
                             ),
@@ -367,7 +364,11 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
 
   Widget _buildResults() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      // Card-shaped placeholders while searching, not a bare spinner.
+      return const Padding(
+        padding: EdgeInsets.only(top: AppSpacing.md),
+        child: ProductGridSkeleton(),
+      );
     }
 
     if (_error != null) {
@@ -434,12 +435,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: results.length,
       // 2 columns on phones, more on tablets / web (cards stay ~220 px wide).
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 240,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.68,
-      ),
+      gridDelegate: productGridDelegate,
       itemBuilder: (context, i) {
         final product = results[i];
         if (product.variants.isEmpty) {
@@ -447,7 +443,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             product: product,
             quantityInCart: 0,
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
+              FadeSlideRoute(
                 builder: (_) => ProductDetailsScreen(product: product),
               ),
             ),
@@ -461,12 +457,14 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
           quantityInCart:
               cart.quantityFor(product.id, defaultVariant.label),
           onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
+            FadeSlideRoute(
               builder: (_) => ProductDetailsScreen(product: product),
             ),
           ),
           onAdd: () =>
               addToCartWithFeedback(context, product, defaultVariant),
+          onDecrease: () =>
+              decreaseInCartWithFeedback(context, product, defaultVariant),
         );
       },
     );

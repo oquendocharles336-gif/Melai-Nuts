@@ -4,8 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/format_utils.dart';
-import '../../../core/widgets/motion.dart';
 import '../../../data/models/product.dart';
+import 'storefront_widgets.dart';
 
 /// Product "photo" tile: the real uploaded product image when one exists,
 /// otherwise an on-brand gradient placeholder with the product's icon —
@@ -36,6 +36,15 @@ class ProductThumbnail extends StatelessWidget {
           // A broken/expired image URL falls back to the placeholder
           // instead of Flutter's default error icon.
           errorBuilder: (context, error, stackTrace) => _placeholder(radius),
+          // Fades the photo in once it arrives instead of popping.
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 250),
+              child: child,
+            );
+          },
           loadingBuilder: (context, child, progress) {
             if (progress == null) return child;
             return _placeholder(radius);
@@ -67,12 +76,19 @@ class ProductThumbnail extends StatelessWidget {
   }
 }
 
-/// Standard product grid/list card: thumbnail, name, rating, price, and an
-/// Add button. Used on the Home, Catalog, Category, and Search screens.
-class ProductCard extends StatelessWidget {
+/// Standard product grid/list card: photo, name, rating, price, and an
+/// Add button that becomes a − qty + stepper once the product is in the
+/// cart. Used on the Home, Catalog, Category, and Search screens.
+///
+/// In a grid cell or a horizontal strip (bounded height) the photo takes
+/// the space left over; in a vertical list it keeps a fixed height.
+class ProductCard extends StatefulWidget {
   final Product product;
   final VoidCallback onTap;
   final VoidCallback onAdd;
+
+  /// One less in the cart. Null keeps the plain "N in cart" button.
+  final VoidCallback? onDecrease;
   final int quantityInCart;
 
   const ProductCard({
@@ -80,195 +96,257 @@ class ProductCard extends StatelessWidget {
     required this.product,
     required this.onTap,
     required this.onAdd,
+    this.onDecrease,
     this.quantityInCart = 0,
   });
 
   @override
+  State<ProductCard> createState() => _ProductCardState();
+}
+
+class _ProductCardState extends State<ProductCard> {
+  bool _pressed = false;
+
+  static const double _listImageHeight = 140;
+
+  @override
   Widget build(BuildContext context) {
-    return Pressable(
-      onTap: onTap,
-      child: Container(
+    final product = widget.product;
+    final radius = BorderRadius.circular(AppSpacing.radiusMd);
+    return AnimatedScale(
+      scale: _pressed ? 0.97 : 1,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          border: Border.all(color: AppColors.border),
-          boxShadow: AppShadows.md,
+          borderRadius: radius,
+          border: Border.all(color: _pressed ? AppColors.outlineButton : AppColors.border),
+          boxShadow: _pressed ? AppShadows.md : AppShadows.sm,
         ),
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                // Fixed-height image container to avoid infinite height constraints
-                // in unconstrained parents like Columns or ListViews.
-                SizedBox(
-                  height: 140,
-                  width: double.infinity,
-                  child: ProductThumbnail(
-                    product: product,
-                    size: double.infinity,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                if (product.badge != null)
-                  Positioned(
-                    top: 6,
-                    left: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.honey,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        product.badge!,
-                        style: AppTextStyles.labelSm.copyWith(color: AppColors.ink),
-                      ),
-                    ),
-                  ),
-                // Real stock/availability state — only shown when it isn't
-                // the default "In Stock" (nothing to flag there). Before a
-                // branch is chosen the catalog holds the all-branches total,
-                // so it says "Turn on location" instead of implying stock here.
-                Positioned(
-                  top: 6,
-                  right: 6,
-                  child: ListenableBuilder(
-                    listenable: BranchController.instance,
-                    builder: (context, _) {
-                      final chip = CustomerStockChip.of(product);
-                      if (!chip.worthShowing) return const SizedBox.shrink();
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: chip.background,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          chip.label,
-                          style: AppTextStyles.labelSm.copyWith(color: chip.foreground),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              product.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.labelLg,
-            ),
-            // Only shown once real reviews exist — a "0.0 (0)" rating on
-            // every card would look like fabricated star ratings.
-            if (product.reviewCount > 0) ...[
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  const Icon(Icons.star_rounded, size: 14, color: AppColors.warning),
-                  const SizedBox(width: 2),
-                  Text(
-                    '${product.rating.toStringAsFixed(1)} (${product.reviewCount})',
-                    style: AppTextStyles.bodySm,
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
+        child: Material(
+          color: AppColors.surfaceContainer,
+          borderRadius: radius,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: widget.onTap,
+            onHighlightChanged: (down) {
+              if (mounted && _pressed != down) setState(() => _pressed = down);
+            },
+            splashColor: AppColors.primaryContainer.withValues(alpha: 0.6),
+            highlightColor: AppColors.primaryContainer.withValues(alpha: 0.25),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final bounded = constraints.hasBoundedHeight;
+                  final photo = _photo(product);
+                  return Column(
+                    mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (bounded) Expanded(child: photo) else SizedBox(height: _listImageHeight, child: photo),
+                      const SizedBox(height: 8),
                       Text(
-                        pesoWhole(product.price),
-                        style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
+                        product.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.labelLg,
                       ),
-                      if (product.originalPrice != null)
-                        Text(
-                          pesoWhole(product.originalPrice!),
-                          style: AppTextStyles.bodySm.copyWith(
-                            decoration: TextDecoration.lineThrough,
-                          ),
+                      // Only shown once real reviews exist: a "0.0 (0)" rating
+                      // on every card would look like made-up star ratings.
+                      if (product.reviewCount > 0) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(Icons.star_rounded, size: 14, color: AppColors.warning),
+                            const SizedBox(width: 2),
+                            Flexible(
+                              child: Text(
+                                '${product.rating.toStringAsFixed(1)} (${product.reviewCount})',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.bodySm,
+                              ),
+                            ),
+                          ],
                         ),
+                      ],
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              pesoWhole(product.price),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
+                            ),
+                          ),
+                          if (product.originalPrice != null) ...[
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                pesoWhole(product.originalPrice!),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.bodySm.copyWith(decoration: TextDecoration.lineThrough),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      _CardAction(
+                        productName: product.name,
+                        quantity: widget.quantityInCart,
+                        onAdd: product.isOutOfStock ? null : widget.onAdd,
+                        onDecrease: widget.onDecrease,
+                      ),
                     ],
-                  ),
-                ),
-                _AddButton(
-                  quantity: quantityInCart,
-                  onAdd: product.isOutOfStock ? null : onAdd,
-                ),
-              ],
+                  );
+                },
+              ),
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _photo(Product product) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ProductThumbnail(
+          product: product,
+          size: double.infinity,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        if (product.badge != null)
+          Positioned(
+            top: 6,
+            left: 6,
+            child: _Pill(label: product.badge!, background: AppColors.honey, foreground: AppColors.ink),
+          ),
+        // Real stock/availability state, only when it isn't the default
+        // "In Stock". Before a branch is chosen the catalog holds the
+        // all-branches total, so it says "Turn on location" instead.
+        Positioned(
+          top: 6,
+          right: 6,
+          left: product.badge != null ? null : 6,
+          child: Align(
+            alignment: Alignment.topRight,
+            child: ListenableBuilder(
+              listenable: BranchController.instance,
+              builder: (context, _) {
+                final chip = CustomerStockChip.of(product);
+                if (!chip.worthShowing) return const SizedBox.shrink();
+                return _Pill(label: chip.label, background: chip.background, foreground: chip.foreground);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final Color background;
+  final Color foreground;
+
+  const _Pill({required this.label, required this.background, required this.foreground});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(20)),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppTextStyles.labelSm.copyWith(color: foreground),
       ),
     );
   }
 }
 
-class _AddButton extends StatelessWidget {
+/// The bottom of a card: Add, the − qty + stepper, or Unavailable.
+class _CardAction extends StatelessWidget {
+  final String productName;
   final int quantity;
 
   /// Null means this product can't be added right now (out of stock).
   final VoidCallback? onAdd;
+  final VoidCallback? onDecrease;
 
-  const _AddButton({required this.quantity, required this.onAdd});
+  const _CardAction({
+    required this.productName,
+    required this.quantity,
+    required this.onAdd,
+    required this.onDecrease,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (onAdd == null && quantity == 0) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppColors.errorBg,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text('Unavailable', style: AppTextStyles.labelSm.copyWith(color: AppColors.error)),
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusSm + 4));
+    final Widget child;
+    if (quantity > 0 && onDecrease != null) {
+      child = QuantityStepper(
+        key: const ValueKey('stepper'),
+        quantity: quantity,
+        itemName: productName,
+        onDecrease: onDecrease!,
+        onIncrease: onAdd,
       );
-    }
-    if (quantity > 0) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: AppColors.successBg,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.check_rounded, size: 14, color: AppColors.success),
-            const SizedBox(width: 3),
-            Text(
-              '$quantity',
-              style: AppTextStyles.labelSm.copyWith(color: AppColors.success),
+    } else if (onAdd == null && quantity == 0) {
+      child = Container(
+        key: const ValueKey('unavailable'),
+        height: QuantityStepper.height,
+        width: double.infinity,
+        alignment: Alignment.center,
+        decoration: ShapeDecoration(color: AppColors.errorBg, shape: shape),
+        child: Text('Unavailable', style: AppTextStyles.labelMd.copyWith(color: AppColors.error)),
+      );
+    } else {
+      final inCart = quantity > 0;
+      child = SizedBox(
+        key: const ValueKey('add'),
+        height: QuantityStepper.height,
+        width: double.infinity,
+        child: Semantics(
+          button: true,
+          label: inCart ? 'Add one more $productName, $quantity in cart' : 'Add $productName to cart',
+          excludeSemantics: true,
+          child: FilledButton.icon(
+            onPressed: onAdd,
+            style: FilledButton.styleFrom(
+              backgroundColor: inCart ? AppColors.successBg : AppColors.primary,
+              foregroundColor: inCart ? AppColors.success : AppColors.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, QuantityStepper.height),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: shape,
             ),
-          ],
+            icon: Icon(inCart ? Icons.check_rounded : Icons.add_shopping_cart_rounded, size: 18),
+            label: Text(inCart ? '$quantity in cart' : 'Add', maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
         ),
       );
     }
-    return Semantics(
-      button: true,
-      label: 'Add to cart',
-      excludeSemantics: true,
-      child: Pressable(
-        onTap: onAdd,
-        pressedScale: 0.88,
-        child: Container(
-          width: 38,
-          height: 38,
-          decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.primary),
-          child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
-        ),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOutBack,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(scale: Tween<double>(begin: 0.9, end: 1).animate(animation), child: child),
       ),
+      child: child,
     );
   }
 }

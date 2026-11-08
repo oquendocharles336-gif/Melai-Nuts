@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../../app/post_sign_in.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -60,9 +61,8 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Signed in as ${user.name} (${user.role.label})')),
       );
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(AppRoutes.homeFor(user.role), (r) => false);
+      // Home, or back to the cart when Checkout sent them here.
+      PostSignIn.go(Navigator.of(context), user.role);
     } on EmailVerificationRequiredException {
       // Signed up earlier but never finished verifying: resume.
       if (!mounted) return;

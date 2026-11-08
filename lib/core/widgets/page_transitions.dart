@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Quick fade + short horizontal slide between closely related screens
-/// (Welcome, Sign In and Create Account). Other screens keep the platform's
-/// own page transition.
+/// Quick fade + short horizontal slide between closely related screens:
+/// Welcome, Sign In and Create Account, and the storefront (Store, Catalog,
+/// Search, product details, Cart, Checkout, confirmation). Staff and owner
+/// screens keep the platform's own page transition.
 ///
 /// With "Reduce motion" / "Remove animations" switched on in the system
 /// accessibility settings the new screen simply appears.
