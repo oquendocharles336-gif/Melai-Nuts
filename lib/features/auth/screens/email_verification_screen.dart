@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/utils/form_utils.dart';
 import '../../../core/utils/input_rules.dart';
 import '../../../core/utils/validation_utils.dart';
+import '../../../app/post_sign_in.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/email_verification_service.dart';
@@ -112,10 +113,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       );
       if (!mounted) return;
       _toast('Welcome, ${user.name}! Your account is ready.');
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.homeFor(UserRole.customer),
-        (r) => false,
-      );
+      // Home, or back to the cart when Checkout sent them to sign up.
+      PostSignIn.go(Navigator.of(context), UserRole.customer);
     } on AuthException catch (e) {
       _toast(e.message);
     } catch (caughtError, caughtStack) {

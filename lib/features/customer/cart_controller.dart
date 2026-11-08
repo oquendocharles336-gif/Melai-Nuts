@@ -12,6 +12,7 @@ import '../../core/services/branch_controller.dart';
 import '../../core/services/customer_data_store.dart';
 import '../../core/services/device_location.dart';
 import '../../core/services/permission_service.dart';
+import '../../core/widgets/page_transitions.dart';
 import '../../data/catalog_store.dart';
 import '../../data/models/product.dart';
 import '../../data/repositories/cart_repository.dart';
@@ -109,7 +110,46 @@ class CartController extends ChangeNotifier {
   /// True while local cart edits (made offline or during an outage) have not
   /// been accepted by the server yet. The saved snapshot keeps them safe;
   /// this lets the UI say so honestly instead of implying they're synced.
-  bool get hasUnsyncedChanges => _dirty;
+  bool get hasUnsyncedChanges => _dirty && _firebaseUid != null;
+
+  /// True while nobody is signed in. A guest's cart lives only on this
+  /// device: it is never sent to the server, and it is added to the
+  /// customer's own cart when they sign in (see [hydrate]).
+  bool get isGuest => _firebaseUid == null;
+
+  /// Device storage key of the guest cart. One per device, not per branch:
+  /// a guest's lines follow them when their branch changes.
+  @visibleForTesting
+  static const String guestStorageKey = 'melai_cart_guest_v1';
+
+  /// Set when lines brought over from the guest cart were lowered or left
+  /// out because the branch didn't have enough. The cart screen shows it
+  /// once and clears it with [clearGuestMergeNote].
+  String? guestMergeNote;
+
+  /// True while one [hydrate] is bringing the guest cart over.
+  bool _claimedGuestCart = false;
+
+  void clearGuestMergeNote() {
+    if (guestMergeNote == null) return;
+    guestMergeNote = null;
+    notifyListeners();
+  }
+
+  /// Loads the guest cart saved on this device. Called at app start when
+  /// nobody is signed in. Does nothing once a customer is bound.
+  Future<void> startGuestSession() async {
+    if (_firebaseUid != null) return;
+    _storageKey = guestStorageKey;
+    await _loadLocalSnapshot();
+    if (_firebaseUid != null) return;
+    // Guests have no server cart, so nothing here is ever "waiting to sync".
+    _dirty = false;
+    appliedVoucherCode = null;
+    redeemPoints = false;
+    _pricing = _localPricing();
+    notifyListeners();
+  }
 
   SharedPreferencesAsync? _prefs;
 
@@ -121,12 +161,26 @@ class CartController extends ChangeNotifier {
   String _keyFor(String uid, String branchId) => 'melai_cart_v3_${uid}_$branchId';
 
   Future<void> hydrate(String firebaseUid, {String? branchId}) async {
+    // What a guest put in the cart before signing in: the lines on screen,
+    // or (app restarted, or loaded nothing yet) the copy on the device.
+    final memoryGuestLines =
+        _firebaseUid == null && _storageKey == guestStorageKey ? List<CartLine>.from(_lines) : const <CartLine>[];
     _firebaseUid = firebaseUid;
     // Set before the first wait, so moving the cart never mistakes a cart that
     // has not loaded yet for an empty one.
     _hydrating = true;
+    // Read every time, not only right after sign-in: a guest cart that could
+    // not join yet (no branch) is still waiting on the device. Only one load
+    // claims it at a time, so it is never added twice.
+    var guestLines = const <CartLine>[];
+    if (!_claimedGuestCart) {
+      _claimedGuestCart = true;
+      guestLines = memoryGuestLines.isNotEmpty ? memoryGuestLines : await _readGuestLines();
+      if (guestLines.isEmpty) _claimedGuestCart = false;
+    }
     final resolvedBranch = branchId ?? await _resolveBranchId();
     if (resolvedBranch == null) {
+      if (guestLines.isNotEmpty) _claimedGuestCart = false; // still on the device for next time
       _hydrating = false;
       _branchId = null;
       _storageKey = null;
@@ -144,6 +198,7 @@ class CartController extends ChangeNotifier {
     _hydrating = true;
     _hydrateFailed = false;
     notifyListeners();
+    var guestMerged = false;
     try {
       // The catalog may still be loading (main.dart starts it without
       // waiting) or may not load at all offline. Load it first so remote
@@ -164,12 +219,26 @@ class CartController extends ChangeNotifier {
         await _saveLocalSnapshot(dirty: false);
         notifyListeners();
       }
+      if (guestLines.isNotEmpty) {
+        guestMerged = true;
+        await _mergeGuestLines(guestLines);
+      }
     } catch (e) {
       _hydrateFailed = true;
       lastError = _messageFor(e);
+      // The server cart couldn't load: keep the guest lines with this
+      // customer's saved cart (unsynced) so the retry sends them.
+      if (guestLines.isNotEmpty && !guestMerged) {
+        try {
+          await _mergeGuestLines(guestLines);
+        } catch (caughtError, caughtStack) {
+          AppErrors.report(caughtError, caughtStack, 'cart_controller:hydrate:mergeGuest');
+        }
+      }
       notifyListeners();
       _scheduleRetry();
     } finally {
+      if (guestLines.isNotEmpty) _claimedGuestCart = false;
       _hydrating = false;
       notifyListeners();
     }
@@ -231,9 +300,12 @@ class CartController extends ChangeNotifier {
   Future<bool> switchBranch(String branchId) async {
     final uid = _firebaseUid;
     if (uid == null) {
+      // A guest's lines go with them. Nothing is reserved yet: stock is
+      // checked again when they sign in and at checkout.
       _branchId = branchId;
-      _storageKey = null;
-      _clearMemoryOnly();
+      _storageKey = guestStorageKey;
+      _pricing = _localPricing();
+      unawaited(_saveLocalSnapshot(dirty: false));
       notifyListeners();
       return true;
     }
@@ -377,6 +449,8 @@ class CartController extends ChangeNotifier {
     final key = _storageKey;
     if (key == null) return;
     final raw = await _readSnapshot(key);
+    // Another load (sign-in, branch switch) took over while this one read.
+    if (_storageKey != key) return;
     if (raw == null || raw.isEmpty) {
       _dirty = false;
       _clearMemoryOnly();
@@ -392,36 +466,9 @@ class CartController extends ChangeNotifier {
       _pricing = savedPricing is Map
           ? CartPricing.fromJson(Map<String, dynamic>.from(savedPricing))
           : _localPricing();
-      _lines.clear();
-      for (final rawItem in (map['items'] as List? ?? const [])) {
-        final item = Map<String, dynamic>.from(rawItem as Map);
-        final productId = item['product_id'] as String?;
-        final variantId = item['variant_id'] as String?;
-        if (productId == null) continue;
-        final quantity = (item['quantity'] as num?)?.toInt();
-        if (quantity == null || quantity <= 0) continue;
-        final variantLabel = item['variant_label'] as String?;
-        // Catalog first (fresh names/prices); when it isn't loaded yet, the
-        // product saved with the line. A line is never dropped just because
-        // the catalog is missing.
-        ProductVariant? variant;
-        Product? product = tryFindProductById(productId);
-        if (product != null) variant = _matchVariant(product, variantId, variantLabel);
-        if (variant == null) {
-          product = _productFromSnapshot(item['product_snapshot']);
-          if (product != null) variant = _matchVariant(product, variantId, variantLabel);
-        }
-        if (product == null || variant == null) continue;
-        _lines.add(
-          CartLine(
-            id: '${product.id}_${variant.id}',
-            product: product,
-            variant: variant,
-            unitPrice: (item['unit_price'] as num?)?.toDouble() ?? variant.price,
-            quantity: quantity,
-          ),
-        );
-      }
+      _lines
+        ..clear()
+        ..addAll(_linesFromSnapshotItems(map['items']));
       if (_lines.isNotEmpty && savedPricing == null) {
         _pricing = _localPricing();
       }
@@ -431,6 +478,107 @@ class CartController extends ChangeNotifier {
       await _removeSnapshot(key);
       _clearMemoryOnly();
     }
+  }
+
+  /// The cart lines in a saved snapshot's `items`. Catalog first (fresh
+  /// names/prices); when it isn't loaded yet, the product saved with the
+  /// line. A line is never dropped just because the catalog is missing.
+  List<CartLine> _linesFromSnapshotItems(Object? items) {
+    final lines = <CartLine>[];
+    for (final rawItem in (items as List? ?? const [])) {
+      final item = Map<String, dynamic>.from(rawItem as Map);
+      final productId = item['product_id'] as String?;
+      final variantId = item['variant_id'] as String?;
+      if (productId == null) continue;
+      final quantity = (item['quantity'] as num?)?.toInt();
+      if (quantity == null || quantity <= 0) continue;
+      final variantLabel = item['variant_label'] as String?;
+      ProductVariant? variant;
+      Product? product = tryFindProductById(productId);
+      if (product != null) variant = _matchVariant(product, variantId, variantLabel);
+      if (variant == null) {
+        product = _productFromSnapshot(item['product_snapshot']);
+        if (product != null) variant = _matchVariant(product, variantId, variantLabel);
+      }
+      if (product == null || variant == null) continue;
+      lines.add(
+        CartLine(
+          id: '${product.id}_${variant.id}',
+          product: product,
+          variant: variant,
+          unitPrice: (item['unit_price'] as num?)?.toDouble() ?? variant.price,
+          quantity: quantity,
+        ),
+      );
+    }
+    return lines;
+  }
+
+  /// The guest cart saved on this device, or none. Never throws.
+  Future<List<CartLine>> _readGuestLines() async {
+    try {
+      final raw = await _readSnapshot(guestStorageKey);
+      if (raw == null || raw.isEmpty) return const [];
+      final map = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return _linesFromSnapshotItems(map['items']);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'cart_controller:readGuestLines');
+      return const [];
+    }
+  }
+
+  /// Adds the lines a customer put in their cart before signing in to the
+  /// cart now loaded for them. Same items add up; each is capped at what the
+  /// branch has (live stock). When stock can't be read the lines are added
+  /// as they are: the server checks stock on the next sync and at checkout.
+  /// The guest copy on the device is removed only once the lines are saved
+  /// in this customer's own snapshot, so a failure never loses them.
+  Future<void> _mergeGuestLines(List<CartLine> guestLines) async {
+    final branch = _branchId;
+    final uid = _firebaseUid;
+    if (branch == null || uid == null) return;
+    final stock = await stockLoader([for (final line in guestLines) line.variant.id]);
+    // Signed out, or moved to another branch, while stock was read.
+    if (_firebaseUid != uid || _branchId != branch) return;
+    final shelf = stock == null ? null : (stock[branch] ?? const <String, int>{});
+    var added = false;
+    var lowered = false;
+    for (final guest in guestLines) {
+      final index = _lines.indexWhere((line) => line.id == guest.id);
+      final current = index == -1 ? 0 : _lines[index].quantity;
+      var addable = guest.quantity;
+      if (shelf != null) {
+        final room = (shelf[guest.variant.id] ?? 0) - current;
+        addable = room <= 0 ? 0 : min(addable, room);
+      }
+      if (addable < guest.quantity) lowered = true;
+      if (addable <= 0) continue;
+      added = true;
+      if (index == -1) {
+        _lines.add(CartLine(
+          id: guest.id,
+          product: guest.product,
+          variant: guest.variant,
+          unitPrice: guest.unitPrice,
+          quantity: addable,
+        ));
+      } else {
+        _lines[index].quantity += addable;
+      }
+    }
+    if (added) {
+      _pricing = _localPricing();
+      _dirty = true;
+      _revision++;
+      await _saveLocalSnapshot(dirty: true);
+    }
+    await _removeSnapshot(guestStorageKey);
+    if (lowered) {
+      guestMergeNote = 'Some items you added before signing in were lowered or left out '
+          'because ${BranchController.instance.selectedBranch?.name ?? 'your branch'} doesn\'t have enough.';
+    }
+    notifyListeners();
+    if (added) await _syncNow();
   }
 
   CartPricing _localPricing() {
@@ -559,6 +707,13 @@ class CartController extends ChangeNotifier {
   }
 
   void _markDirty() {
+    if (_firebaseUid == null) {
+      // Guest: saved on this device only, never sent to the server.
+      _revision++;
+      unawaited(_saveLocalSnapshot(dirty: false));
+      notifyListeners();
+      return;
+    }
     _dirty = true;
     _revision++;
     unawaited(_saveLocalSnapshot(dirty: true));
@@ -813,9 +968,7 @@ class CartController extends ChangeNotifier {
   /// must show [AddToCartResult.message], never assume "out of stock".
   AddToCartResult addProduct(Product product, ProductVariant variant, {int quantity = 1, int? stockOverride}) {
     if (quantity <= 0) return AddToCartResult.failed(AddToCartFailure.invalidQuantity, requested: quantity);
-    if (_firebaseUid == null) {
-      return AddToCartResult.failed(AddToCartFailure.notSignedIn, requested: quantity);
-    }
+    // Guests may fill a cart too (kept on this device); they sign in to check out.
     if (_branchId == null) {
       return AddToCartResult.failed(AddToCartFailure.noBranch, requested: quantity);
     }
@@ -881,9 +1034,6 @@ class CartController extends ChangeNotifier {
     if (!_dirty) lastError = null;
     if (quantity <= 0) return AddToCartResult.failed(AddToCartFailure.invalidQuantity, requested: quantity);
     if (!product.isActive) return AddToCartResult.failed(AddToCartFailure.unavailable, requested: quantity);
-    if (_firebaseUid == null) {
-      return AddToCartResult.failed(AddToCartFailure.notSignedIn, requested: quantity);
-    }
     final branchId = BranchController.instance.selectedBranch?.id ?? _branchId;
     if (branchId == null) {
       return AddToCartResult.failed(AddToCartFailure.noBranch, requested: quantity);
@@ -998,6 +1148,7 @@ class CartController extends ChangeNotifier {
     _storageKey = null;
     _cartId = null;
     _dirty = false;
+    guestMergeNote = null;
     _clearMemoryOnly();
     notifyListeners();
   }
@@ -1277,9 +1428,33 @@ Future<void> addToCartWithFeedback(
       action: SnackBarAction(
         label: 'View Cart',
         onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const CartScreen()),
+          FadeSlideRoute(builder: (_) => const CartScreen()),
         ),
       ),
     ),
   );
+}
+
+/// One less of [variant] in the cart (a product card's − button). The last
+/// one removes the line and offers Undo, like the cart screen does.
+Future<void> decreaseInCartWithFeedback(BuildContext context, Product product, ProductVariant variant) async {
+  final cart = CartController.instance;
+  final lineId = '${product.id}_${variant.id}';
+  final index = cart.lines.indexWhere((line) => line.id == lineId);
+  if (index == -1) return;
+  final line = cart.lines[index];
+  if (line.quantity > 1) {
+    await cart.updateQuantity(lineId, line.quantity - 1);
+    return;
+  }
+  final messenger = ScaffoldMessenger.of(context);
+  await cart.removeLine(lineId);
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text('Removed ${product.name} from your cart.'),
+        action: SnackBarAction(label: 'Undo', onPressed: () => cart.restoreLine(line, index)),
+      ),
+    );
 }

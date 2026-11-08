@@ -64,6 +64,11 @@ Shadows: `AppShadows.sm` for cards only.
 | Saved / offline data | `LastUpdatedBanner`, `OfflineBanner` | |
 | Info / warning strip | `InfoBanner` | |
 | Permission ask | `PermissionRationaleDialog` → system prompt → `PermissionDeniedDialog` | asking at app start |
+| Product tile (storefront) | `ProductCard` with `onDecrease` (Add → − qty + stepper), `productGridDelegate` for grids | a card with its own add button |
+| Loading a product grid | `DataStateView(loadingBuilder: (_) => const ProductGridSkeleton())` | a spinner where cards will be |
+| Cart in an app bar | `CartIconButton` (count badge that bumps on change) | a hand-drawn badge `Stack` |
+| Cart → Checkout → Confirmed | `CheckoutSteps(current: 0 / 1 / 2)` | |
+| Customer-flow navigation | `FadeSlideRoute` | `MaterialPageRoute` in storefront screens |
 
 Touch targets are at least **48 × 48 dp** (icon buttons have a `tooltip`, which is also the
 screen-reader label).

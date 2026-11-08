@@ -4,17 +4,22 @@ import '../../../core/utils/input_rules.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../../app/post_sign_in.dart';
 import '../../../app/routes.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/motion.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../cart_controller.dart';
 import '../widgets/cart_item.dart';
+import '../widgets/storefront_widgets.dart';
 import 'checkout_screen.dart';
 import 'product_catalog_screen.dart';
 
@@ -29,6 +34,25 @@ String? checkoutBlockedReason(CartController cart) {
     return 'Your cart changes aren\'t saved yet. Please check your connection.';
   }
   return null;
+}
+
+/// Proceed to Checkout. Placing an order needs a signed-in customer: a guest
+/// goes to Sign In (or Create Account) and comes straight back to this cart,
+/// with what they picked added to their account's cart.
+void openCheckoutOrSignIn(BuildContext context) {
+  if (AuthService.instance.currentFirebaseUser == null) {
+    PostSignIn.returnTo(AppRoutes.customerCart);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Sign in or create an account to place your order. Your cart will be waiting.'),
+        ),
+      );
+    Navigator.of(context).pushNamed(AppRoutes.login);
+    return;
+  }
+  Navigator.of(context).push(FadeSlideRoute(builder: (_) => const CheckoutScreen()));
 }
 
 /// "My Cart" — editable line items, loyalty points redemption, voucher
@@ -129,6 +153,12 @@ class _CartScreenState extends State<CartScreen> {
               : ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
+              const CheckoutSteps(current: 0),
+              const SizedBox(height: AppSpacing.sm),
+              if (cart.guestMergeNote case final note?) ...[
+                _DismissibleNote(text: note, onClose: cart.clearGuestMergeNote),
+                const SizedBox(height: AppSpacing.sm),
+              ],
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -151,16 +181,30 @@ class _CartScreenState extends State<CartScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              for (final line in cart.lines)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: CartItemTile(
-                    line: line,
-                    // Going below 1 is a removal: it asks first, like the bin icon.
-                    onQuantityChanged: (q) => q <= 0 ? _removeLine(line) : cart.updateQuantity(line.id, q),
-                    onRemove: () => _removeLine(line),
+              for (final (i, line) in cart.lines.indexed)
+                FadeSlideIn(
+                  key: ValueKey(line.id),
+                  delay: Duration(milliseconds: i < 6 ? 50 * i : 0),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: CartItemTile(
+                      line: line,
+                      // Going below 1 is a removal: it asks first, like the bin icon.
+                      onQuantityChanged: (q) => q <= 0 ? _removeLine(line) : cart.updateQuantity(line.id, q),
+                      onRemove: () => _removeLine(line),
+                    ),
                   ),
                 ),
+              // Points and vouchers belong to an account: a guest sees why
+              // they're missing instead of controls that can't work yet.
+              if (cart.isGuest)
+                const InfoBanner(
+                  icon: Icons.workspace_premium_rounded,
+                  title: 'Points and vouchers',
+                  text: 'Sign in at checkout to use Golden Kernel points or a voucher. '
+                      'Your cart stays saved on this phone until then.',
+                )
+              else ...[
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -246,14 +290,15 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ],
               ),
+              ],
               const SizedBox(height: AppSpacing.md),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surfaceContainer,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                   border: Border.all(color: AppColors.border),
-                  boxShadow: AppShadows.md,
+                  boxShadow: AppShadows.sm,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,14 +325,9 @@ class _CartScreenState extends State<CartScreen> {
             ? const SizedBox.shrink()
             : Container(
           decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, -4),
-              ),
-            ],
+            color: AppColors.surfaceContainer,
+            border: const Border(top: BorderSide(color: AppColors.border)),
+            boxShadow: AppShadows.sm,
           ),
           child: SafeArea(
             child: Padding(
@@ -301,7 +341,7 @@ class _CartScreenState extends State<CartScreen> {
                       children: [
                         Text('TOTAL AMOUNT', style: AppTextStyles.bodySm),
                         Text(
-                          '₱${cart.total.toStringAsFixed(0)}',
+                          '₱${cart.displayTotal.toStringAsFixed(0)}',
                           style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
                         ),
                         if (checkoutBlockedReason(cart) case final reason?)
@@ -315,24 +355,10 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                   Expanded(
                     child: PrimaryButton(
-                      label: 'Proceed to Checkout',
+                      label: cart.isGuest ? 'Sign in to Checkout' : 'Proceed to Checkout',
                       // Checkout uses the cart the server holds, so it waits
                       // until the server has accepted what is shown here.
-                      onPressed: cartBlocksCheckout(cart) ? null : () {
-                        // Placing an order requires a signed-in customer.
-                        if (AuthService.instance.currentFirebaseUser == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please sign in to place your order.'),
-                            ),
-                          );
-                          Navigator.of(context).pushNamed(AppRoutes.login);
-                          return;
-                        }
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const CheckoutScreen()),
-                        );
-                      },
+                      onPressed: cartBlocksCheckout(cart) ? null : () => openCheckoutOrSignIn(context),
                     ),
                   ),
                 ],
@@ -404,11 +430,42 @@ class _EmptyCart extends StatelessWidget {
               label: 'Browse Catalog',
               icon: Icons.storefront_outlined,
               onPressed: () => Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const ProductCatalogScreen()),
+                FadeSlideRoute(builder: (_) => const ProductCatalogScreen()),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+/// A note the customer can close (e.g. what changed when their guest cart
+/// joined their account's cart).
+class _DismissibleNote extends StatelessWidget {
+  final String text;
+  final VoidCallback onClose;
+
+  const _DismissibleNote({required this.text, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: AppColors.warningBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 20, color: AppColors.warning),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted))),
+          IconButton(
+            tooltip: 'Close',
+            onPressed: onClose,
+            icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.textSecondary),
+          ),
+        ],
       ),
     );
   }

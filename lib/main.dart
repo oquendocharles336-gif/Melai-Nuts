@@ -77,6 +77,9 @@ Future<void> _start() async {
       unawaited(FavoritesRepository.instance.load());
     } else {
       FavoritesRepository.instance.clear();
+      // Nobody signed in (app start or after sign-out): show the guest cart
+      // kept on this device. It joins the customer's cart when they sign in.
+      unawaited(CartController.instance.startGuestSession());
     }
   });
   AuditService.instance.registerWithSync();

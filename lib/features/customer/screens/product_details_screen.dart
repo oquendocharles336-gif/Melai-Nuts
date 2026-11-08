@@ -5,6 +5,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../data/models/product.dart';
@@ -13,7 +14,6 @@ import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import '../widgets/product_card.dart';
 import 'cart_screen.dart';
-import 'checkout_screen.dart';
 import '../../../data/repositories/storefront_settings_repository.dart';
 import '../widgets/favorite_button.dart';
 
@@ -127,7 +127,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         action: SnackBarAction(
           label: 'View Cart',
           onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const CartScreen()),
+            FadeSlideRoute(builder: (_) => const CartScreen()),
           ),
         ),
       ),
@@ -150,9 +150,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         SnackBar(content: Text('Only ${result.added} available — added ${result.added} to cart.')),
       );
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CheckoutScreen()),
-    );
+    // Same gate as the cart's Proceed to Checkout: a guest signs in first
+    // and comes back to their cart, with this item in it.
+    openCheckoutOrSignIn(context);
   }
 
   @override
@@ -384,7 +384,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppColors.surfaceContainer,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 border: Border.all(color: AppColors.border),
                 boxShadow: AppShadows.sm,
@@ -420,7 +420,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.surfaceContainer,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -535,7 +535,7 @@ class _VariantTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: selected ? AppColors.primaryContainer.withValues(alpha: 0.35) : Colors.white,
+          color: selected ? AppColors.primaryContainer.withValues(alpha: 0.35) : AppColors.surfaceContainer,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: selected ? 1.6 : 1),
         ),
@@ -560,7 +560,7 @@ class _VariantTile extends StatelessWidget {
                       ),
                       child: Text(
                         variant.badge!,
-                        style: AppTextStyles.labelSm.copyWith(color: Colors.white),
+                        style: AppTextStyles.labelSm.copyWith(color: AppColors.onPrimary),
                       ),
                     ),
                   ],

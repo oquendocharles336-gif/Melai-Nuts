@@ -8,6 +8,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/motion.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../core/services/branch_controller.dart';
 import '../../../core/services/customer_data_store.dart';
@@ -23,6 +24,7 @@ import '../widgets/branch_stock_notice.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/order_status_badge.dart';
 import '../widgets/product_card.dart';
+import '../widgets/storefront_widgets.dart';
 import 'cart_screen.dart';
 import 'order_tracking_screen.dart';
 import 'product_catalog_screen.dart';
@@ -205,20 +207,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
         button: true,
         label: label,
         excludeSemantics: true,
-        child: Badge(
-      label: Text(badgeCount.toString()),
-      isLabelVisible: badgeCount > 0,
-      backgroundColor: AppColors.honey,
-      textColor: AppColors.ink,
+        child: BumpingCountBadge(
+      count: badgeCount,
       child: Material(
-        color: Colors.white.withValues(alpha: 0.16),
+        color: AppColors.onPrimary.withValues(alpha: 0.16),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onPressed,
           child: Padding(
             padding: const EdgeInsets.all(13), // 48 x 48 tap target
-            child: Icon(icon, color: Colors.white, size: 22),
+            child: Icon(icon, color: AppColors.onPrimary, size: 22),
           ),
         ),
       ),
@@ -264,7 +263,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                       greeting,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.headlineMd.copyWith(color: Colors.white),
+                      style: AppTextStyles.headlineMd.copyWith(color: AppColors.onPrimary),
                     ),
                   ],
                 ),
@@ -275,7 +274,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                   icon: Icons.shopping_bag_outlined,
                   badgeCount: CartController.instance.itemCount,
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CartScreen()),
+                    FadeSlideRoute(builder: (_) => const CartScreen()),
                   ),
                 ),
               ),
@@ -314,7 +313,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                               label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: AppTextStyles.labelLg.copyWith(color: Colors.white),
+                              style: AppTextStyles.labelLg.copyWith(color: AppColors.onPrimary),
                             ),
                           ),
                           if (branch != null && controller.isAutoSelected) ...[
@@ -337,10 +336,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
           TextField(
             textInputAction: TextInputAction.search,
             onSubmitted: (q) => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => SearchResultsScreen(query: q)),
+              FadeSlideRoute(builder: (_) => SearchResultsScreen(query: q)),
             ),
             decoration: const InputDecoration(
-              fillColor: Colors.white,
+              fillColor: AppColors.surfaceContainer,
               prefixIcon: Icon(Icons.search_rounded, color: AppColors.primary),
               hintText: 'Search for garlic, spicy, or sweet...',
             ),
@@ -387,10 +386,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           tile('Shop All', Icons.storefront_rounded, () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ProductCatalogScreen()),
+                FadeSlideRoute(builder: (_) => const ProductCatalogScreen()),
               )),
           tile('Categories', Icons.grid_view_rounded, () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ProductCategoriesScreen()),
+                FadeSlideRoute(builder: (_) => const ProductCategoriesScreen()),
               )),
           tile('My Orders', Icons.receipt_long_rounded,
               () => Navigator.pushNamed(context, AppRoutes.customerOrderHistory)),
@@ -407,12 +406,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
       padding: const EdgeInsets.only(bottom: 10),
       child: Pressable(
         onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: order)),
+          FadeSlideRoute(builder: (_) => OrderTrackingScreen(order: order)),
         ),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surfaceContainer,
             borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
             border: Border.all(color: AppColors.border),
             boxShadow: AppShadows.sm,
@@ -472,7 +471,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
             child: Icon(
               promo.icon,
               size: 150,
-              color: Colors.white.withValues(alpha: 0.05),
+              color: AppColors.onPrimary.withValues(alpha: 0.05),
             ),
           ),
           Padding(
@@ -497,13 +496,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                   promo.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.headlineMd.copyWith(color: Colors.white),
+                  style: AppTextStyles.headlineMd.copyWith(color: AppColors.onPrimary),
                 ),
                 if (promo.subtitle.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
                     promo.subtitle,
-                    style: AppTextStyles.bodyMd.copyWith(color: Colors.white.withValues(alpha: 0.9)),
+                    style: AppTextStyles.bodyMd.copyWith(color: AppColors.onPrimary.withValues(alpha: 0.9)),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -530,7 +529,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
           // Horizontal lists give children unbounded width, so each card
           // needs an explicit one.
           void openDetails() => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: product)),
+                FadeSlideRoute(builder: (_) => ProductDetailsScreen(product: product)),
               );
           // Same empty-variant branch as product_list_screen: no sizes means
           // nothing to add, but the card still shows instead of throwing.
@@ -551,9 +550,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
             child: ProductCard(
               product: product,
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: product)),
+                FadeSlideRoute(builder: (_) => ProductDetailsScreen(product: product)),
               ),
               onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
+              onDecrease: () => decreaseInCartWithFeedback(context, product, defaultVariant),
               quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
             ),
           );
@@ -581,7 +581,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.35),
+              color: AppColors.onPrimary.withValues(alpha: 0.35),
             ),
             child: const Icon(Icons.workspace_premium_rounded, color: AppColors.darkBrown, size: 28),
           ),
@@ -592,6 +592,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
               children: [
                 Text('Golden Kernel Rewards', style: AppTextStyles.labelLg),
                 const SizedBox(height: 2),
+                if (!CustomerDataStore.instance.hasCustomer)
+                  Text(
+                    'Sign in to earn points on every pickup.',
+                    style: AppTextStyles.bodySm.copyWith(color: AppColors.ink),
+                  )
+                else
                 Wrap(
                   crossAxisAlignment: WrapCrossAlignment.end,
                   spacing: 4,
@@ -607,14 +613,17 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
             ),
           ),
           FilledButton(
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.customerLoyaltyDashboard),
+            onPressed: () => Navigator.pushNamed(
+              context,
+              !CustomerDataStore.instance.hasCustomer ? AppRoutes.login : AppRoutes.customerLoyaltyDashboard,
+            ),
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
+              foregroundColor: AppColors.onPrimary,
               minimumSize: const Size(0, 42),
               padding: const EdgeInsets.symmetric(horizontal: 18),
             ),
-            child: const Text('View'),
+            child: Text(!CustomerDataStore.instance.hasCustomer ? 'Sign in' : 'View'),
           ),
         ],
       ),
@@ -669,7 +678,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                   padding: const EdgeInsets.only(top: AppSpacing.md),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.surfaceContainer,
                       borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                       border: Border.all(color: AppColors.border),
                       boxShadow: AppShadows.sm,
@@ -719,7 +728,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                       child: Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: latest.read ? Colors.white : AppColors.primaryContainer.withValues(alpha: 0.3),
+                          color: latest.read ? AppColors.surfaceContainer : AppColors.primaryContainer.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                           border: Border.all(color: AppColors.border),
                         ),
@@ -785,7 +794,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                     'Categories',
                     action: 'See all',
                     onAction: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const ProductCategoriesScreen()),
+                      FadeSlideRoute(builder: (_) => const ProductCategoriesScreen()),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),
@@ -847,7 +856,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> with WidgetsBin
                     icon: _selectedCategoryName == null ? Icons.local_fire_department_rounded : Icons.category_rounded,
                     action: 'See all',
                     onAction: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const ProductCatalogScreen()),
+                      FadeSlideRoute(builder: (_) => const ProductCatalogScreen()),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),

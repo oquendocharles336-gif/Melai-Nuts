@@ -5,6 +5,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/widgets/list_tools.dart';
+import '../../../core/widgets/motion.dart';
+import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/repositories/products_repository.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
@@ -12,13 +15,13 @@ import '../../../data/models/product.dart';
 import '../cart_controller.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/product_card.dart';
+import '../widgets/storefront_widgets.dart';
 import 'cart_screen.dart';
 import 'product_details_screen.dart';
-import 'search_results_screen.dart';
 import '../../../l10n/generated/app_localizations.dart';
 
-/// Main "Catalog" tab: category chips + sort row + full product grid
-/// (matches the prototype's Product Catalog screen).
+/// Main "Catalog" tab: search box, category chips, sort row and the full
+/// product grid (matches the prototype's Product Catalog screen).
 class ProductCatalogScreen extends StatefulWidget {
   const ProductCatalogScreen({super.key});
 
@@ -29,21 +32,33 @@ class ProductCatalogScreen extends StatefulWidget {
 class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
   String? _selectedCategory; // null = "All"
   String _sortLabel = 'Bestsellers';
+  String _query = '';
+
+  /// Bumped to rebuild the search box empty when "Clear search" is tapped.
+  int _searchBoxKey = 0;
 
   List<Product> get _filtered {
-    if (_selectedCategory == null) return kProducts;
-    return productsByCategory(_selectedCategory!);
+    final inCategory = _selectedCategory == null ? kProducts : productsByCategory(_selectedCategory!);
+    if (_query.trim().isEmpty) return inCategory;
+    return inCategory.where((p) => productMatchesSearch(p, _query)).toList();
   }
 
   void _openProduct(Product product) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ProductDetailsScreen(product: product)),
+      FadeSlideRoute(builder: (_) => ProductDetailsScreen(product: product)),
     );
   }
+
+  void _clearSearch() => setState(() {
+        _query = '';
+        _selectedCategory = null;
+        _searchBoxKey++;
+      });
 
   void _pickSort() async {
     final choice = await showModalBottomSheet<String>(
       context: context,
+      showDragHandle: true,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -96,9 +111,8 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
     );
   }
 
-  Widget _buildScaffold(BuildContext context) {
-    final cart = CartController.instance;
-    var products = List<Product>.from(_filtered);
+  List<Product> _sorted(List<Product> source) {
+    final products = List<Product>.from(source);
     switch (_sortLabel) {
       case 'Price: Low to High':
         products.sort((a, b) => a.price.compareTo(b.price));
@@ -125,59 +139,39 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
         }
         break;
     }
+    return products;
+  }
+
+  Widget _buildScaffold(BuildContext context) {
+    final cart = CartController.instance;
+    final t = AppLocalizations.of(context);
+    final products = _sorted(_filtered);
+    final searching = _query.trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: LuxeAppBar(
+      appBar: const LuxeAppBar(
         title: 'Product Catalog',
-        actions: [
-          IconButton(tooltip: 'Search', 
-            icon: const Icon(Icons.search_rounded),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SearchResultsScreen(query: '')),
-            ),
-          ),
-          ListenableBuilder(
-            listenable: cart,
-            builder: (context, _) => Stack(
-              clipBehavior: Clip.none,
-              children: [
-                IconButton(tooltip: 'Cart', 
-                  icon: const Icon(Icons.shopping_bag_outlined),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CartScreen()),
-                  ),
-                ),
-                if (cart.itemCount > 0)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        '${cart.itemCount}',
-                        style: const TextStyle(color: Colors.white, fontSize: 9),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-        ],
+        actions: [CartIconButton(), SizedBox(width: 6)],
       ),
       body: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.xs, AppSpacing.md, 0),
+              child: AppSearchBar(
+                key: ValueKey('catalog-search-$_searchBoxKey'),
+                hint: 'Search garlic, spicy, sweet...',
+                debounce: const Duration(milliseconds: 200),
+                onChanged: (q) => setState(() => _query = q),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
             SizedBox(
               height: 48,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 4),
                 children: [
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -200,25 +194,28 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 2),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Showing ${products.length} artisanal nut batches',
-                    style: AppTextStyles.bodySm,
-                  ),
-                  InkWell(
-                    onTap: _pickSort,
-                    child: Row(
-                      children: [
-                        Text(_sortLabel, style: AppTextStyles.labelLg),
-                        const Icon(Icons.expand_more_rounded, size: 18),
-                      ],
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: Text(
+                        searching
+                            ? '${products.length} result${products.length == 1 ? '' : 's'} for "${_query.trim()}"'
+                            : 'Showing ${products.length} artisanal nut batches',
+                        key: ValueKey('${products.length}-$searching'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.bodySm,
+                      ),
                     ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _pickSort,
+                    iconAlignment: IconAlignment.end,
+                    icon: const Icon(Icons.expand_more_rounded, size: 18),
+                    label: Text(_sortLabel, style: AppTextStyles.labelLg),
                   ),
                 ],
               ),
@@ -234,30 +231,29 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                     isEmpty: products.isEmpty,
                     onRetry: _reload,
                     errorScope: ErrorScope.catalog,
-                    emptyIcon: Icons.inventory_2_outlined,
-                    emptyTitle: _selectedCategory == null
-                        ? AppLocalizations.of(context).noProductsYet
-                        : AppLocalizations.of(context).noProductsInCategory,
-                    emptyMessage: AppLocalizations.of(context).noProductsAtBranch,
-                    loadingMessage: AppLocalizations.of(context).loadingProducts,
+                    emptyIcon: searching ? Icons.search_off_rounded : Icons.inventory_2_outlined,
+                    emptyTitle: searching
+                        ? 'No nuts match "${_query.trim()}"'
+                        : _selectedCategory == null
+                            ? t.noProductsYet
+                            : t.noProductsInCategory,
+                    emptyMessage: searching ? 'Try another word, or look in every category.' : t.noProductsAtBranch,
+                    emptyActionLabel: searching || _selectedCategory != null ? 'Clear search' : null,
+                    onEmptyAction: searching || _selectedCategory != null ? _clearSearch : null,
+                    loadingMessage: t.loadingProducts,
+                    loadingBuilder: (_) => const ProductGridSkeleton(),
                     builder: (context) => RefreshIndicator(
                       onRefresh: _reload,
                       child: GridView.builder(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(
                           AppSpacing.md,
-                          0,
+                          AppSpacing.xs,
                           AppSpacing.md,
                           AppSpacing.md,
                         ),
                         itemCount: products.length,
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          // 2 columns on phones, more on tablets / web.
-                          maxCrossAxisExtent: 240,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: 0.68,
-                        ),
+                        gridDelegate: productGridDelegate,
                         itemBuilder: (context, i) {
                           final product = products[i];
                           // Same empty-variant branch as product_list_screen: a
@@ -273,11 +269,16 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                             );
                           }
                           final defaultVariant = product.variants.first;
-                          return ProductCard(
-                            product: product,
-                            quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
-                            onTap: () => _openProduct(product),
-                            onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
+                          return FadeSlideIn(
+                            // Staggered on the first screenful only.
+                            delay: Duration(milliseconds: i < 8 ? 40 * i : 0),
+                            child: ProductCard(
+                              product: product,
+                              quantityInCart: cart.quantityFor(product.id, defaultVariant.label),
+                              onTap: () => _openProduct(product),
+                              onAdd: () => addToCartWithFeedback(context, product, defaultVariant),
+                              onDecrease: () => decreaseInCartWithFeedback(context, product, defaultVariant),
+                            ),
                           );
                         },
                       ),
@@ -286,55 +287,73 @@ class _ProductCatalogScreenState extends State<ProductCatalogScreen> {
                 },
               ),
             ),
-            ListenableBuilder(
-              listenable: cart,
-              builder: (context, _) {
-                if (cart.itemCount == 0) return const SizedBox.shrink();
-                return SafeArea(
-                  top: false,
-                  child: Container(
-                    margin: const EdgeInsets.all(AppSpacing.md),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: AppShadows.md,
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${cart.itemCount} Items • ₱${cart.subtotal.toStringAsFixed(0)}',
-                            style: AppTextStyles.labelLg.copyWith(color: Colors.white),
-                          ),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const CartScreen()),
-                          ),
-                          icon: const Icon(Icons.shopping_bag_outlined, color: Colors.white, size: 20),
-                          label: Text(
-                            'View Cart',
-                            style: AppTextStyles.labelLg.copyWith(color: Colors.white),
-                          ),
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.white.withValues(alpha: 0.15),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+            const _CartSummaryBar(),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// "N Items • ₱total — View Cart", slides up once something is in the cart.
+class _CartSummaryBar extends StatelessWidget {
+  const _CartSummaryBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final cart = CartController.instance;
+    return ListenableBuilder(
+      listenable: cart,
+      builder: (context, _) {
+        final show = cart.itemCount > 0;
+        return AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          child: !show
+              ? const SizedBox(width: double.infinity)
+              : SafeArea(
+                  top: false,
+                  child: Container(
+                    margin: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      boxShadow: AppShadows.md,
+                    ),
+                    child: Material(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => Navigator.of(context).push(
+                          FadeSlideRoute(builder: (_) => const CartScreen()),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Row(
+                            children: [
+                              BumpingCountBadge(
+                                count: cart.itemCount,
+                                child: const Icon(Icons.shopping_bag_outlined, color: AppColors.onPrimary),
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: Text(
+                                  '${cart.itemCount} item${cart.itemCount == 1 ? '' : 's'} • ₱${cart.subtotal.toStringAsFixed(0)}',
+                                  style: AppTextStyles.labelLg.copyWith(color: AppColors.onPrimary),
+                                ),
+                              ),
+                              Text('View Cart', style: AppTextStyles.labelLg.copyWith(color: AppColors.onPrimary)),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_forward_rounded, color: AppColors.onPrimary, size: 18),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        );
+      },
     );
   }
 }

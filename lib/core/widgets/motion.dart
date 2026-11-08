@@ -180,29 +180,63 @@ class ProductCardSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SkeletonBox(height: 140, radius: 12),
-          SizedBox(height: 12),
-          SkeletonBox(height: 14, width: 110, radius: 6),
-          SizedBox(height: 8),
-          SkeletonBox(height: 12, width: 70, radius: 6),
-          Spacer(),
-          SkeletonBox(height: 18, width: 60, radius: 6),
-        ],
+    return Semantics(
+      label: 'Loading product',
+      excludeSemantics: true,
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+          border: Border.all(color: AppColors.border),
+          boxShadow: AppShadows.sm,
+        ),
+        // Same layout as ProductCard: photo, name, price, then the Add button.
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: SkeletonBox(height: double.infinity, radius: 12)),
+            SizedBox(height: 10),
+            SkeletonBox(height: 14, width: 110, radius: 6),
+            SizedBox(height: 8),
+            SkeletonBox(height: 16, width: 60, radius: 6),
+            SizedBox(height: 8),
+            SkeletonBox(height: 44, radius: 12),
+          ],
+        ),
       ),
     );
   }
 }
+
+/// A grid of [ProductCardSkeleton]s with the same cell shape as the product
+/// grids (Catalog, Search), shown on the first load instead of a spinner.
+class ProductGridSkeleton extends StatelessWidget {
+  final int count;
+
+  const ProductGridSkeleton({super.key, this.count = 6});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
+      itemCount: count,
+      gridDelegate: productGridDelegate,
+      itemBuilder: (context, index) => const ProductCardSkeleton(width: double.infinity),
+    );
+  }
+}
+
+/// The product grid shape shared by Catalog, Search and their skeletons:
+/// 2 columns on phones, more on tablets / web.
+const SliverGridDelegateWithMaxCrossAxisExtent productGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+  maxCrossAxisExtent: 240,
+  mainAxisSpacing: 12,
+  crossAxisSpacing: 12,
+  childAspectRatio: 0.62,
+);
 
 /// A horizontal strip of [ProductCardSkeleton]s.
 class ProductStripSkeleton extends StatelessWidget {

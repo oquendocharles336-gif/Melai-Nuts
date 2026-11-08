@@ -276,6 +276,10 @@ class DataStateView extends StatelessWidget {
   final VoidCallback? onEmptyAction;
 
   final String? loadingMessage;
+
+  /// Shown on the first load instead of the spinner, e.g. skeleton cards
+  /// shaped like the content that is coming.
+  final WidgetBuilder? loadingBuilder;
   final ErrorScope errorScope;
 
   /// Compact variants for fixed-height strips (no scrolling, smaller icons,
@@ -295,6 +299,7 @@ class DataStateView extends StatelessWidget {
     this.emptyActionLabel,
     this.onEmptyAction,
     this.loadingMessage,
+    this.loadingBuilder,
     this.errorScope = ErrorScope.general,
     this.compact = false,
   });
@@ -303,6 +308,14 @@ class DataStateView extends StatelessWidget {
   Widget build(BuildContext context) {
     if (isEmpty) {
       if (isLoading) {
+        final skeleton = loadingBuilder;
+        if (skeleton != null) {
+          return Semantics(
+            label: loadingMessage ?? 'Loading',
+            liveRegion: true,
+            child: skeleton(context),
+          );
+        }
         return StateLoadingView(message: loadingMessage, compact: compact);
       }
       if (error != null) {
