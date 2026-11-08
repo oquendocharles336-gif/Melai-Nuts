@@ -42,10 +42,20 @@
             <div class="setting-row"><div><b>Two-step sign-in</b><span>{{ $user->hasTwoFactor() ? 'On: a code from your authenticator app is asked after the password' : 'Off (optional)' }}</span></div>
                 <x-badge :tone="$user->hasTwoFactor() ? 'ok' : 'info'">{{ $user->hasTwoFactor() ? 'On' : 'Off' }}</x-badge></div>
             @endunless
-            <div style="margin-top:14px"><a class="btn sm" href="{{ route('password.request') }}">Reset password</a>
+            <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                @if ($user->usesFirebase())
+                    {{-- Sends a Firebase reset link to this account's own email; the new password works in the app too. --}}
+                    <form method="POST" action="{{ route('settings.password-reset') }}" data-hard style="margin:0">
+                        @csrf
+                        <button type="submit" class="btn sm" title="We'll email a reset link to {{ $user->email }}">Send me a reset email</button>
+                    </form>
+                @endif
                 @unless ($user->isAdmin())
                 <a class="btn sm" href="{{ route('two-factor.show') }}">{{ $user->hasTwoFactor() ? 'Manage two-step sign-in' : 'Set up two-step sign-in' }}</a>
                 @endunless</div>
+            @if ($user->usesFirebase())
+                <p class="muted" style="margin:8px 0 0;font-size:12.5px">The link goes to {{ $user->email }}. Your new password works in the Melai Nuts app and on this website.</p>
+            @endif
         </x-card>
     </div>
 

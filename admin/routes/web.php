@@ -180,6 +180,8 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
         Route::post('/stock/receive', [StockController::class, 'receive'])->name('stock.receive')->middleware('throttle:20,1');
 
         Route::view('/settings', 'settings')->name('settings');
+        // Settings > "Send me a reset email": a Firebase reset link to the signed-in person's own email.
+        Route::post('/settings/password-reset', [LoginController::class, 'sendMyReset'])->name('settings.password-reset')->middleware('throttle:3,10');
         Route::view('/help', 'help')->name('help');
         Route::get('/loyalty', [LoyaltyController::class, 'index'])->name('loyalty.index');
         Route::get('/loyalty/{member}', [LoyaltyController::class, 'show'])->name('loyalty.show');

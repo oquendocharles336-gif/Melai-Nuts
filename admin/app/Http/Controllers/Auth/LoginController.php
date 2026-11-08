@@ -207,6 +207,33 @@ class LoginController extends Controller
         return redirect()->route('shop.home')->with('shop_status', "You're signed out.");
     }
 
+    /**
+     * Settings > "Send me a reset email": the signed-in person's own app account gets a Firebase
+     * password-reset link. Only ever their own email (never one from the request).
+     */
+    public function sendMyReset(Request $request, FirebaseConfig $config, FirebaseAuthClient $client)
+    {
+        $user = $request->user();
+        $back = redirect()->route('settings');
+        if (! $user->usesFirebase()) {
+            return $back->with('error', 'This login uses a website password, not a Melai Nuts app account, so there is no reset email. Ask an administrator to reset it.');
+        }
+        if (! $config->ready()) {
+            return $back->with('error', $config->missingMessage());
+        }
+        try {
+            $client->sendPasswordReset($user->email);
+        } catch (FirebaseAuthException $e) {
+            if ($e->reason === FirebaseAuthException::CONFIG || $e->isTemporary() || $e->reason === FirebaseAuthException::NETWORK) {
+                return $back->with('error', 'We couldn\'t send the email right now. Please try again in a moment.');
+            }
+            // Any other answer is not shown: the same note either way, like the sign-in panel's reset.
+        }
+        ActivityLogger::log('auth.password_reset_requested', 'Asked for a password-reset email from Settings', $user);
+
+        return $back->with('status', "We've sent a password-reset link to {$user->email}. The new password works in the app and on this website.");
+    }
+
     /** Password reset for app accounts: Firebase emails the reset link. Never says whether the email exists. */
     public function forgot(Request $request, FirebaseConfig $config, FirebaseAuthClient $client)
     {
