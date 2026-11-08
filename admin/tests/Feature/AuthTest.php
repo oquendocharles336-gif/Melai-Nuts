@@ -29,9 +29,11 @@ class AuthTest extends TestCase
     private function admin(): User { return User::factory()->create(['role' => 'admin', 'has_access' => true]); }
     private function staff(): User { return User::factory()->create(['role' => 'staff', 'has_access' => false]); }
 
-    public function test_landing_shows_welcome_admin(): void
+    public function test_home_is_the_shop_with_a_staff_sign_in_link(): void
     {
-        $this->get('/')->assertOk()->assertSee('WELCOME ADMIN');
+        // "/" is the customer shop; staff sign in at /login (linked in the shop's footer).
+        $this->get('/')->assertOk()->assertSee('Fresh-roasted nuts')->assertSee('Staff sign in')->assertSee(route('login'), false);
+        $this->get('/login')->assertOk();
     }
 
     public function test_empty_fields(): void
@@ -144,7 +146,7 @@ class AuthTest extends TestCase
 
     public function test_logout_invalidates_session(): void
     {
-        $this->actingAs($this->admin())->post('/logout')->assertRedirect(route('landing'));
+        $this->actingAs($this->admin())->post('/logout')->assertRedirect(route('login'));
         $this->assertGuest();
         $this->get('/dashboard')->assertRedirect(route('login'));
     }

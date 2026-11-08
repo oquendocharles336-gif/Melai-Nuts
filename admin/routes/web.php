@@ -17,6 +17,11 @@ use App\Http\Controllers\OrdersController;
 use App\Http\Controllers\OverviewController;
 use App\Http\Controllers\PurchaseReceiptController;
 use App\Http\Controllers\ReportsController;
+use App\Http\Controllers\Shop\CartController as ShopCartController;
+use App\Http\Controllers\Shop\CheckoutController as ShopCheckoutController;
+use App\Http\Controllers\Shop\CustomerAuthController;
+use App\Http\Controllers\Shop\OrderController as ShopOrderController;
+use App\Http\Controllers\Shop\StorefrontController;
 use App\Http\Controllers\StockController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,9 +29,59 @@ use Illuminate\Support\Facades\Route;
 Route::view('/terms', 'legal.terms')->name('legal.terms');
 Route::view('/privacy', 'legal.privacy')->name('legal.privacy');
 
-// Guests only (logged-in users are redirected to the dashboard)
+// ---------------------------------------------------------------------------------------------
+// Customer shop: public at "/". Customers sign in with their Melai Nuts app account (Firebase) and
+// get their OWN session (App\Services\Shop\CustomerSession), never an admin login.
+// ---------------------------------------------------------------------------------------------
+Route::name('shop.')->group(function () {
+    Route::get('/', [StorefrontController::class, 'home'])->name('home');
+
+    Route::prefix('shop')->group(function () {
+        Route::get('/search', [StorefrontController::class, 'search'])->name('search');
+        Route::get('/p/{product}', [StorefrontController::class, 'product'])->name('product')->where('product', '[0-9A-Za-z-]{1,64}');
+        Route::post('/branch', [StorefrontController::class, 'locate'])->name('branch')->middleware('throttle:20,1');
+
+        Route::get('/cart', [ShopCartController::class, 'show'])->name('cart');
+        Route::post('/cart', [ShopCartController::class, 'add'])->name('cart.add')->middleware('throttle:60,1');
+        Route::patch('/cart/{variant}', [ShopCartController::class, 'update'])->name('cart.update')->middleware('throttle:60,1');
+
+        Route::get('/login', [CustomerAuthController::class, 'showLogin'])->name('login');
+        Route::post('/login', [CustomerAuthController::class, 'login'])->middleware('throttle:10,1');
+        Route::get('/register', [CustomerAuthController::class, 'showRegister'])->name('register');
+        Route::post('/register', [CustomerAuthController::class, 'register'])->middleware('throttle:5,1');
+        Route::get('/verify-email', [CustomerAuthController::class, 'showVerify'])->name('verify');
+        Route::post('/verify-email', [CustomerAuthController::class, 'checkVerified'])->name('verify.check')->middleware('throttle:10,1');
+        Route::post('/verify-email/resend', [CustomerAuthController::class, 'resend'])->name('verify.resend')->middleware('throttle:3,1');
+        Route::post('/verify-email/cancel', [CustomerAuthController::class, 'cancelSignUp'])->name('verify.cancel');
+        Route::get('/forgot-password', [CustomerAuthController::class, 'showForgot'])->name('forgot');
+        Route::post('/forgot-password', [CustomerAuthController::class, 'forgot'])->middleware('throttle:5,1');
+        Route::post('/logout', [CustomerAuthController::class, 'logout'])->name('logout');
+
+        Route::middleware('customer')->group(function () {
+            Route::post('/cart/voucher', [ShopCartController::class, 'voucher'])->name('cart.voucher')->middleware('throttle:10,1');
+            Route::delete('/cart/voucher', [ShopCartController::class, 'removeVoucher'])->name('cart.voucher.remove');
+            Route::post('/cart/points', [ShopCartController::class, 'points'])->name('cart.points');
+            Route::get('/checkout', [ShopCheckoutController::class, 'show'])->name('checkout');
+            Route::post('/checkout', [ShopCheckoutController::class, 'place'])->name('checkout.place')->middleware('throttle:10,1');
+            Route::get('/orders', [ShopOrderController::class, 'index'])->name('orders');
+            Route::get('/orders/{order}', [ShopOrderController::class, 'show'])->name('orders.show')->where('order', '[0-9A-Za-z-]{1,64}');
+            Route::get('/orders/{order}/status.json', [ShopOrderController::class, 'status'])->name('orders.status')->where('order', '[0-9A-Za-z-]{1,64}');
+            Route::post('/orders/{order}/pay', [ShopOrderController::class, 'pay'])->name('orders.pay')->where('order', '[0-9A-Za-z-]{1,64}')->middleware('throttle:10,1');
+            Route::get('/payment/return', [ShopOrderController::class, 'paymentReturn'])->name('payment.return');
+            Route::get('/points', [ShopOrderController::class, 'points'])->name('points');
+            Route::get('/account', [CustomerAuthController::class, 'account'])->name('account');
+            Route::get('/terms-update', [CustomerAuthController::class, 'showTerms'])->name('terms');
+            Route::post('/terms-update', [CustomerAuthController::class, 'acceptTerms']);
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Admin website (owners and staff). Customers never get past `no.customers` + `auth`.
+// ---------------------------------------------------------------------------------------------
+
+// Staff sign-in pages (logged-in admins are redirected to the dashboard)
 Route::middleware('guest')->group(function () {
-    Route::view('/', 'landing')->name('landing');
     Route::get('/login', [LoginController::class, 'create'])->name('login');
     Route::post('/login', [LoginController::class, 'store']);
     Route::get('/register', [RegisterController::class, 'create'])->name('register');
@@ -35,7 +90,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/forgot-password', [LoginController::class, 'forgot'])->name('password.email')->middleware('throttle:5,1');
 });
 
-Route::middleware(['auth', 'active', 'bumps.cache', 'two.factor'])->group(function () {
+Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'])->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
 
     // Optional two-step sign-in (TOTP). The challenge is the only page open before the code.

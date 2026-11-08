@@ -257,8 +257,20 @@ class FakeFirebase
             return Http::response(['error' => ['code' => 403, 'status' => 'PERMISSION_DENIED', 'message' => 'Missing or insufficient permissions.']], 403);
         }
         // Like firestore.rules: the caller (bearer ID token) must be an active owner profile.
-        $caller = $this->uidFromToken(substr((string) $r->header('Authorization')[0], 7));
+        $jwt = substr((string) $r->header('Authorization')[0], 7);
+        $caller = $this->uidFromToken($jwt);
         $self = $r->method() === 'GET' && rawurldecode(basename((string) parse_url($r->url(), PHP_URL_PATH))) === $caller;   // read own profile
+        // Self-registration (shop / app sign-up): only the caller's OWN customer profile, no branch,
+        // and only once the token says the email is verified.
+        if (str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), ':commit')) {
+            $w = $r['writes'][0] ?? [];
+            $target = basename((string) ($w['update']['name'] ?? ''));
+            $fields = collect($w['update']['fields'] ?? [])->map(fn ($v) => reset($v))->all();
+            $claims = json_decode((string) base64_decode(strtr(explode('.', $jwt)[1] ?? '', '-_', '+/')), true) ?: [];
+            $self = $self || ($target === $caller && ($claims['email_verified'] ?? false) === true
+                && ($fields['role'] ?? null) === 'customer' && ! isset($fields['branch'])
+                && mb_strtolower((string) ($fields['email'] ?? '')) === mb_strtolower((string) ($claims['email'] ?? '')));
+        }
         if (! $self && (($this->profiles[$caller]['role'] ?? null) !== 'owner' || ($this->profiles[$caller]['isActive'] ?? true) !== true)) {
             return Http::response(['error' => ['code' => 403, 'status' => 'PERMISSION_DENIED', 'message' => 'Missing or insufficient permissions.']], 403);
         }

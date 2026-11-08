@@ -19,20 +19,11 @@
                 <x-segmented :options="['light' => 'Light', 'system' => 'System', 'dark' => 'Dark']" :icons="['light' => 'sun', 'system' => 'monitor', 'dark' => 'moon']"
                              model="$store.ui.theme" change="$store.ui.setTheme.bind($store.ui)" light label="Theme" />
             </div>
-            <div class="setting-row">
-                <div><b>Accent</b><span>Charts, progress bars, highlights</span></div>
-                <div class="swatches" role="radiogroup" aria-label="Accent colour">
-                    <template x-for="(a, key) in $store.ui.accents" :key="key">
-                        <button type="button" class="swatch" role="radio" :style="'background:' + a.color" :class="$store.ui.accent === key && 'is-on'"
-                                :aria-checked="$store.ui.accent === key" :aria-label="a.label" :title="a.label" x-on:click="$store.ui.setAccent(key)"></button>
-                    </template>
-                </div>
-            </div>
             <p class="note">Saved in this browser for {{ $user->name }}.</p>
         </x-card>
-        <x-card title="Preview" subtitle="How highlights and status look with your choice (no real figures)">
-            <div class="kpi-top"><span class="icon-chip accent"><x-icon name="coins" :size="16" /></span>Accent colour</div>
-            <div style="margin:16px 0 10px"><x-progress-bar :value="50" :max="100" label="Accent colour preview" /></div>
+        <x-card title="Preview" subtitle="How highlights and status look in this theme (no real figures)">
+            <div class="kpi-top"><span class="icon-chip accent"><x-icon name="coins" :size="16" /></span>Melai Nuts orange</div>
+            <div style="margin:16px 0 10px"><x-progress-bar :value="50" :max="100" label="Highlight colour preview" /></div>
             <div style="display:flex;gap:6px;flex-wrap:wrap"><x-badge tone="ok">In stock</x-badge><x-badge tone="warn">Below par</x-badge><x-badge tone="bad">Out of stock</x-badge><x-badge tone="accent">Highlight</x-badge></div>
         </x-card>
     </div>

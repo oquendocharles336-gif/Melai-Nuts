@@ -38,7 +38,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'bumps.cache' => \App\Http\Middleware\BumpCacheVersion::class, // any successful change invalidates cached data
             'two.factor' => \App\Http\Middleware\EnsureTwoFactorPassed::class, // optional TOTP, once per session
             'password.recent' => \App\Http\Middleware\ConfirmRecentPassword::class, // password again for money / points actions
+            'no.customers' => \App\Http\Middleware\KeepCustomersOut::class, // every admin route: shop customers -> shop / 403
+            'customer'   => \App\Http\Middleware\EnsureCustomer::class,  // shop pages that need a signed-in customer
         ]);
+        // Shop customers are turned away from admin routes FIRST: right after the session starts, before
+        // `auth`, rate limits and route-model binding (so a typed admin URL never 404s or 429s instead).
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\KeepCustomersOut::class,
+        );
         // Every POST / PUT / PATCH / DELETE on the website is rate limited (config melai.write_limit_per_minute).
         $middleware->appendToGroup('web', \App\Http\Middleware\ThrottleWrites::class);
         $middleware->redirectGuestsTo(fn () => route('login'));    // guests -> login

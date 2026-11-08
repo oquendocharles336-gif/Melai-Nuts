@@ -150,7 +150,7 @@ class LoginController extends Controller
         $request->session()->invalidate(); // also drops the Firebase tokens of this session
         $request->session()->regenerateToken();
 
-        return redirect()->route('landing');
+        return redirect()->route('login');
     }
 
     /** Password reset for app accounts: Firebase emails the reset link. Never says whether the email exists. */

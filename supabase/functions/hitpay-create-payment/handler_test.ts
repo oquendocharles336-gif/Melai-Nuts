@@ -233,3 +233,54 @@ Deno.test("online payment switched off: a downpayment order opens no payment pag
   assertEquals((await handler(request())).status, 403);
   assertEquals(calls.filter((c) => c.startsWith("from:")), [], "no table was read");
 });
+
+// ---- Return page: app (default) or website shop (return_to: "web") -------------------------------
+
+function redirectSent() {
+  const sent: string[] = [];
+  const fetchFn = (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    sent.push(new URLSearchParams(String(init?.body ?? "")).get("redirect_url") ?? "");
+    return Promise.resolve(new Response(JSON.stringify({ id: "req-1", url: "https://pay.test/1" }), { status: 200 }));
+  };
+  return { sent, fetchFn: fetchFn as typeof fetch };
+}
+
+function requestWith(body: Record<string, unknown>) {
+  return new Request("http://fn.test", { method: "POST", headers: { Authorization: "Bearer token" }, body: JSON.stringify(body) });
+}
+
+const webEnv: Record<string, string> = { ...fullEnv, HITPAY_WEB_REDIRECT_URL: "https://melainuts.test/shop/payment/return" };
+
+Deno.test("the app (no return_to) returns to HITPAY_REDIRECT_URL", async () => {
+  const db = liveDb({ id: "PAY-1", method: "online", status: "pending", amount: 250 });
+  const { sent, fetchFn } = redirectSent();
+  const res = await makeHandler(db.factory, (k) => webEnv[k], fetchFn, quickSleep)(requestWith({ order_id: "ORD-T-1" }));
+  assertEquals(res.status, 200);
+  assertEquals(sent, ["https://shop.test/paid"]);
+});
+
+Deno.test("the website shop (return_to: web) returns to HITPAY_WEB_REDIRECT_URL", async () => {
+  const db = liveDb({ id: "PAY-1", method: "online", status: "pending", amount: 250 });
+  const { sent, fetchFn } = redirectSent();
+  const res = await makeHandler(db.factory, (k) => webEnv[k], fetchFn, quickSleep)(requestWith({ order_id: "ORD-T-1", return_to: "web" }));
+  assertEquals(res.status, 200);
+  assertEquals(sent, ["https://melainuts.test/shop/payment/return"]);
+});
+
+Deno.test("return_to web without HITPAY_WEB_REDIRECT_URL falls back to the app's page", async () => {
+  const db = liveDb({ id: "PAY-1", method: "online", status: "pending", amount: 250 });
+  const { sent, fetchFn } = redirectSent();
+  const res = await makeHandler(db.factory, (k) => fullEnv[k], fetchFn, quickSleep)(requestWith({ order_id: "ORD-T-1", return_to: "web" }));
+  assertEquals(res.status, 200);
+  assertEquals(sent, ["https://shop.test/paid"]);
+});
+
+Deno.test("a URL in the request is never used as the return page", async () => {
+  const db = liveDb({ id: "PAY-1", method: "online", status: "pending", amount: 250 });
+  const { sent, fetchFn } = redirectSent();
+  const res = await makeHandler(db.factory, (k) => webEnv[k], fetchFn, quickSleep)(
+    requestWith({ order_id: "ORD-T-1", return_to: "https://evil.test/", redirect_url: "https://evil.test/" }),
+  );
+  assertEquals(res.status, 200);
+  assertEquals(sent, ["https://shop.test/paid"]);
+});

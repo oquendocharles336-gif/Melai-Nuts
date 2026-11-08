@@ -37,6 +37,21 @@ class AppServiceProvider extends ServiceProvider
         // One pager for every list (resources/views/pagination/melai.blade.php).
         \Illuminate\Pagination\Paginator::defaultView('pagination.melai');
         \Illuminate\Pagination\Paginator::defaultSimpleView('pagination.melai');
+        // Shop pages: who is signed in, the cart badge and the pickup branch (never an admin login).
+        \Illuminate\Support\Facades\View::composer(['layouts.shop', 'shop.*'], function ($view) {
+            $customer = app(\App\Services\Shop\CustomerSession::class);
+            try {
+                $branch = app(\App\Services\Shop\ShopBranch::class)->current();
+            } catch (\Throwable) {
+                $branch = null;
+            }
+            $view->with([
+                'shopCustomer' => $customer->check() ? ['name' => $customer->name(), 'first' => $customer->firstName()] : null,
+                'shopCartCount' => app(\App\Services\Shop\ShopCart::class)->count(),
+                'shopBranch' => $branch,
+            ]);
+        });
+
         // Money and payment-method labels: one definition for every page (App\Support\Format).
         \Illuminate\Support\Facades\View::share([
             'peso' => fn ($n) => \App\Support\Format::peso($n),
