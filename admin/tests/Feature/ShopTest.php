@@ -38,7 +38,7 @@ class ShopTest extends TestCase
     private function signIn(): void
     {
         $this->customerAccount();
-        $this->post('/shop/login', ['email' => 'ana@example.com', 'password' => 'Kasoy#Roast9'])->assertRedirect();
+        $this->post('/login', ['email' => 'ana@example.com', 'password' => 'Kasoy#Roast9'])->assertRedirect(route('shop.home'));
     }
 
     // ---- Browsing ------------------------------------------------------------------------------
@@ -90,8 +90,8 @@ class ShopTest extends TestCase
         $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 2])->assertOk();
         $this->postJson('/shop/cart', ['product' => 'p-2', 'variant' => 'v-2', 'qty' => 3])->assertOk();
 
-        $this->get('/shop/checkout')->assertRedirect(route('shop.login'));
-        $this->post('/shop/login', ['email' => 'ana@example.com', 'password' => 'Kasoy#Roast9'])
+        $this->get('/shop/checkout')->assertRedirect(route('login'));
+        $this->post('/login', ['email' => 'ana@example.com', 'password' => 'Kasoy#Roast9'])
             ->assertRedirect(route('shop.checkout'));
 
         // Same items add up; done as the customer, through the app's own cart function.
@@ -220,9 +220,9 @@ class ShopTest extends TestCase
     public function test_checkout_and_orders_need_a_signed_in_customer(): void
     {
         foreach (['/shop/checkout', '/shop/orders', '/shop/orders/ORD-1', '/shop/points', '/shop/account'] as $uri) {
-            $this->get($uri)->assertRedirect(route('shop.login'));
+            $this->get($uri)->assertRedirect(route('login'));
         }
-        $this->post('/shop/checkout', ['payment' => 'counter'])->assertRedirect(route('shop.login'));
+        $this->post('/shop/checkout', ['payment' => 'counter'])->assertRedirect(route('login'));
     }
 
     public function test_a_customer_only_sees_their_own_orders(): void

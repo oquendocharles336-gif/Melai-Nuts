@@ -19,7 +19,7 @@
                 </div>
                 <button type="submit" class="s-btn primary block">Send reset link</button>
             </form>
-            <p class="s-auth-foot"><a href="{{ route('shop.login') }}">Back to sign in</a></p>
+            <p class="s-auth-foot"><a href="{{ route('login') }}">Back to sign in</a></p>
         </div>
     </div>
 @endsection

@@ -28,15 +28,25 @@ class CustomerLockoutTest extends TestCase
         $this->shop = (new FakeShopSupabase)->install();
     }
 
-    /** A real shop sign-in of a customer app account (Firestore role "customer"). */
+    /** A real sign-in of a customer app account (Firestore role "customer") on the single login page. */
     private function signInCustomer(string $uid = 'cust-1', string $email = 'ana@example.com'): void
     {
         $this->fb->addAccount($email, $uid, 'Kasoy#Roast9', verified: true);
         $this->fb->profiles[$uid] = ['email' => $email, 'name' => 'Ana Cruz', 'role' => 'customer', 'isActive' => true];
+        $this->shop->legal[$uid] = ['terms_version' => config('melai.legal.terms_version'), 'privacy_version' => config('melai.legal.privacy_version')];
 
-        $this->post('/shop/login', ['email' => $email, 'password' => 'Kasoy#Roast9'])->assertRedirect();
+        $this->post('/login', ['email' => $email, 'password' => 'Kasoy#Roast9'])->assertRedirect(route('shop.home'));
         $this->assertTrue(session()->has('shop_customer'), 'the customer is signed in to the shop');
         $this->assertGuest('web');
+    }
+
+    private function owner(): string
+    {
+        $owner = array_key_first(array_filter($this->db->staff, fn ($s) => $s['role'] === 'owner'));
+        $s = $this->db->staff[$owner];
+        $this->fb->profiles[$owner] = ['email' => $s['email'], 'name' => $s['full_name'], 'role' => 'owner', 'isActive' => true];
+
+        return $owner;
     }
 
     /**
@@ -114,26 +124,40 @@ class CustomerLockoutTest extends TestCase
         $this->followingRedirects()->get('/admin/users')->assertOk()->assertSee('It&#039;s for Melai Nuts staff only.', false);
     }
 
-    public function test_a_customer_account_cannot_sign_in_to_the_admin_website(): void
+    public function test_one_login_sends_a_customer_to_the_shop_never_the_admin_side(): void
     {
-        $this->fb->addAccount('ana@example.com', 'cust-1', 'Kasoy#Roast9', verified: true);
-        $this->fb->profiles['cust-1'] = ['email' => 'ana@example.com', 'name' => 'Ana Cruz', 'role' => 'customer', 'isActive' => true];
+        $this->signInCustomer();
 
-        $this->post('/login', ['email' => 'ana@example.com', 'password' => 'Kasoy#Roast9'])->assertRedirect();
         $this->assertGuest('web');
-        $this->get('/dashboard')->assertRedirect(route('login'));
+        $this->assertSame(0, \App\Models\User::where('email', 'ana@example.com')->count(), 'no website (admin) login is ever made for a customer');
+        $this->get('/dashboard')->assertRedirect(route('shop.home'));
+        $this->get('/login')->assertRedirect(route('shop.home'));
     }
 
-    public function test_staff_and_owner_accounts_are_sent_to_their_own_sign_in_from_the_shop(): void
+    public function test_one_login_sends_staff_and_owners_to_the_dashboard(): void
     {
-        $owner = array_key_first(array_filter($this->db->staff, fn ($s) => $s['role'] === 'owner'));
+        $owner = $this->owner();
         $s = $this->db->staff[$owner];
-        $this->fb->profiles[$owner] = ['email' => $s['email'], 'name' => $s['full_name'], 'role' => 'owner', 'isActive' => true];
 
-        $this->post('/shop/login', ['email' => $s['email'], 'password' => "$owner#Pass1"])
-            ->assertRedirect()->assertSessionHas('shop_error', 'This is a staff account. Please use the staff sign-in instead.');
+        $this->post('/login', ['email' => $s['email'], 'password' => "$owner#Pass1"])->assertRedirect(route('dashboard'));
+        $this->assertAuthenticated('web');
         $this->assertFalse(session()->has('shop_customer'));
+        $this->get('/dashboard')->assertOk();
+    }
+
+    public function test_the_old_shop_sign_in_address_forwards_to_the_single_login(): void
+    {
+        $this->get('/shop/login')->assertRedirect(route('login'));
+    }
+
+    public function test_a_rider_account_is_refused_on_the_single_login(): void
+    {
+        $this->fb->addAccount('rider@example.com', 'rider-1', 'Kasoy#Roast9', verified: true);
+        $this->fb->profiles['rider-1'] = ['email' => 'rider@example.com', 'name' => 'Rico', 'role' => 'delivery', 'isActive' => true];
+
+        $this->post('/login', ['email' => 'rider@example.com', 'password' => 'Kasoy#Roast9'])->assertSessionHasErrors();
         $this->assertGuest('web');
+        $this->assertFalse(session()->has('shop_customer'));
     }
 
     public function test_staff_still_reach_the_admin_side_as_before(): void
@@ -142,23 +166,48 @@ class CustomerLockoutTest extends TestCase
         $this->signedIn($this->linkedLogin($owner))->get('/dashboard')->assertOk();
     }
 
-    public function test_a_staff_member_who_also_shops_keeps_admin_access_through_their_admin_login(): void
+    public function test_view_shop_lets_staff_browse_and_go_back_to_the_dashboard_without_signing_in_again(): void
     {
-        $owner = array_key_first(array_filter($this->db->staff, fn ($s) => $s['role'] === 'owner'));
-        $login = $this->linkedLogin($owner);
-        $this->signInCustomer('cust-9', 'owner-personal@example.com');
+        (new FakeShopSupabase)->install();
+        $login = $this->linkedLogin($this->owner());
 
-        // The shop sign-in never logs anyone in to the admin side...
-        $this->get('/dashboard')->assertRedirect(route('shop.home'));
-        // ...but their own admin login works exactly as before.
+        // Dashboard -> "View shop"
+        $this->signedIn($login)->get('/dashboard')->assertOk()->assertSee('View shop')->assertSee(route('shop.home'), false);
+        $this->signedIn($login)->get('/')->assertOk()
+            ->assertSee('browse only')->assertSee('Back to dashboard')->assertSee(route('dashboard'), false)
+            ->assertDontSee('Add to cart');
+        $this->signedIn($login)->get('/shop/search')->assertOk()->assertDontSee('data-add-to-cart', false);
+        // Shop -> "Back to dashboard": still signed in, no new sign-in.
         $this->signedIn($login)->get('/dashboard')->assertOk();
+        $this->assertAuthenticatedAs($login, 'web');
     }
 
-    public function test_signing_out_of_the_shop_never_signs_anyone_in(): void
+    public function test_staff_browsing_the_shop_cannot_order_with_their_admin_login(): void
     {
+        (new FakeShopSupabase)->install();
+        $login = $this->linkedLogin($this->owner());
+
+        $this->signedIn($login)->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1'])->assertStatus(403);
+        $this->signedIn($login)->get('/shop/cart')->assertRedirect(route('shop.home'));
+        $this->signedIn($login)->get('/shop/checkout')->assertRedirect(route('shop.home'));
+        $this->signedIn($login)->post('/shop/checkout', ['payment' => 'counter'])->assertStatus(403);
+        $this->signedIn($login)->get('/shop/orders')->assertRedirect(route('shop.home'));
+    }
+
+    public function test_one_logout_ends_every_sign_in(): void
+    {
+        // A customer signing out of the shop.
         $this->signInCustomer();
         $this->post('/shop/logout')->assertRedirect(route('shop.home'));
         $this->assertFalse(session()->has('shop_customer'));
         $this->get('/dashboard')->assertRedirect(route('login'));
+
+        // Staff signing out from the admin side ends the admin login AND anything else in the session.
+        $login = $this->linkedLogin($this->owner());
+        $this->signedIn($login)->withSession(['shop_customer' => ['uid' => 'x'], 'shop_guest_cart' => ['v' => 1]])
+            ->post('/logout')->assertRedirect(route('login'));
+        $this->assertGuest('web');
+        $this->assertFalse(session()->has('shop_customer'));
+        $this->assertFalse(session()->has('firebase_auth'));
     }
 }

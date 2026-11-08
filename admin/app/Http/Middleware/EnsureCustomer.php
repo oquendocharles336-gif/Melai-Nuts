@@ -26,7 +26,7 @@ class EnsureCustomer
                 $request->session()->put(self::INTENDED, $request->fullUrl());
             }
 
-            return redirect()->route('shop.login')->with('shop_status', 'Please sign in or create an account to continue.');
+            return redirect()->route('login')->with('status', 'Please sign in or create an account to continue.');
         }
 
         return $next($request);

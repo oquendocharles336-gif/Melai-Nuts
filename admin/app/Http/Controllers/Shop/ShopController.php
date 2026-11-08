@@ -22,7 +22,7 @@ abstract class ShopController extends Controller
                 return response()->json(['message' => $e->getMessage(), 'signed_out' => true], 401);
             }
 
-            return redirect()->route('shop.login')->with('shop_error', $e->getMessage());
+            return redirect()->route('login')->with('error', $e->getMessage());
         }
         if ($request->expectsJson()) {
             return response()->json(['message' => $e->getMessage()], $e->reason === 'offline' || $e->reason === 'server' ? 503 : 422);

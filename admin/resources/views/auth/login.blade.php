@@ -1,14 +1,14 @@
 @extends('layouts.auth')
-@section('title', 'Login · Melai Nuts Admin')
+@section('title', 'Sign in · Melai Nuts')
 @section('heading1', 'Welcome')
 @section('heading2', 'Back')
-@section('blurb', 'Sign in with your Melai Nuts app account (the same email and password as in the app) to manage branches, stock, payments, refunds, and customer rewards.')
+@section('blurb', 'One sign-in for everyone, with your Melai Nuts app account (the same email and password as in the app). Customers go to the shop; staff and owners go to the dashboard.')
 @section('form')
 <form method="POST" action="{{ route('login') }}" novalidate x-cloak
       x-data="authForm({ mode: 'login', old: @js(['email' => old('email', '')]), errors: @js($errors->toArray()) })"
       @submit="onSubmit($event)">
     @csrf
-    <h2 class="form-title">Login</h2>
+    <h2 class="form-title">Sign in</h2>
 
     @if (session('status'))
         <div class="alert">{{ session('status') }}</div>
@@ -36,8 +36,9 @@
     </div>
 
     <button type="submit" class="btn-primary" :disabled="submitting">
-        <span x-text="submitting ? 'Logging in…' : 'Login'"></span>
+        <span x-text="submitting ? 'Signing in…' : 'Sign in'"></span>
     </button>
-    <p class="switch">No account yet? <a href="{{ route('register') }}" class="link">Create Account</a></p>
+    <p class="switch">New to Melai Nuts? <a href="{{ route('shop.register') }}" class="link">Create an account</a></p>
+    <p class="switch" style="margin-top:4px"><a href="{{ route('shop.home') }}" class="link">Browse the shop</a> · Staff without website access? <a href="{{ route('register') }}" class="link">Request access</a></p>
 </form>
 @endsection

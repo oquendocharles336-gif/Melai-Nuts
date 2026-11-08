@@ -16,7 +16,7 @@
             <span class="s-pill left">{{ $p['badge'] }}</span>
         @endif
         @if (! $branch)
-            <span class="s-pill right muted" title="Choose a branch to see stock">Choose a branch</span>
+            {{-- No stock badges until a branch is chosen (no clutter). --}}
         @elseif ($p['stock'] <= 0)
             <span class="s-pill right out">Out of stock</span>
         @elseif ($p['only_left'])
@@ -38,7 +38,9 @@
         </div>
     </div>
     <div class="s-card-foot">
-        @if ($several)
+        @if ($shopStaff ?? null)
+            <a href="{{ $url }}" class="s-btn ghost sm s-add">View</a>
+        @elseif ($several)
             <a href="{{ $url }}" class="s-btn ghost sm s-add">Choose size</a>
         @elseif ($available && (! $branch || $p['stock'] > 0))
             <form method="POST" action="{{ route('shop.cart.add') }}" data-add-to-cart>

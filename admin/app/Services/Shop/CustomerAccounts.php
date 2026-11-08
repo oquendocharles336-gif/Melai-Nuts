@@ -46,6 +46,17 @@ class CustomerAccounts
         $claims = $this->verify($tokens['id_token']);
         $profile = $this->firebase(fn () => $this->firestore->get($tokens['id_token'], $claims['sub']));
 
+        return $this->signInWith($tokens, $claims, $profile);
+    }
+
+    /**
+     * Finish a customer sign-in for an account the single login (/login) already signed in with
+     * Firebase and read the profile of. Returns 'signed_in' or 'verify'.
+     *
+     * @throws ShopException
+     */
+    public function signInWith(array $tokens, array $claims, ?array $profile): string
+    {
         if ($profile === null) {
             // Created a Firebase account (app or website) but never finished the email step.
             $this->keepPending($tokens, $claims, (string) ($claims['claims']['name'] ?? ''), '');

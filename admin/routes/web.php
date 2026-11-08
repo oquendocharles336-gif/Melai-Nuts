@@ -41,12 +41,14 @@ Route::name('shop.')->group(function () {
         Route::get('/p/{product}', [StorefrontController::class, 'product'])->name('product')->where('product', '[0-9A-Za-z-]{1,64}');
         Route::post('/branch', [StorefrontController::class, 'locate'])->name('branch')->middleware('throttle:20,1');
 
-        Route::get('/cart', [ShopCartController::class, 'show'])->name('cart');
-        Route::post('/cart', [ShopCartController::class, 'add'])->name('cart.add')->middleware('throttle:60,1');
-        Route::patch('/cart/{variant}', [ShopCartController::class, 'update'])->name('cart.update')->middleware('throttle:60,1');
+        Route::middleware('shop.buyer')->group(function () {
+            Route::get('/cart', [ShopCartController::class, 'show'])->name('cart');
+            Route::post('/cart', [ShopCartController::class, 'add'])->name('cart.add')->middleware('throttle:60,1');
+            Route::patch('/cart/{variant}', [ShopCartController::class, 'update'])->name('cart.update')->middleware('throttle:60,1');
+        });
 
+        // Everyone signs in on the single login page (/login); this old address forwards there.
         Route::get('/login', [CustomerAuthController::class, 'showLogin'])->name('login');
-        Route::post('/login', [CustomerAuthController::class, 'login'])->middleware('throttle:10,1');
         Route::get('/register', [CustomerAuthController::class, 'showRegister'])->name('register');
         Route::post('/register', [CustomerAuthController::class, 'register'])->middleware('throttle:5,1');
         Route::get('/verify-email', [CustomerAuthController::class, 'showVerify'])->name('verify');
@@ -57,7 +59,7 @@ Route::name('shop.')->group(function () {
         Route::post('/forgot-password', [CustomerAuthController::class, 'forgot'])->middleware('throttle:5,1');
         Route::post('/logout', [CustomerAuthController::class, 'logout'])->name('logout');
 
-        Route::middleware('customer')->group(function () {
+        Route::middleware(['shop.buyer', 'customer'])->group(function () {
             Route::post('/cart/voucher', [ShopCartController::class, 'voucher'])->name('cart.voucher')->middleware('throttle:10,1');
             Route::delete('/cart/voucher', [ShopCartController::class, 'removeVoucher'])->name('cart.voucher.remove');
             Route::post('/cart/points', [ShopCartController::class, 'points'])->name('cart.points');

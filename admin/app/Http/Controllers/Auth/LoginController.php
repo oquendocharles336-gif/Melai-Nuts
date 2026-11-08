@@ -7,19 +7,31 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Http\Controllers\Shop\CustomerAuthController;
+use App\Services\Auth\AccountKind;
 use App\Services\Auth\AutoLinker;
 use App\Services\Auth\FirebaseLogin;
 use App\Services\Firebase\FirebaseAuthClient;
 use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseConfig;
 use App\Services\Firebase\FirebaseSession;
+use App\Services\Firebase\FirebaseTokenVerifier;
+use App\Services\Shop\CustomerAccounts;
+use App\Services\Shop\CustomerSession;
+use App\Services\Shop\ShopException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Website sign-in. Logging in is all it takes: the login is linked to its staff / owner row in
+ * THE sign-in for everyone (customers, staff, owners, admins), with the Melai Nuts app account.
+ * One Firebase sign-in, then the ACCOUNT decides the side (AccountKind, from its Firestore role):
+ * customers go to the shop with their own shop session (never an admin login, never the admin
+ * steps below); staff and owners go through the admin steps below to the dashboard; riders are
+ * refused.
+ *
+ * Admin sign-in. Logging in is all it takes: the login is linked to its staff / owner row in
  * the app's database automatically (AutoLinker) BEFORE the person is signed in, at every sign-in.
  *
  *  - Firebase (the Melai Nuts app email + password), when configured: the UID in the verified ID
@@ -34,12 +46,17 @@ use Illuminate\Validation\ValidationException;
  */
 class LoginController extends Controller
 {
-    public function create()
+    public function create(CustomerSession $customer)
     {
+        if ($customer->check()) {
+            return redirect()->route('shop.home');
+        }
+
         return view('auth.login');
     }
 
-    public function store(LoginRequest $request, FirebaseConfig $config, FirebaseLogin $firebase, FirebaseSession $session, AutoLinker $linker)
+    public function store(LoginRequest $request, FirebaseConfig $config, FirebaseLogin $firebase, FirebaseSession $session, AutoLinker $linker,
+        FirebaseAuthClient $client, FirebaseTokenVerifier $verifier, AccountKind $kinds, CustomerAccounts $customers)
     {
         $request->ensureIsNotRateLimited();
         $email = (string) $request->input('email');
@@ -47,7 +64,18 @@ class LoginController extends Controller
 
         if ($config->ready()) {
             try {
-                [$user, $tokens, $claims] = $firebase->attempt($email, (string) $request->input('password'));
+                $tokens = $client->signIn($email, (string) $request->input('password'));
+                $claims = $verifier->verify($tokens['id_token']);
+                [$kind, $profile] = $kinds->of($tokens['id_token'], $claims);
+                if ($kind === AccountKind::RIDER) {
+                    ActivityLogger::log('auth.login_refused', 'Rider account tried to log in to the website', null, ['uid' => $claims['sub']]);
+                    $request->failed('This is a rider account. Riders use the Melai Nuts app.');
+                }
+                if ($kind === AccountKind::CUSTOMER || $kind === AccountKind::NEW_CUSTOMER) {
+                    return $this->customerLogin($request, $tokens, $claims, $profile, $customers);
+                }
+                // Staff / owner: the same admin steps as before.
+                $user = $firebase->resolveUser($claims, $email);
             } catch (FirebaseAuthException $e) {
                 if (in_array($e->reason, [FirebaseAuthException::USER_DISABLED, FirebaseAuthException::TOO_MANY_ATTEMPTS], true)) {
                     $request->failed($e->getMessage());
@@ -60,6 +88,7 @@ class LoginController extends Controller
             }
 
             if (isset($user)) {
+                $request->session()->forget(CustomerSession::KEY);   // one account per session
                 return $this->firebaseLogin($request, $user, $tokens, $claims, $session, $linker);
             }
         }
@@ -75,6 +104,22 @@ class LoginController extends Controller
             $request->failed($config->missingMessage());
         }
         $request->failed('Invalid email or password. Use your Melai Nuts app email and password.');
+    }
+
+    /** A customer account: the shop (guest cart added, Terms checked), with its own shop session. */
+    private function customerLogin(LoginRequest $request, array $tokens, array $claims, ?array $profile, CustomerAccounts $customers)
+    {
+        try {
+            $result = $customers->signInWith($tokens, $claims, $profile);
+        } catch (ShopException $e) {
+            $request->failed($e->getMessage());
+        }
+        $request->succeeded();
+        if ($result === 'verify') {
+            return redirect()->route('shop.verify')->with('shop_status', "Please verify your email first. We've sent you a new link.");
+        }
+
+        return app(CustomerAuthController::class)->afterSignIn($request, 'Welcome back, '.app(CustomerSession::class)->firstName().'!');
     }
 
     /** Shown when a login whose role is not a website role (admin / staff) tries to sign in. */
@@ -143,14 +188,17 @@ class LoginController extends Controller
         return $user->has_access ? redirect()->intended(route('dashboard')) : redirect()->route('waiting');
     }
 
+    /** ONE logout for everything: the admin login, the shop sign-in and both Firebase sessions. */
     public function destroy(Request $request)
     {
-        ActivityLogger::log('auth.logout', 'Logged out');
+        if (Auth::check()) {
+            ActivityLogger::log('auth.logout', 'Logged out');
+        }
         Auth::logout();
-        $request->session()->invalidate(); // also drops the Firebase tokens of this session
+        $request->session()->invalidate(); // drops the admin login, the shop sign-in and every token of this session
         $request->session()->regenerateToken();
 
-        return redirect()->route('login');
+        return redirect()->route('login')->with('status', "You're signed out.");
     }
 
     /** Password reset for app accounts: Firebase emails the reset link. Never says whether the email exists. */

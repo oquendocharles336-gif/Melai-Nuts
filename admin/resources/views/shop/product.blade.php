@@ -44,7 +44,9 @@
                 <p class="s-desc">{{ $product['description'] }}</p>
             @endif
 
-            @if ($product['variants'])
+            @if ($shopStaff ?? null)
+                <span class="s-status brand"><x-icon name="shield" :size="14" /> Browse only: ordering needs a customer account.</span>
+            @elseif ($product['variants'])
                 <form method="POST" action="{{ route('shop.cart.add') }}" class="s-form" data-add-to-cart>
                     @csrf
                     <input type="hidden" name="product" value="{{ $product['id'] }}">

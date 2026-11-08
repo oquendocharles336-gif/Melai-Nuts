@@ -40,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'password.recent' => \App\Http\Middleware\ConfirmRecentPassword::class, // password again for money / points actions
             'no.customers' => \App\Http\Middleware\KeepCustomersOut::class, // every admin route: shop customers -> shop / 403
             'customer'   => \App\Http\Middleware\EnsureCustomer::class,  // shop pages that need a signed-in customer
+            'shop.buyer' => \App\Http\Middleware\StaffBrowseOnly::class, // staff may browse the shop, never order with an admin login
         ]);
         // Shop customers are turned away from admin routes FIRST: right after the session starts, before
         // `auth`, rate limits and route-model binding (so a typed admin URL never 404s or 429s instead).

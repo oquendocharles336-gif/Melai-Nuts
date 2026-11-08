@@ -35,14 +35,18 @@
                 <a href="{{ route('shop.orders') }}" @class(['is-on' => request()->routeIs('shop.orders*')])><x-icon name="receipt" :size="18" /><span class="hide-sm">My orders</span></a>
                 <a href="{{ route('shop.points') }}" @class(['is-on' => request()->routeIs('shop.points')]) class="hide-sm"><x-icon name="coins" :size="18" /><span>Points</span></a>
             @endif
-            <a href="{{ route('shop.cart') }}" class="s-cart" aria-label="Cart, {{ $shopCartCount }} {{ \Illuminate\Support\Str::plural('item', $shopCartCount) }}">
-                <x-icon name="bag" :size="20" /><span class="hide-sm">Cart</span>
-                <span class="s-badge" data-cart-count @if ($shopCartCount <= 0) hidden @endif>{{ $shopCartCount }}</span>
-            </a>
-            @if ($shopCustomer)
+            @unless ($shopStaff)
+                <a href="{{ route('shop.cart') }}" class="s-cart" aria-label="Cart, {{ $shopCartCount }} {{ \Illuminate\Support\Str::plural('item', $shopCartCount) }}">
+                    <x-icon name="bag" :size="20" /><span class="hide-sm">Cart</span>
+                    <span class="s-badge" data-cart-count @if ($shopCartCount <= 0) hidden @endif>{{ $shopCartCount }}</span>
+                </a>
+            @endunless
+            @if ($shopStaff)
+                <a href="{{ route('dashboard') }}" class="s-signin">Back to dashboard</a>
+            @elseif ($shopCustomer)
                 <a href="{{ route('shop.account') }}" @class(['is-on' => request()->routeIs('shop.account')]) aria-label="Your account"><x-icon name="user" :size="18" /><span class="hide-sm">{{ $shopCustomer['first'] }}</span></a>
             @else
-                <a href="{{ route('shop.login') }}" class="s-signin">Sign in</a>
+                <a href="{{ route('login') }}" class="s-signin">Sign in</a>
             @endif
         </nav>
     </div>
@@ -63,6 +67,13 @@
         </div>
     </div>
 </header>
+
+@if ($shopStaff)
+    <div class="s-staffbar" role="status">
+        <div class="s-wrap"><x-icon name="shield" :size="16" /><span>You're viewing the shop as <b>{{ $shopStaff }}</b>: browse only.</span>
+            <a href="{{ route('dashboard') }}">Back to dashboard</a></div>
+    </div>
+@endif
 
 <main id="main" class="s-main">
     <div class="s-wrap">

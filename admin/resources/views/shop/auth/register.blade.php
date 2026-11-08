@@ -58,7 +58,7 @@
                 </label>
                 <button type="submit" class="s-btn primary block">Create account</button>
             </form>
-            <p class="s-auth-foot">Already have an account? <a href="{{ route('shop.login') }}">Sign in</a></p>
+            <p class="s-auth-foot">Already have an account? <a href="{{ route('login') }}">Sign in</a></p>
         </div>
     </div>
 @endsection

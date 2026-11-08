@@ -19,30 +19,14 @@ class CustomerAuthController extends ShopController
 {
     public function __construct(private CustomerAccounts $accounts, private CustomerSession $customer, private ShopCart $cart) {}
 
+    /** Everyone signs in on the single login page (/login); old shop links land there. */
     public function showLogin()
     {
         if ($this->customer->check()) {
             return redirect()->route('shop.home');
         }
 
-        return view('shop.auth.login');
-    }
-
-    public function login(Request $request)
-    {
-        $data = $request->validate([
-            'email' => ['required', 'email', 'max:'.Rules::EMAIL_MAX],
-            'password' => ['required', 'string', 'max:'.Rules::PASSWORD_MAX],
-        ]);
-        try {
-            if ($this->accounts->signIn($data['email'], $data['password']) === 'verify') {
-                return redirect()->route('shop.verify')->with('shop_status', 'Please verify your email first. We\'ve sent you a new link.');
-            }
-        } catch (ShopException $e) {
-            return back()->withInput($request->only('email'))->with('shop_error', $e->getMessage());
-        }
-
-        return $this->afterSignIn($request, 'Welcome back, '.$this->customer->firstName().'!');
+        return redirect()->route('login');
     }
 
     public function showRegister()
@@ -92,7 +76,7 @@ class CustomerAuthController extends ShopController
         try {
             $this->accounts->completeSignUp();
         } catch (ShopException $e) {
-            return redirect()->route($e->sessionEnded() ? 'shop.login' : 'shop.verify')->with('shop_error', $e->getMessage());
+            return redirect()->route($e->sessionEnded() ? 'login' : 'shop.verify')->with('shop_error', $e->getMessage());
         }
 
         return $this->afterSignIn($request, 'Welcome to Melai Nuts, '.$this->customer->firstName().'! Your account is ready.');
@@ -103,7 +87,7 @@ class CustomerAuthController extends ShopController
         try {
             $this->accounts->resendVerification();
         } catch (ShopException $e) {
-            return redirect()->route($e->sessionEnded() ? 'shop.login' : 'shop.verify')->with('shop_error', $e->getMessage());
+            return redirect()->route($e->sessionEnded() ? 'login' : 'shop.verify')->with('shop_error', $e->getMessage());
         }
 
         return redirect()->route('shop.verify')->with('shop_status', 'We sent you a new verification link.');
@@ -130,13 +114,14 @@ class CustomerAuthController extends ShopController
             return back()->withInput()->with('shop_error', $e->getMessage());
         }
 
-        return redirect()->route('shop.login')->with('shop_status', 'If that email has an account, we\'ve sent a link to reset your password.');
+        return redirect()->route('login')->with('status', 'If that email has an account, we\'ve sent a link to reset your password.');
     }
 
+    /** ONE logout for everything (same as the admin side's): every sign-in of this session ends. */
     public function logout(Request $request)
     {
-        $this->customer->forget();
-        $request->session()->forget([ShopCart::GUEST, 'shop_cart_count', 'shop_branch', 'shop_paying_order', EnsureCustomer::INTENDED]);
+        \Illuminate\Support\Facades\Auth::logout();
+        $request->session()->invalidate();
         $request->session()->regenerateToken();
 
         return redirect()->route('shop.home')->with('shop_status', 'You\'re signed out.');
@@ -169,7 +154,7 @@ class CustomerAuthController extends ShopController
     }
 
     /** Bring the guest cart along, ask for updated Terms if needed, then go where they were headed. */
-    private function afterSignIn(Request $request, string $welcome)
+    public function afterSignIn(Request $request, string $welcome)
     {
         $note = null;
         try {
