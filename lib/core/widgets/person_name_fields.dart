@@ -4,10 +4,9 @@ import '../theme/app_spacing.dart';
 import '../utils/validation_utils.dart';
 import 'app_text_field.dart';
 
-/// First Name, Middle Initial (optional) and Last Name.
+/// First Name and Last Name.
 class PersonNameFields extends StatelessWidget {
   final TextEditingController first;
-  final TextEditingController middleInitial;
   final TextEditingController last;
 
   /// Each part's limit, so the composed name fits [InputLimits.name].
@@ -16,7 +15,6 @@ class PersonNameFields extends StatelessWidget {
   const PersonNameFields({
     super.key,
     required this.first,
-    required this.middleInitial,
     required this.last,
   });
 
@@ -24,40 +22,16 @@ class PersonNameFields extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: AppTextField(
-                label: 'First Name',
-                controller: first,
-                hint: 'Juan',
-                keyboardType: TextInputType.name,
-                textCapitalization: TextCapitalization.words,
-                autofillHints: const [AutofillHints.givenName],
-                textInputAction: TextInputAction.next,
-                maxLength: _partLimit,
-                validator: (v) => ValidationUtils.validateName(v, 'First Name'),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            SizedBox(
-              width: 76,
-              child: AppTextField(
-                label: 'M.I.',
-                controller: middleInitial,
-                hint: 'D',
-                keyboardType: TextInputType.name,
-                textCapitalization: TextCapitalization.characters,
-                autofillHints: const [AutofillHints.middleInitial],
-                textInputAction: TextInputAction.next,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'\p{L}', unicode: true)),
-                  LengthLimitingTextInputFormatter(1),
-                ],
-              ),
-            ),
-          ],
+        AppTextField(
+          label: 'First Name',
+          controller: first,
+          hint: 'Juan',
+          keyboardType: TextInputType.name,
+          textCapitalization: TextCapitalization.words,
+          autofillHints: const [AutofillHints.givenName],
+          textInputAction: TextInputAction.next,
+          maxLength: _partLimit,
+          validator: (v) => ValidationUtils.validateName(v, 'First Name'),
         ),
         const SizedBox(height: AppSpacing.md),
         AppTextField(

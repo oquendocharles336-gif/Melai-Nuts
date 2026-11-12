@@ -7,22 +7,27 @@ import 'package:melai_nuts/core/utils/validation_utils.dart';
 void main() {
   group('PersonName', () {
     test('composes the stored name', () {
-      expect(const PersonName(first: ' Juan ', middleInitial: 'd', last: 'Dela Cruz').fullName, 'Juan D. Dela Cruz');
+      expect(const PersonName(first: 'Juan', last: 'Dela Cruz').fullName, 'Juan Dela Cruz');
       expect(const PersonName(first: 'Juan', last: 'Cruz').fullName, 'Juan Cruz');
     });
 
     test('round-trips a composed name', () {
-      final n = PersonName.parse('Maria Ana D. De Los Reyes');
+      final n = PersonName.parse('Maria Ana De Los Reyes');
       expect(n.first, 'Maria Ana');
-      expect(n.middleInitial, 'D');
       expect(n.last, 'De Los Reyes');
-      expect(n.fullName, 'Maria Ana D. De Los Reyes');
+      expect(n.fullName, 'Maria Ana De Los Reyes');
+    });
+
+    test('parses names with a lone middle initial by dropping it', () {
+      final n = PersonName.parse('Juan D. Dela Cruz');
+      expect(n.first, 'Juan');
+      expect(n.last, 'Dela Cruz');
+      expect(n.fullName, 'Juan Dela Cruz');
     });
 
     test('splits existing names that have no initial', () {
       final simple = PersonName.parse('shachi Sagales');
       expect(simple.first, 'shachi');
-      expect(simple.middleInitial, '');
       expect(simple.last, 'Sagales');
       final particle = PersonName.parse('Juan Dela Cruz');
       expect(particle.first, 'Juan');

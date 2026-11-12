@@ -37,7 +37,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     CustomerDataStore.instance.profile?.fullName ?? AuthService.instance.currentProfile?.name ?? '',
   );
   late final _firstNameController = TextEditingController(text: _startingName.first);
-  late final _middleInitialController = TextEditingController(text: _startingName.middleInitial);
   late final _lastNameController = TextEditingController(text: _startingName.last);
   late final _phoneController =
       TextEditingController(text: PhoneUtils.toLocal(CustomerDataStore.instance.profile?.phone ?? ''));
@@ -48,10 +47,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final String _initialName;
   late final String _initialPhone;
 
-  /// The one name value the account stores: "Juan D. Dela Cruz".
+  /// The one name value the account stores.
   String get _fullName => PersonName(
         first: _firstNameController.text,
-        middleInitial: _middleInitialController.text,
         last: _lastNameController.text,
       ).fullName;
 
@@ -65,7 +63,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _initialName = _fullName;
     _initialPhone = _phoneController.text;
     _firstNameController.addListener(_onEdited);
-    _middleInitialController.addListener(_onEdited);
     _lastNameController.addListener(_onEdited);
     _phoneController.addListener(_onEdited);
   }
@@ -75,7 +72,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void dispose() {
     _firstNameController.dispose();
-    _middleInitialController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
     super.dispose();
@@ -112,7 +108,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SnackBar(content: Text('Profile updated.')),
           );
           _firstNameController.removeListener(_onEdited);
-          _middleInitialController.removeListener(_onEdited);
           _lastNameController.removeListener(_onEdited);
           _phoneController.removeListener(_onEdited);
           Navigator.of(context).pop();
@@ -128,7 +123,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           );
           _firstNameController.removeListener(_onEdited);
-          _middleInitialController.removeListener(_onEdited);
           _lastNameController.removeListener(_onEdited);
           _phoneController.removeListener(_onEdited);
           Navigator.of(context).pop();
@@ -192,7 +186,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: AppSpacing.lg),
               PersonNameFields(
                 first: _firstNameController,
-                middleInitial: _middleInitialController,
                 last: _lastNameController,
               ),
               const SizedBox(height: 14),

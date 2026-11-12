@@ -251,7 +251,6 @@ class CustomerProfileScreen extends StatelessWidget {
                   ),
                   const Divider(height: 20),
                   _FieldRow(label: 'FIRST NAME', value: _orNotSet(personName.first)),
-                  _FieldRow(label: 'MIDDLE INITIAL', value: _orNotSet(personName.middleInitial)),
                   _FieldRow(label: 'LAST NAME', value: _orNotSet(personName.last)),
                   _FieldRow(label: 'EMAIL', value: email.isEmpty ? 'Not set' : email),
                   // Masked: the full number is only needed when editing it.
