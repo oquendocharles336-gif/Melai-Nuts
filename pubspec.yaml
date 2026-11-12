@@ -46,15 +46,15 @@ dependencies:
 
   # Date and number formatting
   intl: ^0.20.3
-  firebase_core: ^4.15.0
-  firebase_auth: ^6.7.0
-  cloud_firestore: ^6.10.0
+  firebase_core: ^5.1.0
+  firebase_auth: ^7.0.1
+  cloud_firestore: ^7.1.0
   # App Check (Play Integrity / App Attest / reCAPTCHA v3) — docs/APP_CHECK.md.
-  firebase_app_check: ^0.4.8
+  firebase_app_check: ^0.5.1
   # Crash / error reporting (lib/core/services/crash_reporter.dart).
-  firebase_crashlytics: ^5.4.0
+  firebase_crashlytics: ^6.0.1
   # Push notifications created by the database (lib/core/services/push_service.dart).
-  firebase_messaging: ^16.7.0
+  firebase_messaging: ^17.0.1
 
   # Calls the email-verification API (6-digit code mode).
   http: ^1.2.2
