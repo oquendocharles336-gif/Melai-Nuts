@@ -1,6 +1,8 @@
 {
   "@@locale": "fil",
   "appTitle": "Melai Nuts Retailing",
+  "productPhotos": "Mga Larawan ng Produkto",
+  "productPhotosHint": "Magdagdag ng hanggang 5 na larawan. Ang unang larawan ang pangunahing makikita.",
   "language": "Wika",
   "languageSubtitle": "English o Filipino",
   "languageSystem": "Kapareho ng telepono",

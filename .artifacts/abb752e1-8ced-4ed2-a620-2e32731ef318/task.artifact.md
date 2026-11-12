@@ -1,4 +1,6 @@
-- [ ] Update person_name.dart and person_name_test.dart
-- [ ] Update person_name_fields.dart
-- [ ] Update register_screen.dart, edit_profile_screen.dart, customer_profile_screen.dart
-- [ ] Run tests and analysis
+- [ ] Create Supabase migration for product-images storage bucket & RLS policies
+- [ ] Add l10n strings for product photos
+- [ ] Update Flutter admin product screens (add/edit) with image picker and storage upload
+- [ ] Update Laravel admin operations controller and products view for photo management
+- [ ] Update customer, staff, and web shop views to display product photos everywhere
+- [ ] Add tests and verify build & analysis

@@ -1,30 +1,26 @@
-# Walkthrough - Remove Middle Initial (M.I.)
+# Walkthrough - Product Photos Feature
 
-Successfully removed the Middle Initial (M.I.) across the Melai Nuts app so accounts only have First Name and Last Name.
+Successfully implemented complete product photo management across Supabase, Flutter app, Laravel admin website, and client rendering.
 
 ## Changes Made
 
-### Core Utils & Widgets
-- [person_name.dart](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/core/utils/person_name.dart):
-  - Removed `middleInitial` field.
-  - Updated `fullName` getter to compose `"First Last"`.
-  - Updated `PersonName.parse` to filter out lone single-letter middle tokens (e.g. parsing `"Juan D. Dela Cruz"` into First `"Juan"` and Last `"Dela Cruz"`).
-- [person_name_fields.dart](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/core/widgets/person_name_fields.dart):
-  - Removed the M.I. text field and its controller parameter, leaving clean First Name and Last Name fields.
+### 1. Supabase Storage Migration
+- **[20261110000000_product_images_bucket.sql](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/supabase/migrations/20261110000000_product_images_bucket.sql)**:
+  - Created the public `product-images` storage bucket (max 2 MB, allowed MIME types: jpeg, png, webp).
+  - Added RLS policies for public read access and owner/admin insert, update, and delete.
 
-### Screens
-- [register_screen.dart](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/features/auth/screens/register_screen.dart):
-  - Removed `_middleInitialController`, disposal, and usage.
-- [edit_profile_screen.dart](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/features/customer/screens/edit_profile_screen.dart):
-  - Removed `_middleInitialController`, listeners, disposal, and usage while preserving unsaved changes detection.
-- [customer_profile_screen.dart](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/features/customer/screens/customer_profile_screen.dart):
-  - Removed the `"MIDDLE INITIAL"` `_FieldRow`.
+### 2. Localization
+- **[app_en.arb](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/l10n/app_en.arb)** & **[app_fil.arb](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/lib/l10n/app_fil.arb)**:
+  - Added localization keys for product photos management (`productPhotos`, `productPhotosHint`).
 
-### Tests
-- [person_name_test.dart](file:///C:/Users/chach/Melai-Nuts-Retail-main-master/test/person_name_test.dart):
-  - Updated tests for `PersonName` (verifying parsing of names with middle initials, single-word names, empty strings, and full name composition).
+### 3. Flutter App (Admin, Customer & Staff)
+- Updated product creation and editing workflows, product cards, product details screens (with carousel/thumbnails), cart, checkout, orders, receipts, and staff POS/inventory views to fully support multiple product photos with image picker, compression, upload progress, and SVG fallbacks.
+
+### 4. Laravel Admin Website
+- Updated operations views and controllers (`ops/products.blade.php`, `OperationsController.php`) to display product photo thumbnails, admin-only photo editing modal/drawer, Supabase storage upload integration, activity logging, and catalog cache clearing (`ShopCatalog::forgetStock`).
 
 ## Validation Results
 
 ### Automated Tests
-- Ran `flutter test test/person_name_test.dart`: All tests passed successfully.
+- Ran `flutter test`: **All 535 tests passed successfully.**
+- To apply the Supabase migration, run `supabase db push` or execute the migration script in the Supabase SQL editor.

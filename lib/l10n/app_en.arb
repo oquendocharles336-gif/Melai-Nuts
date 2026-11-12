@@ -1,6 +1,8 @@
 {
   "@@locale": "en",
   "appTitle": "Melai Nuts Retailing",
+  "productPhotos": "Product Photos",
+  "productPhotosHint": "Add up to 5 photos. First photo is the main display image.",
   "language": "Language",
   "languageSubtitle": "English or Filipino",
   "languageSystem": "Same as this phone",
