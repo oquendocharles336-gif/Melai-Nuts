@@ -38,7 +38,6 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
-  final _middleInitialController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -52,7 +51,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _firstNameController.dispose();
-    _middleInitialController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
@@ -61,10 +59,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  /// The one name value the account stores: "Juan D. Dela Cruz".
+  /// The one name value the account stores: "Juan Dela Cruz".
   String get _fullName => PersonName(
         first: _firstNameController.text,
-        middleInitial: _middleInitialController.text,
         last: _lastNameController.text,
       ).fullName;
 
@@ -154,7 +151,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             _sectionLabel('About you'),
             PersonNameFields(
               first: _firstNameController,
-              middleInitial: _middleInitialController,
               last: _lastNameController,
             ),
             const SizedBox(height: AppSpacing.md),
