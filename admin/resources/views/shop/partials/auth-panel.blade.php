@@ -89,7 +89,7 @@
 
                     {{-- Create an account (customers; same rules as the app) ------------------------ --}}
                     @case(AuthPanel::CREATE_ACCOUNT)
-                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…">
+                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…" data-live-validate>
                             @csrf
                             <input type="hidden" name="_panel" value="{{ $panel }}">
                             <div @class(['s-field', 'has-err' => $err($panel, 'name')])>
@@ -162,7 +162,7 @@
 
                     {{-- Request staff access (the owner approves it) ----------------------------------- --}}
                     @case(AuthPanel::STAFF_ACCESS)
-                        <form method="POST" action="{{ route('register') }}" class="s-form" novalidate data-busy="Sending request…">
+                        <form method="POST" action="{{ route('register') }}" class="s-form" novalidate data-busy="Sending request…" data-live-validate>
                             @csrf
                             <input type="hidden" name="_panel" value="{{ $panel }}">
                             <div @class(['s-field', 'has-err' => $err($panel, 'name')])>

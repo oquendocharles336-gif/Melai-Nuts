@@ -318,6 +318,7 @@
 .s-field .err { color: var(--bad); font-size: 13px; font-weight: 600; }
 .s-field .hint { color: var(--muted); font-size: 13px; }
 .s-field.has-err input { border-color: var(--bad); }
+.s-field.is-valid input { border-color: var(--ok); }
 .s-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 560px) { .s-two { grid-template-columns: 1fr; } }
 .s-check { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; color: var(--roast-2); }
@@ -463,6 +464,7 @@ html:has(.s-dlg[open]) { overflow: hidden; }
 .s-dlg .s-flash { font-size: 14.5px; }
 .s-err { color: var(--bad); font-size: 13px; font-weight: 600; margin-top: -8px; }
 .s-check.has-err input { outline: 2px solid var(--bad); outline-offset: 1px; }
+.s-check.is-valid input { accent-color: var(--ok); }
 .s-btn[aria-busy="true"] { opacity: .8; cursor: progress; }
 @keyframes s-dlg-in { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes s-sheet-up { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
