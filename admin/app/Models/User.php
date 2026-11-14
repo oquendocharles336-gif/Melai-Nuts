@@ -54,7 +54,7 @@ class User extends Authenticatable
     /** May this login use the website at all (sign in, keep a session)? */
     public function canUseWebsite(): bool
     {
-        return in_array($this->role, self::WEBSITE_ROLES, true);
+        return in_array($this->role, self::WEBSITE_ROLES, true) || filled($this->staff_uid);
     }
 
     public function isAdmin(): bool

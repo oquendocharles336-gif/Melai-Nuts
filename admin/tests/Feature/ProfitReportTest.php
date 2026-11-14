@@ -67,7 +67,8 @@ class ProfitReportTest extends TestCase
     {
         $this->useFakeSupabase();
         $staff = $this->linkedLogin('uid-cal');
-        $this->signedIn($staff)->get('/admin/profit')->assertForbidden();
-        $this->signedIn($staff)->get('/admin/profit/export/profit')->assertForbidden();
+        $this->assertStaffKeptOut($this->signedIn($staff)->get('/admin/profit'));
+        $this->assertStaffKeptOut($this->signedIn($staff)->get('/admin/profit/export/profit'));
+        $this->assertSame([], $this->db->calls, 'nothing was read for a staff login');
     }
 }

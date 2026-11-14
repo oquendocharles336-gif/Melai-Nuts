@@ -109,7 +109,8 @@ class ListPagesTest extends TestCase
         $this->useFakeSupabase();
         $staff = $this->linkedLogin('uid-cal');
         foreach (['/admin/payments/export', '/admin/refunds/export', '/admin/activity-logs/export'] as $url) {
-            $this->signedIn($staff)->get($url)->assertForbidden();
+            $this->assertStaffKeptOut($this->signedIn($staff)->get($url));
         }
+        $this->assertSame([], $this->db->calls, 'nothing was read for a staff login');
     }
 }

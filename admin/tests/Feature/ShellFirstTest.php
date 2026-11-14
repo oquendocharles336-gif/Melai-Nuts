@@ -39,12 +39,12 @@ class ShellFirstTest extends TestCase
         $this->signedIn($owner)->withUnencryptedCookie('melai_js', '1')->get('/dashboard?full=1')->assertOk()->assertDontSee('data-shell', false);
     }
 
-    public function test_guests_and_staff_without_access_never_reach_the_shell(): void
+    public function test_guests_logins_without_access_and_staff_never_reach_the_shell(): void
     {
         $this->withUnencryptedCookie('melai_js', '1')->get('/dashboard')->assertRedirect(route('login'));
-        $this->actingAs(User::factory()->create(['has_access' => false]))->withUnencryptedCookie('melai_js', '1')->get('/orders')->assertRedirect(route('waiting'));
-        $this->actingAs(User::factory()->create(['role' => 'staff', 'has_access' => true]))->withUnencryptedCookie('melai_js', '1')
-            ->get('/dashboard')->assertOk()->assertDontSee(route('admin.users.index'));
+        $this->actingAs(User::factory()->create(['role' => 'admin', 'has_access' => false]))->withUnencryptedCookie('melai_js', '1')->get('/orders')->assertRedirect(route('waiting'));
+        $this->assertStaffKeptOut($this->actingAs(User::factory()->create(['role' => 'staff', 'has_access' => true]))->withUnencryptedCookie('melai_js', '1')
+            ->get('/dashboard'));
     }
 
     public function test_a_fragment_is_only_the_page_content_and_is_never_cached(): void

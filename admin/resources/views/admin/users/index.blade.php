@@ -87,7 +87,7 @@
                                         @csrf<button class="btn sm ghost" type="submit">Unlink app account</button>
                                     </form>
                                 @endunless
-                            @elseif (! $u->canUseWebsite())
+                            @elseif (! $u->canUseWebsite() && ! $p['awaiting_approval'])
                                 <span class="cell-sub">Cannot use the website (app-only role)</span>
                             @elseif ($p['awaiting_approval'])
                                 @unless ($u->firebase_email_verified)<x-badge tone="warn">E-mail not verified</x-badge>@endunless

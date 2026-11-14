@@ -22,8 +22,9 @@ class AdminUserManagementTest extends TestCase
     public function test_staff_cannot_reach_user_management(): void
     {
         $staff = User::factory()->create(['role' => 'staff', 'has_access' => true]);
-        $this->actingAs($staff)->get('/admin/users')->assertForbidden();
-        $this->actingAs($staff)->post('/admin/users', $this->payload())->assertForbidden();
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/admin/users'));
+        $this->assertStaffKeptOut($this->actingAs($staff)->post('/admin/users', $this->payload()));
+        $this->assertDatabaseMissing('users', ['email' => 'ana@example.com']);
     }
 
     public function test_admin_creates_staff_account_with_access_already_granted(): void

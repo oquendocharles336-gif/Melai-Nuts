@@ -21,22 +21,22 @@ class SettingsPasswordResetTest extends TestCase
 
     public function test_settings_shows_the_button_and_it_emails_only_the_signed_in_account(): void
     {
-        $staff = $this->linkedLogin('uid-cal');
+        $owner = $this->linkedLogin('uid-owner');
 
-        $this->signedIn($staff)->get('/settings')->assertOk()->assertSee('Send me a reset email')
+        $this->signedIn($owner)->get('/settings')->assertOk()->assertSee('Send me a reset email')
             ->assertSee('action="'.route('settings.password-reset').'"', false)
             ->assertDontSee('href="'.route('password.request').'"', false);
 
         // Any email in the request is ignored: the link only ever goes to the account's own address.
-        $this->signedIn($staff)->post('/settings/password-reset', ['email' => 'someone-else@example.com'])
-            ->assertRedirect(route('settings'))->assertSessionHas('status', fn ($m) => str_contains($m, $staff->email));
-        $this->assertSame([$staff->email], $this->fb->resetEmails);
-        $this->assertTrue(ActivityLog::where('action', 'auth.password_reset_requested')->where('user_id', $staff->id)->exists());
+        $this->signedIn($owner)->post('/settings/password-reset', ['email' => 'someone-else@example.com'])
+            ->assertRedirect(route('settings'))->assertSessionHas('status', fn ($m) => str_contains($m, $owner->email));
+        $this->assertSame([$owner->email], $this->fb->resetEmails);
+        $this->assertTrue(ActivityLog::where('action', 'auth.password_reset_requested')->where('user_id', $owner->id)->exists());
     }
 
     public function test_a_website_password_login_gets_no_email_and_a_clear_note(): void
     {
-        $local = User::factory()->create(['role' => 'staff', 'has_access' => true]);   // no firebase_uid
+        $local = User::factory()->create(['role' => 'admin', 'has_access' => true]);   // no firebase_uid
 
         $this->actingAs($local)->get('/settings')->assertOk()->assertDontSee('Send me a reset email');
         $this->actingAs($local)->post('/settings/password-reset')
@@ -44,9 +44,10 @@ class SettingsPasswordResetTest extends TestCase
         $this->assertSame([], $this->fb->resetEmails);
     }
 
-    public function test_guests_and_customers_cannot_use_it(): void
+    public function test_guests_staff_and_customers_cannot_use_it(): void
     {
         $this->post('/settings/password-reset')->assertRedirect(route('login'));
+        $this->assertStaffKeptOut($this->signedIn($this->linkedLogin('uid-cal'))->post('/settings/password-reset'));   // staff: the app only
         $this->withSession(['shop_customer' => ['uid' => 'cust-1', 'email' => 'ana@example.com']])
             ->post('/settings/password-reset')->assertForbidden();   // customers never reach admin actions
         $this->assertSame([], $this->fb->resetEmails);

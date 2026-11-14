@@ -33,55 +33,28 @@ class TwoFactorTest extends TestCase
         $this->assertFalse(Totp::verify($secret, $code, 'u1'));
     }
 
-    public function test_turn_on_then_every_new_session_needs_a_code_and_recovery_codes_work_once(): void
+    public function test_nobody_reaches_two_step_sign_in_on_the_website_any_more(): void
     {
+        // Two-step sign-in was for STAFF logins. Staff no longer use the website (the Melai Nuts app only),
+        // and the owner never needed it (AdminSecurityTest): so no login can turn it on or be held by it.
         $this->useFakeSupabase();
         $staff = $this->linkedLogin('uid-cal');
         $this->fb->addAccount($staff->email, 'uid-cal', 'right-password', true);
+        // Even a staff login that still holds a confirmed authenticator from before.
+        $staff->forceFill(['two_factor_secret' => Totp::generateSecret(), 'two_factor_confirmed_at' => now()])->save();
 
-        $this->signedIn($staff)->post('/two-factor', ['current_password' => 'wrong'])->assertSessionHasErrors('current_password');
-        $this->signedIn($staff)->post('/two-factor', ['current_password' => 'right-password'])->assertRedirect(route('two-factor.show'));
-        $secret = $staff->fresh()->two_factor_secret;
-        $this->assertNotEmpty($secret);
-        $this->assertNotSame($secret, \DB::table('users')->where('id', $staff->id)->value('two_factor_secret'), 'stored encrypted');
-        $this->assertFalse($staff->fresh()->hasTwoFactor(), 'not required until confirmed');
-        $this->signedIn($staff)->get('/two-factor')->assertOk()->assertSee('otpauth://totp/', false);
+        $this->assertStaffKeptOut($this->signedIn($staff)->get('/dashboard'));
+        $this->assertStaffKeptOut($this->signedIn($staff)->get('/two-factor'));
+        $this->assertStaffKeptOut($this->signedIn($staff)->get('/two-factor/challenge'));
+        $this->assertStaffKeptOut($this->signedIn($staff)->post('/two-factor', ['current_password' => 'right-password']));
+        $this->assertStaffKeptOut($this->signedIn($staff)->post('/two-factor/challenge', ['code' => '111111']));
+        $this->assertNull(session(EnsureTwoFactorPassed::SESSION_KEY));
 
-        $this->signedIn($staff)->post('/two-factor/confirm', ['code' => '000000'])->assertSessionHasErrors('code');
-        $r = $this->signedIn($staff)->post('/two-factor/confirm', ['code' => Totp::code($secret, intdiv(time(), 30))]);
-        $r->assertRedirect(route('two-factor.show'));
-        $codes = session('recovery_codes');
-        $this->assertCount(8, $codes);
-        $staff = $staff->fresh();
-        $this->assertTrue($staff->hasTwoFactor());
-
-        // A new session (fresh sign-in or "remember me") is held at the challenge.
-        $this->flushSession();
-        $this->signedIn($staff)->get('/dashboard')->assertRedirect(route('two-factor.challenge'));
-        $this->signedIn($staff)->get('/two-factor/challenge')->assertOk()->assertSee('Enter code');
-        $this->signedIn($staff)->post('/two-factor/challenge', ['code' => '111111'])->assertSessionHasErrors('code');
-        $this->signedIn($staff)->post('/two-factor/challenge', ['code' => strtolower($codes[0])])->assertRedirect();
-        $this->assertSame($staff->id, session(EnsureTwoFactorPassed::SESSION_KEY));
-        $this->assertCount(7, $staff->fresh()->two_factor_recovery_codes);
-
-        $this->flushSession();
-        $this->signedIn($staff)->post('/two-factor/challenge', ['code' => $codes[0]])->assertSessionHasErrors('code'); // used up
-
-        // Turning it off needs the password AND a code.
-        $this->flushSession();
-        $this->withSession([EnsureTwoFactorPassed::SESSION_KEY => $staff->id]);
-        $this->signedIn($staff)->delete('/two-factor', ['current_password' => 'right-password', 'code' => '000000'])->assertSessionHasErrors('code');
-        $this->signedIn($staff)->delete('/two-factor', ['current_password' => 'right-password', 'code' => $codes[1]])->assertRedirect(route('two-factor.show'));
-        $this->assertFalse($staff->fresh()->hasTwoFactor());
-        $this->assertNull($staff->fresh()->two_factor_secret);
-    }
-
-    public function test_without_two_step_sign_in_nothing_changes(): void
-    {
-        $this->useFakeSupabase();
-        $staff = $this->linkedLogin('uid-cal');
-        $this->signedIn($staff)->get('/dashboard')->assertOk();
-        $this->signedIn($staff)->get('/two-factor/challenge')->assertRedirect(route('dashboard'));
-        $this->signedIn($staff)->get('/settings')->assertOk()->assertSee('Set up two-step sign-in');
+        $owner = $this->linkedLogin('uid-owner');
+        $this->signedIn($owner)->get('/dashboard')->assertOk();
+        $this->signedIn($owner)->get('/two-factor')->assertRedirect(route('dashboard'));
+        $this->signedIn($owner)->post('/two-factor', ['current_password' => 'uid-owner#Pass1'])->assertRedirect(route('dashboard'));
+        $this->assertNull($owner->fresh()->two_factor_secret);
+        $this->signedIn($owner)->get('/settings')->assertOk()->assertDontSee('two-step sign-in');
     }
 }

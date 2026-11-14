@@ -20,7 +20,7 @@ class AdminRedesignTest extends TestCase
     public function test_overview_json_is_range_aware_and_needs_access(): void
     {
         $this->getJson('/dashboard/overview.json')->assertUnauthorized();
-        $this->actingAs(User::factory()->create(['has_access' => false]))->get('/dashboard/overview.json')->assertRedirect(route('waiting'));
+        $this->actingAs(User::factory()->create(['role' => 'admin', 'has_access' => false]))->get('/dashboard/overview.json')->assertRedirect(route('waiting'));
 
         $this->actingAs($this->admin());
         foreach ([7, 30, 90] as $r) {
@@ -38,17 +38,16 @@ class AdminRedesignTest extends TestCase
         $this->assertNull($this->getJson('/dashboard/overview.json?branch=nope')->json('branchId'));
     }
 
-    public function test_nav_counts_hide_refunds_from_staff(): void
+    public function test_nav_counts_are_for_the_owner_and_staff_get_none(): void
     {
         $this->actingAs($this->admin())->getJson('/ui/counts.json')->assertOk()->assertJsonStructure(['orders', 'low', 'refunds', 'month' => ['net', 'goal', 'pct']]);
-        $this->actingAs(User::factory()->create(['role' => 'staff', 'has_access' => true]))->getJson('/ui/counts.json')->assertOk()->assertJsonPath('refunds', 0);
+        $this->assertStaffKeptOut($this->actingAs(User::factory()->create(['role' => 'staff', 'has_access' => true]))->getJson('/ui/counts.json'));
     }
 
-    public function test_shell_hides_admin_items_from_staff(): void
+    public function test_shell_is_for_the_owner_and_staff_never_see_it(): void
     {
         $this->actingAs($this->admin())->get('/dashboard')->assertOk()->assertSee('All users', false)->assertSee('Overview');
-        $this->actingAs(User::factory()->create(['role' => 'staff', 'has_access' => true]))->get('/dashboard')->assertOk()
-            ->assertDontSee('All users', false)->assertDontSee(route('admin.users.index'));
+        $this->assertStaffKeptOut($this->actingAs(User::factory()->create(['role' => 'staff', 'has_access' => true]))->get('/dashboard'));
     }
 
     public function test_orders_settings_and_help_pages_render(): void

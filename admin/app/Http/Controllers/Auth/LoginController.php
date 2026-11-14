@@ -133,7 +133,9 @@ class LoginController extends Controller
 
     private function firebaseLogin(LoginRequest $request, User $user, array $tokens, array $claims, FirebaseSession $session, AutoLinker $linker)
     {
-        if (! $user->canUseWebsite()) {
+        // A "staff" login goes on to the linker: it is refused there too, unless the app's staff
+        // registry says its account is an active owner now (then it becomes an admin login).
+        if (! $user->canUseWebsite() && $user->role !== User::ROLE_STAFF) {
             ActivityLogger::log('auth.login_refused', 'App-only account tried to log in to the website', $user, ['role' => $user->role]);
             $request->failed(self::APP_ONLY_MESSAGE);
         }

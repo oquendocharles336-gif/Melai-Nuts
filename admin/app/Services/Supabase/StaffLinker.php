@@ -13,20 +13,22 @@ use Illuminate\Validation\ValidationException;
  * A link is accepted only when Supabase itself confirms (get_my_staff_context, asked AS that
  * account) that the account is active, its email matches the portal login's email, and its
  * role fits the portal role: portal admins must be app owners, portal staff must be app staff.
- * Logins whose role may not use the website are never linked.
+ * Logins whose role may not use the website are never linked. The one exception is the record of
+ * an app staff account an owner registers from the website (AccountProvisioner, $appStaff): staff
+ * sign in to the Melai Nuts app only, and that record never gives website access.
  */
 class StaffLinker
 {
     public function __construct(private StaffIdentity $identity) {}
 
     /** @return array the verified staff profile */
-    public function verify(User $user, string $uid): array
+    public function verify(User $user, string $uid, bool $appStaff = false): array
     {
         $uid = trim($uid);
         if ($uid === '' || ! preg_match('/^[A-Za-z0-9:_-]{1,128}$/', $uid)) {
             throw ValidationException::withMessages(['staff_uid' => 'That is not a valid Firebase UID.']);
         }
-        if (! $user->canUseWebsite()) {
+        if (! $user->canUseWebsite() && ! ($appStaff && $user->role === User::ROLE_STAFF)) {
             throw ValidationException::withMessages(['staff_uid' => 'This login cannot use the website, so it cannot be linked.']);
         }
         if (User::where('staff_uid', $uid)->where('id', '!=', $user->id)->exists()) {
@@ -52,9 +54,9 @@ class StaffLinker
         return $profile;
     }
 
-    public function link(User $user, string $uid, ?User $by = null): array
+    public function link(User $user, string $uid, ?User $by = null, bool $appStaff = false): array
     {
-        $profile = $this->verify($user, $uid);
+        $profile = $this->verify($user, $uid, $appStaff);
         try {
             // users.staff_uid is unique: two logins can never share one app account, even if two links race.
             $user->forceFill(['staff_uid' => $profile['firebase_uid'], 'staff_linked_at' => now()])->save();

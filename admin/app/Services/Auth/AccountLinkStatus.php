@@ -19,7 +19,8 @@ use Illuminate\Validation\ValidationException;
  *
  *   Firebase  : a verified ID token in this session, for the same email as the login;
  *   Supabase  : get_my_staff_context() asked AS that UID says active, same email, and the role
- *               that fits the login (admin <-> owner, staff <-> staff with a valid branch).
+ *               that fits the login (admin <-> owner). Staff logins are never linked: staff use
+ *               the Melai Nuts app only.
  *
  * Returns ['state' => LinkState::*, 'message' => string, 'profile' => ?array].
  */
@@ -62,7 +63,10 @@ class AccountLinkStatus
      */
     public function evaluate(User $user, array $claims, bool $link = true, bool $promoteOwner = false): array
     {
-        if (! $user->canUseWebsite()) {
+        // Staff logins do not use the website. The one exception is a sign-in ($promoteOwner): the
+        // app account behind an old staff login may be an owner by now, and then it is promoted below.
+        $promotable = $promoteOwner && $link && $user->role === User::ROLE_STAFF;
+        if (! $user->canUseWebsite() && ! $promotable) {
             return $this->state(LinkState::NOT_APPLICABLE);
         }
         if ($this->config->requireVerifiedEmail() && ! $claims['email_verified']) {
@@ -111,6 +115,10 @@ class AccountLinkStatus
             if (filled($user->staff_uid)) {
                 ActivityLogger::log('account.promoted_from_app_owner', "{$user->email} is now an active owner in the app; login made admin", $user, ['staff_uid' => $claims['sub']]);
             }
+        }
+        if (! $user->canUseWebsite()) {
+            // A staff login whose app account is (still) staff: nothing is linked, the app only.
+            return $this->state(LinkState::ROLE_NOT_AUTHORIZED, \App\Http\Controllers\Auth\LoginController::APP_ONLY_MESSAGE);
         }
 
         if (blank($user->staff_uid)) {

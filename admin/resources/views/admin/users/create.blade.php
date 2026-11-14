@@ -6,7 +6,7 @@
     <h2>Create a staff account</h2>
     @if ($liveData)
         <p class="muted"><strong>Staff</strong> get a Melai Nuts app account (Firebase) registered to the branch you choose, exactly as in the app's
-            User Management, and can sign in to the app and this website with this email and password right away.
+            User Management, and can sign in to the Melai Nuts app with this email and password right away. Staff do not use this website.
             Riders are created in the app's User Management and sign in to the app only.</p>
     @else
         <p class="muted">This account gets access immediately — no waiting page.</p>

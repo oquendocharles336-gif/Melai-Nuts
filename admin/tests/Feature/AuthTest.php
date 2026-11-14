@@ -27,7 +27,8 @@ class AuthTest extends TestCase
     }
 
     private function admin(): User { return User::factory()->create(['role' => 'admin', 'has_access' => true]); }
-    private function staff(): User { return User::factory()->create(['role' => 'staff', 'has_access' => false]); }
+    /** A staff login left in the users table (old registration / old staff login): it can no longer use the website. */
+    private function staff(): User { return User::factory()->create(['role' => 'staff', 'has_access' => true]); }
 
     public function test_home_is_the_shop_and_the_only_way_in_is_the_header_sign_in_button(): void
     {
@@ -77,58 +78,37 @@ class AuthTest extends TestCase
     public function test_empty_fields(): void
     {
         $this->post('/login', [])->assertSessionHasErrors(['email', 'password']);
-        $this->post('/register', [])->assertSessionHasErrors(['name', 'email', 'password', 'password_confirmation']);
     }
 
     public function test_invalid_email(): void
     {
-        $this->post('/register', $this->reg(['email' => 'not-an-email']))->assertSessionHasErrors('email');
         $this->post('/login', ['email' => 'nope', 'password' => 'x'])->assertSessionHasErrors('email');
     }
 
-    public function test_duplicate_email_is_case_insensitive(): void
+    public function test_there_is_no_staff_registration_on_the_website(): void
     {
-        User::factory()->create(['email' => 'juan@example.com']);
-        $this->post('/register', $this->reg(['email' => '  JUAN@Example.com ']))->assertSessionHasErrors('email');
-    }
-
-    public function test_weak_passwords_rejected(): void
-    {
-        foreach (['Ab1!', 'alllowercase1!', 'ALLUPPERCASE1!', 'NoNumbers!!Aa', 'NoSymbols123Aa'] as $pw) {
-            $this->post('/register', $this->reg(['password' => $pw, 'password_confirmation' => $pw]))
-                ->assertSessionHasErrors('password');
-        }
-    }
-
-    public function test_mismatched_passwords(): void
-    {
-        $this->post('/register', $this->reg(['password_confirmation' => 'Different1!']))
-            ->assertSessionHasErrors('password_confirmation');
-    }
-
-    public function test_registration_is_refused_with_the_exact_missing_firebase_setting(): void
-    {
-        // phpunit.xml sets FIREBASE_WEB_API_KEY but no FIREBASE_PROJECT_ID; then also drop the key.
-        config(['services.firebase.web_api_key' => null, 'services.firebase.project_id' => null]);
-        $this->post('/register', $this->reg())->assertSessionHasErrors('auth');
-        $msg = session('errors')->first('auth');
-        $this->assertStringContainsString('FIREBASE_WEB_API_KEY', $msg);
-        $this->assertStringContainsString('FIREBASE_PROJECT_ID', $msg);
-        $this->assertStringContainsString('Web API key', $msg);
+        // Staff accounts are created by the owner (Users > Create account, or the app's User Management)
+        // and sign in to the Melai Nuts app only. Nobody can register for the admin website.
+        $this->get('/register')->assertNotFound();
+        $this->post('/register', $this->reg())->assertNotFound();
+        $this->post('/register', $this->reg(['role' => 'admin', 'has_access' => 1]))->assertNotFound();
         $this->assertGuest();
         $this->assertDatabaseMissing('users', ['email' => 'juan@example.com']);
+        $this->assertSame([], $this->fb->accounts, 'no Firebase account was created');
     }
 
-    public function test_new_account_only_sees_waiting_page(): void
+    public function test_owner_login_without_access_only_sees_the_waiting_page(): void
     {
-        $this->actingAs($this->staff());
+        $this->actingAs(User::factory()->create(['role' => 'admin', 'has_access' => false]));
         $this->get('/waiting')->assertOk()->assertSee('Waiting for admin access');
         $this->get('/dashboard')->assertRedirect(route('waiting'));
     }
 
-    public function test_staff_gets_403_on_admin_pages(): void
+    public function test_staff_login_is_signed_out_on_every_page(): void
     {
-        $this->actingAs($this->staff())->get('/admin/activity-logs')->assertForbidden();
+        foreach (['/dashboard', '/waiting', '/settings', '/orders', '/admin/activity-logs', '/admin/users'] as $url) {
+            $this->assertStaffKeptOut($this->actingAs($this->staff())->get($url));
+        }
     }
 
     public function test_admin_reaches_dashboard_and_logs(): void
@@ -140,7 +120,7 @@ class AuthTest extends TestCase
 
     public function test_wrong_credentials_use_generic_message(): void
     {
-        User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass']);
+        User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass', 'role' => 'admin']);
         $generic = 'Invalid email or password. Use your Melai Nuts app email and password.';
         $this->post('/login', ['email' => 'a@example.com', 'password' => 'wrong'])
             ->assertSessionHasErrors(['auth' => $generic]);
@@ -150,7 +130,7 @@ class AuthTest extends TestCase
 
     public function test_lockout_after_five_attempts(): void
     {
-        User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass']);
+        User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass', 'role' => 'admin']);
         for ($i = 0; $i < 5; $i++) {
             $this->post('/login', ['email' => 'a@example.com', 'password' => 'wrong']);
         }
@@ -161,7 +141,7 @@ class AuthTest extends TestCase
 
     public function test_login_success_logs_activity(): void
     {
-        $u = User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass', 'has_access' => true]);
+        $u = User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass', 'role' => 'admin', 'has_access' => true]);
         $this->post('/login', ['email' => 'a@example.com', 'password' => 'Str0ng!Pass'])->assertRedirect(route('dashboard'));
         $this->assertAuthenticatedAs($u);
         $this->assertTrue(ActivityLog::where('action', 'auth.login')->exists());
@@ -169,8 +149,9 @@ class AuthTest extends TestCase
 
     public function test_deactivated_user_cannot_login(): void
     {
-        User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass', 'is_active' => false]);
+        User::factory()->create(['email' => 'a@example.com', 'password' => 'Str0ng!Pass', 'role' => 'admin', 'is_active' => false]);
         $this->post('/login', ['email' => 'a@example.com', 'password' => 'Str0ng!Pass'])->assertSessionHasErrors('auth');
+        $this->assertStringContainsString('deactivated', session('errors')->first('auth'));
         $this->assertGuest();
     }
 
@@ -179,7 +160,7 @@ class AuthTest extends TestCase
         $this->get('/dashboard')->assertRedirect(route('login'));
         $this->get('/admin/activity-logs')->assertRedirect(route('login'));
         $this->actingAs($this->admin())->get('/login')->assertRedirect(route('dashboard'));
-        $this->get('/register')->assertRedirect(route('dashboard'));
+        $this->get('/register')->assertNotFound();   // no staff sign-up, signed in or not
     }
 
     public function test_logout_invalidates_session(): void
@@ -219,13 +200,40 @@ class AuthTest extends TestCase
         $this->assertSame('Calamba Branch', $page->viewData('topBranches')[0]['name']);
     }
 
-    public function test_first_sign_in_without_a_website_login_creates_and_links_it(): void
+    public function test_staff_app_account_cannot_sign_in_and_no_website_login_is_created(): void
     {
         $this->useFakeSupabase();
-        $this->post('/login', ['email' => 'cora@melainuts.test', 'password' => 'uid-cal#Pass1'])->assertRedirect(route('dashboard'));
+        // The right app e-mail and password of an active staff member: still the app only.
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => 'cora@melainuts.test', 'password' => 'uid-cal#Pass1']));
 
-        $u = User::firstWhere('email', 'cora@melainuts.test');
-        $this->assertSame(['staff', 'uid-cal', 'uid-cal', true], [$u->role, $u->firebase_uid, $u->staff_uid, $u->has_access]);
+        $this->assertNull(User::firstWhere('email', 'cora@melainuts.test'), 'no website login is created for staff');
+        $this->assertTrue(ActivityLog::where('action', 'auth.login_refused')->exists());
+        $this->get('/dashboard')->assertRedirect(route('login'));
+    }
+
+    public function test_old_staff_login_cannot_sign_in_with_the_app_password_and_stays_unlinked(): void
+    {
+        $this->useFakeSupabase();
+        // A staff login from before (website registration approved by the owner): refused, not linked, no access given.
+        $cora = User::factory()->create(['email' => 'cora@melainuts.test', 'role' => 'staff', 'has_access' => false]);
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => 'cora@melainuts.test', 'password' => 'uid-cal#Pass1']));
+
+        $this->assertSame(['staff', null, false], [$cora->fresh()->role, $cora->fresh()->staff_uid, $cora->fresh()->has_access]);
+    }
+
+    public function test_old_staff_login_becomes_the_owner_login_once_the_app_says_owner(): void
+    {
+        $this->useFakeSupabase();
+        // Owner rights come only from the app's staff registry: a login made while the person was staff
+        // is promoted at sign-in, once their app account is an active owner.
+        $old = User::factory()->create(['email' => 'owner@melainuts.test', 'role' => 'staff', 'has_access' => true]);
+
+        $this->post('/login', ['email' => 'owner@melainuts.test', 'password' => 'uid-owner#Pass1'])
+            ->assertRedirect(route('dashboard'))->assertSessionHasNoErrors();
+        $this->assertAuthenticatedAs($old->fresh());
+        $this->assertSame(['admin', 'uid-owner', 'uid-owner'], [$old->fresh()->role, $old->fresh()->firebase_uid, $old->fresh()->staff_uid]);
+        $this->assertTrue(ActivityLog::where('action', 'account.promoted_from_app_owner')->exists());
+        $this->get('/dashboard')->assertOk()->assertSee('Los Baños Branch')->assertSee('Staff accounts');
     }
 
     public function test_melai_admin_signs_in_with_the_website_password_and_acts_as_the_owner_via_admin_staff_uid(): void
@@ -264,15 +272,15 @@ class AuthTest extends TestCase
         $this->assertTrue(ActivityLog::where('action', 'account.auto_linked')->where('meta->source', 'email')->exists());
     }
 
-    public function test_staff_website_login_is_matched_by_email_and_works_without_firebase(): void
+    public function test_staff_website_password_is_refused_even_without_firebase_and_nothing_is_linked(): void
     {
         $this->useFakeSupabase();
-        config(['services.firebase.web_api_key' => null]); // Firebase not configured: website passwords still work
+        config(['services.firebase.web_api_key' => null]); // Firebase not configured: only website passwords are checked
         $cora = User::factory()->create(['email' => 'cora@melainuts.test', 'password' => 'Cora#Pass1', 'role' => 'staff', 'has_access' => true]);
 
-        $this->post('/login', ['email' => 'cora@melainuts.test', 'password' => 'Cora#Pass1'])->assertRedirect(route('dashboard'));
-        $this->assertSame('uid-cal', $cora->fresh()->staff_uid);
-        $this->get('/dashboard')->assertOk()->assertSee('Calamba Branch')->assertDontSee('Los Baños Branch')->assertDontSee('Staff accounts');
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => 'cora@melainuts.test', 'password' => 'Cora#Pass1']));
+        $this->assertNull($cora->fresh()->staff_uid);
+        $this->assertSame([], $this->db->calls, 'the app database is never asked for a staff login');
     }
 
     public function test_no_matching_owner_or_staff_row_or_an_inactive_one_fails_on_the_login_page(): void

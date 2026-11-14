@@ -39,6 +39,19 @@ trait UsesFakeSupabase
         return $u;
     }
 
+    /**
+     * A second owner account with its linked login. Only owners use the website, so tests about two
+     * accounts at once (separate caches, one account's change reaching the other) use two owners.
+     */
+    protected function secondOwner(): User
+    {
+        $this->db->staff['uid-owner2'] = ['firebase_uid' => 'uid-owner2', 'full_name' => 'Second Owner', 'email' => 'owner2@melainuts.test',
+            'role' => 'owner', 'branch_id' => null, 'account_status' => 'active'];
+        $this->fb->addAccount('owner2@melainuts.test', 'uid-owner2', 'uid-owner2#Pass1', verified: true);
+
+        return $this->linkedLogin('uid-owner2');
+    }
+
     /** Signed in to the website AND holding a Firebase sign-in for the login's app account. */
     protected function signedIn(User $user, int $expiresIn = 3600): static
     {

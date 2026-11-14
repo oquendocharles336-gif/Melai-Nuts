@@ -30,7 +30,9 @@ use Illuminate\Validation\ValidationException;
  *   1. Supabase staff registry: public.owner_upsert_staff_member, called AS the signed-in owner
  *      (the SQL function itself refuses anyone who is not an active owner);
  *   2. Firestore profile users/{uid}, written with the owner's own ID token (firestore.rules);
- *   3. the website login is linked (StaffLinker re-checks everything in Supabase).
+ *   3. the account's row in the website's users table is linked (StaffLinker re-checks everything
+ *      in Supabase). For staff that row is only a record: staff sign in to the Melai Nuts app, never
+ *      to the website.
  *
  * A failure after step 1 rolls step 1 back (owner_delete_staff_member, only if the row is new),
  * a failure after step 2 also deletes the Firestore profile, so nothing is left half-registered,
@@ -98,10 +100,15 @@ class AccountProvisioner
         return $tokens['id_token'];
     }
 
-    /** Owner approves a website registration (Firebase account created at registration, email verified). */
+    /**
+     * Owner approves a website registration (Firebase account created at registration, email verified).
+     * The website no longer takes registrations; this is for the ones made before, still waiting.
+     * Approved as staff, the person signs in to the Melai Nuts app (staff do not use the website).
+     */
     public function approve(User $pending, string $role, ?string $branchId, User $owner, ?string $ownerToken = null): array
     {
-        if (blank($pending->firebase_uid) || filled($pending->staff_uid) || ! $pending->canUseWebsite()) {
+        $approvable = $pending->canUseWebsite() || $pending->role === User::ROLE_STAFF;   // never an old rider login
+        if (blank($pending->firebase_uid) || filled($pending->staff_uid) || ! $approvable) {
             throw ValidationException::withMessages(['approve' => 'Only website registrations that are not linked yet can be approved.']);
         }
         if ($pending->is($owner)) {
@@ -115,8 +122,9 @@ class AccountProvisioner
     }
 
     /**
-     * Admin creates a staff account on the website: new Firebase account + app registration + linked
-     * login, all or nothing. @return array [User, profile]
+     * Admin creates a staff account on the website: new Firebase account + app registration + its
+     * linked record here, all or nothing. The person signs in to the Melai Nuts app (staff do not
+     * use the website). @return array [User, profile]
      */
     public function createStaff(string $name, string $email, string $password, ?string $branchId, User $owner, ?string $ownerToken = null): array
     {
@@ -126,7 +134,7 @@ class AccountProvisioner
             $tokens = $this->client->signUp($email, $password, $name);
         } catch (FirebaseAuthException $e) {
             throw ValidationException::withMessages([$e->reason === FirebaseAuthException::EMAIL_EXISTS ? 'email' : 'password' => match ($e->reason) {
-                FirebaseAuthException::EMAIL_EXISTS => 'This email already has a Melai Nuts app account. If it is this person\'s, ask them to sign in to the website with it (or use Create Account there) and approve them on this page; otherwise use another email.',
+                FirebaseAuthException::EMAIL_EXISTS => 'This email already has a Melai Nuts app account. If it is this person\'s, register that account as staff in the app\'s User Management (or approve it on the Users page if it is listed there as "Needs approval"); otherwise use another email.',
                 default => $e->getMessage(),
             }]);
         }
@@ -200,11 +208,12 @@ class AccountProvisioner
                     'This app account already has an app profile with role "'.($doc['role'] ?? '?').'". Change it in the app\'s User Management instead.');
             }
 
-            // 3. Link the website login (verified again by Supabase).
+            // 3. Link the website's record of the account (verified again by Supabase). A staff record
+            //    never signs in here (User::WEBSITE_ROLES): staff use the Melai Nuts app only.
             $previousRole = $user->role;
             $user->forceFill(['role' => $role === 'owner' ? User::ROLE_ADMIN : User::ROLE_STAFF])->save();
             try {
-                $profile = $this->linker->link($user, $uid, $owner);
+                $profile = $this->linker->link($user, $uid, $owner, appStaff: $role === 'staff');
             } catch (\Throwable $e) {
                 $user->forceFill(['role' => $previousRole])->save();
                 throw $e;

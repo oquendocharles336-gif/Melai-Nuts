@@ -71,6 +71,7 @@ class AllUsersPageTest extends TestCase
 
     public function test_pending_registrations_are_flagged_and_listed_first(): void
     {
+        // The website takes no registrations any more; one made before is still listed for the owner to approve.
         $this->useFakeSupabase();
         $owner = $this->linkedLogin('uid-owner');
         $reg = User::factory()->create(['name' => 'Zed Newcomer', 'email' => 'zed@example.test', 'role' => 'staff', 'has_access' => false]);
@@ -148,17 +149,19 @@ class AllUsersPageTest extends TestCase
     public function test_staff_cannot_open_the_page(): void
     {
         $this->useFakeSupabase();
-        $this->signedIn($this->linkedLogin('uid-cal'))->get('/admin/users')->assertForbidden();
+        $this->assertStaffKeptOut($this->signedIn($this->linkedLogin('uid-cal'))->get('/admin/users'));
         $this->assertNotContains('owner_all_users', $this->db->calledFunctions());
     }
 
     public function test_mock_mode_lists_website_logins_only(): void
     {
         $admin = User::factory()->create(['name' => 'Ada Admin', 'role' => 'admin', 'has_access' => true]);
-        User::factory()->create(['name' => 'Ben Waiting', 'role' => 'staff', 'has_access' => false]);
+        User::factory()->create(['name' => 'Ben Waiting', 'role' => 'admin', 'has_access' => false]);
+        User::factory()->create(['name' => 'Sam Staff', 'role' => 'staff', 'has_access' => true]);   // an old staff login
 
         $page = $this->actingAs($admin)->get('/admin/users')->assertOk()->assertSee('Ada Admin')->assertSee('Ben Waiting')
-            ->assertSee('Waiting for access')->assertDontSee('Customers <span', false);
+            ->assertSee('Waiting for access')->assertDontSee('Customers <span', false)
+            ->assertSee('Sam Staff')->assertSee('No website access');
         $this->assertSame('Ben Waiting', $this->names($page)[0], 'waiting logins first');
     }
 

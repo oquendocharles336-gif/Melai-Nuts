@@ -93,10 +93,10 @@ class AdminSecurityTest extends TestCase
     public function test_every_change_is_rate_limited_and_429_has_its_own_page(): void
     {
         config(['melai.write_limit_per_minute' => 2]);
-        // Invalid registrations never reach Firebase; they still count as changes.
-        $this->post('/register', [])->assertSessionHasErrors('name');
-        $this->post('/register', [])->assertSessionHasErrors('name');
-        $this->post('/register', [])->assertStatus(429)->assertSee('Too many requests');
+        // Invalid reset requests never reach Firebase; they still count as changes.
+        $this->post('/forgot-password', [])->assertSessionHasErrors('email');
+        $this->post('/forgot-password', [])->assertSessionHasErrors('email');
+        $this->post('/forgot-password', [])->assertStatus(429)->assertSee('Too many requests');
         $this->get('/terms')->assertOk(); // reads are never limited
     }
 
