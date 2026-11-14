@@ -48,6 +48,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _orderUpdates = false;
   bool _submitting = false;
 
+  // The Password rules look at the email and name, so it re-validates when they change.
+  late final Listenable _passwordDeps =
+      Listenable.merge([_emailController, _firstNameController, _lastNameController]);
+
   @override
   void dispose() {
     _firstNameController.dispose();
@@ -152,6 +156,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             PersonNameFields(
               first: _firstNameController,
               last: _lastNameController,
+              liveValidate: true,
             ),
             const SizedBox(height: AppSpacing.md),
             AppTextField(
@@ -161,6 +166,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               autofillHints: const [AutofillHints.telephoneNumber],
               textInputAction: TextInputAction.next,
               inputFormatters: InputRules.phone(),
+              liveValidate: true,
               hint: '09171234567',
               helperText: '11 digits. Used for order updates.',
               validator: ValidationUtils.validateMobile,
@@ -174,6 +180,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               autofillHints: const [AutofillHints.email],
               textInputAction: TextInputAction.next,
               maxLength: InputLimits.email,
+              liveValidate: true,
               hint: 'you@example.com',
               helperText: 'Used to sign in and to verify your account.',
               validator: ValidationUtils.validateEmail,
@@ -187,6 +194,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               autofillHints: const [AutofillHints.newPassword],
               textInputAction: TextInputAction.next,
               maxLength: InputLimits.passwordMax,
+              liveValidate: true,
+              revalidateOn: _passwordDeps,
               validator: (v) => ValidationUtils.validatePassword(
                 v,
                 email: _emailController.text,
@@ -205,6 +214,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               autofillHints: const [AutofillHints.newPassword],
               textInputAction: TextInputAction.done,
               maxLength: InputLimits.passwordMax,
+              liveValidate: true,
+              revalidateOn: _passwordController,
               validator: (v) {
                 if (v == null || v.isEmpty) return 'Please confirm your password.';
                 if (v != _passwordController.text) return 'Passwords do not match.';

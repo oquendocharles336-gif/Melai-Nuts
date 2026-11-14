@@ -159,6 +159,203 @@ document.addEventListener('click', (e) => {
     b.setAttribute('aria-pressed', String(show));
 });
 
+// ---- Live field validation (forms marked data-live-validate) -----------------------------------
+// A field stays neutral until the person leaves it once; after that it re-validates as they type:
+// red (.has-err + message in .err) when wrong, green (.is-valid) when right. Same rules and
+// messages as admin/app/Http/Requests/Rules.php and the app's ValidationUtils. The server still
+// validates everything; this only gives earlier feedback.
+(() => {
+    const LIMITS = { name: 50, email: 254, pwMin: 8, pwMax: 64 };
+    const NAME_RE = /^[\p{L}\p{M}\s'’.\-]+$/u;
+    const PH_MOBILE_RE = /^(?:\+63|63|0)?9\d{9}$/;
+    const EMAIL_LOCAL_RE = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+    const EMAIL_LABEL_RE = /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+    const EMAIL_TLD_RE = /^[A-Za-z]{2,24}$/;
+    const WEAK_WORDS = new Set([
+        'password', 'passw', 'pass', 'pword', 'qwerty', 'qwertyuiop', 'asdf', 'asdfgh',
+        'zxcvbn', 'welcome', 'admin', 'administrator', 'letmein', 'iloveyou', 'abc',
+        'abcd', 'abcdef', 'abcdefg', 'monkey', 'dragon', 'football', 'baseball',
+        'sunshine', 'princess', 'master', 'login', 'changeme', 'secret', 'melainuts',
+        'melai', 'nuts', 'test', 'user', 'qazwsx', 'trustno', 'iloveu', 'mahalkita',
+    ]);
+
+    const isCommonPassword = (password) => {
+        const lower = password.toLowerCase();
+        const letters = (v) => v.replace(/[^a-z]/g, '');
+        if (letters(lower) === '') return true;
+        const leet = lower.replace(/@/g, 'a').replace(/0/g, 'o').replace(/3/g, 'e').replace(/\$/g, 's');
+        return [letters(lower), letters(leet), letters(leet.replace(/1/g, 'i')), letters(leet.replace(/1/g, 'l'))].some((c) => WEAK_WORDS.has(c));
+    };
+
+    // Each rule returns an error message, or null when the value is fine. `ctx` reads the other
+    // fields of the same form (the password checks look at the email and name).
+    const rules = {
+        name(v) {
+            const t = v.trim();
+            if (t === '') return 'Full name is required.';
+            if (t.length < 2) return 'Name must be at least 2 characters long.';
+            if (t.length > LIMITS.name) return `Name cannot exceed ${LIMITS.name} characters.`;
+            if (!NAME_RE.test(t)) return 'Name should only contain letters, spaces, hyphens, apostrophes or periods.';
+            if ((t.match(/\p{L}/gu) || []).length < 2) return 'Please enter a valid name.';
+            return null;
+        },
+        email(v) {
+            const t = v.trim();
+            if (t === '') return 'Email is required.';
+            const invalid = 'Please enter a valid email address (e.g. user@example.com).';
+            if (t.length > LIMITS.email) return invalid;
+            const at = t.indexOf('@');
+            if (at <= 0 || at !== t.lastIndexOf('@')) return invalid;
+            const local = t.slice(0, at);
+            const labels = t.slice(at + 1).split('.');
+            if (local.length > 64 || !EMAIL_LOCAL_RE.test(local)) return invalid;
+            if (labels.length < 2 || !labels.every((l) => EMAIL_LABEL_RE.test(l)) || !EMAIL_TLD_RE.test(labels[labels.length - 1])) return invalid;
+            return null;
+        },
+        phone(v) {
+            const t = v.trim();
+            if (t === '') return 'Mobile number is required.';
+            return PH_MOBILE_RE.test(t.replace(/[\s\-().]/g, '')) ? null : 'Please enter a valid Philippine mobile number, e.g. 0917 123 4567.';
+        },
+        password(v, ctx) {
+            if (v === '') return 'Password is required.';
+            if (v.trim() === '') return 'Password cannot be only spaces.';
+            if (v.length < LIMITS.pwMin) return `Password must be at least ${LIMITS.pwMin} characters long.`;
+            if (v.length > LIMITS.pwMax) return `Password cannot exceed ${LIMITS.pwMax} characters.`;
+            if (!/\p{Lu}/u.test(v)) return 'Password must contain at least one uppercase letter (A-Z).';
+            if (!/\p{Ll}/u.test(v)) return 'Password must contain at least one lowercase letter (a-z).';
+            if (!/\p{N}/u.test(v)) return 'Password must contain at least one number (0-9).';
+            if (!/[\p{Z}\p{S}\p{P}]/u.test(v)) return 'Password must contain at least one special character (!@#$...).';
+            const lower = v.toLowerCase();
+            const local = (ctx.value('email') || '').trim().toLowerCase().split('@')[0];
+            if (local.length >= 3 && lower.includes(local)) return 'Password must not contain your email address.';
+            for (const part of (ctx.value('name') || '').toLowerCase().split(/[\s\-.]+/)) {
+                if (part.length >= 3 && lower.includes(part)) return 'Password must not contain your name.';
+            }
+            if (isCommonPassword(v)) return 'This password is too common. Choose something harder to guess.';
+            return null;
+        },
+        confirm(v, ctx) {
+            if (v === '') return 'Please confirm your password.';
+            return v === ctx.value('password') ? null : 'Passwords do not match.';
+        },
+        terms(_v, _ctx, el) {
+            return el.checked ? null : 'Please agree to the Terms and Conditions and the Privacy Policy.';
+        },
+    };
+    // Which rule a field uses comes from its name attribute.
+    const ruleFor = { name: 'name', email: 'email', phone: 'phone', password: 'password', password_confirmation: 'confirm', terms: 'terms' };
+    // Fields whose result depends on another one, so they re-check when it changes.
+    const dependents = { password: ['confirm'], email: ['password'], name: ['password'] };
+
+    const state = new WeakMap();   // field -> { touched, serverValue }
+    const formOf = (el) => el.closest('form[data-live-validate]');
+    const ruleOf = (el) => (el.matches('input') ? ruleFor[el.name] : null);
+    const fieldByRule = (form, rule) => [...form.querySelectorAll('input[name]')].find((i) => ruleOf(i) === rule);
+    const wrapOf = (el) => (el.type === 'checkbox' ? el.closest('label.s-check') : el.closest('.s-field'));
+
+    /** The message element: the server-rendered one when there is one, otherwise a new one. */
+    const messageEl = (el) => {
+        const wrap = wrapOf(el);
+        let msg = el.type === 'checkbox'
+            ? (wrap.nextElementSibling?.classList.contains('s-err') ? wrap.nextElementSibling : null)
+            : wrap.querySelector('.err');
+        if (!msg) {
+            msg = document.createElement('span');
+            msg.className = el.type === 'checkbox' ? 's-err' : 'err';
+            msg.hidden = true;
+            if (el.type === 'checkbox') wrap.after(msg); else wrap.appendChild(msg);
+        }
+        if (!msg.id) msg.id = `${el.id || el.name}-err`;
+        msg.setAttribute('role', 'alert');
+        return msg;
+    };
+
+    const paint = (el, error, showValid) => {
+        const wrap = wrapOf(el);
+        const msg = messageEl(el);
+        wrap.classList.toggle('has-err', !!error);
+        wrap.classList.toggle('is-valid', !error && showValid);
+        msg.textContent = error || '';
+        msg.hidden = !error;
+        const ids = new Set((el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+        if (error) { ids.add(msg.id); el.setAttribute('aria-invalid', 'true'); } else { ids.delete(msg.id); el.removeAttribute('aria-invalid'); }
+        if (ids.size) el.setAttribute('aria-describedby', [...ids].join(' ')); else el.removeAttribute('aria-describedby');
+    };
+
+    /** Validates one field and paints it. Returns the error message, or null. */
+    const check = (el) => {
+        const form = formOf(el);
+        const rule = ruleOf(el);
+        if (!form || !rule) return null;
+        const ctx = { value: (r) => fieldByRule(form, r)?.value ?? '' };
+        // Optional (no `required`) and empty: nothing to say. Consent is always required.
+        if (rule !== 'terms' && !el.required && el.value === '') { paint(el, null, false); return null; }
+        const error = rules[rule](el.value, ctx, el);
+        paint(el, error, true);
+        return error;
+    };
+
+    const st = (el) => { if (!state.has(el)) state.set(el, { touched: false, serverValue: null }); return state.get(el); };
+    const run = (el) => {
+        const s = st(el);
+        s.touched = true;
+        // A server message (e.g. "account already exists") stays until the value is changed.
+        if (s.serverValue !== null && el.value === s.serverValue && el.type !== 'checkbox') return null;
+        return check(el);
+    };
+    const rerunDependents = (el) => {
+        const form = formOf(el);
+        (dependents[ruleOf(el)] || []).forEach((rule) => {
+            const other = form && fieldByRule(form, rule);
+            if (other && st(other).touched) { st(other).serverValue = null; check(other); }
+        });
+    };
+
+    // Errors the server rendered stay red on load; those fields count as already touched.
+    document.querySelectorAll('form[data-live-validate] input[name]').forEach((el) => {
+        if (!ruleOf(el)) return;
+        const s = st(el);
+        if (wrapOf(el)?.classList.contains('has-err')) { s.touched = true; s.serverValue = el.value; messageEl(el); }
+    });
+
+    // Leaving a field (checkboxes check on change: ticking is the whole interaction).
+    document.addEventListener('focusout', (e) => {
+        const el = e.target;
+        if (!(el instanceof HTMLInputElement) || !formOf(el) || !ruleOf(el) || el.type === 'checkbox') return;
+        run(el);
+        rerunDependents(el);
+    });
+    // After the first blur: live, so red turns green as soon as it is fixed (and back).
+    document.addEventListener('input', (e) => {
+        const el = e.target;
+        if (!(el instanceof HTMLInputElement) || !formOf(el) || !ruleOf(el) || el.type === 'checkbox') return;
+        if (!st(el).touched) return;
+        st(el).serverValue = null;
+        check(el);
+        rerunDependents(el);
+    });
+    document.addEventListener('change', (e) => {
+        const el = e.target;
+        if (!(el instanceof HTMLInputElement) || el.type !== 'checkbox' || !formOf(el) || !ruleOf(el)) return;
+        st(el).serverValue = null;
+        run(el);
+    });
+    // Submit: check everything at once, mark every bad field, focus the first, send nothing.
+    // Capture phase, so it runs before the "busy" button handler below.
+    document.addEventListener('submit', (e) => {
+        const form = e.target.closest?.('form[data-live-validate]');
+        if (!form) return;
+        let first = null;
+        form.querySelectorAll('input[name]').forEach((el) => {
+            if (!ruleOf(el)) return;
+            st(el).serverValue = null;
+            if (run(el) && !first) first = el;
+        });
+        if (first) { e.preventDefault(); e.stopImmediatePropagation(); first.focus(); }
+    }, true);
+})();
+
 // ---- Payment check after HitPay (only the HitPay webhook marks money paid) --------------------
 const poll = document.querySelector('[data-poll-url]');
 if (poll) {
