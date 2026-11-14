@@ -157,6 +157,7 @@
                             <p><a href="{{ AuthPanel::url(AuthPanel::SIGN_IN) }}" data-panel-open="{{ AuthPanel::SIGN_IN }}">Back to sign in</a></p>
                         </div>
                     @break
+
                 @endswitch
             </section>
         @endforeach

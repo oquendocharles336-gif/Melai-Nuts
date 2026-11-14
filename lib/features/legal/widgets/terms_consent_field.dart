@@ -75,7 +75,7 @@ class _TermsConsentBodyState extends State<_TermsConsentBody> {
             Checkbox(
               value: checked,
               isError: widget.state.hasError,
-              activeColor: AppColors.primary,
+              activeColor: AppColors.success, // green once ticked
               onChanged: (v) => _set(v ?? false),
             ),
             Expanded(

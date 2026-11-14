@@ -8,6 +8,9 @@ class PersonNameFields extends StatelessWidget {
   final TextEditingController first;
   final TextEditingController last;
 
+  /// Red/green feedback after each field is left (see [AppTextField.liveValidate]).
+  final bool liveValidate;
+
   /// Each part's limit, so the composed name fits [InputLimits.name].
   static const int _partLimit = 23;
 
@@ -15,6 +18,7 @@ class PersonNameFields extends StatelessWidget {
     super.key,
     required this.first,
     required this.last,
+    this.liveValidate = false,
   });
 
   @override
@@ -30,6 +34,7 @@ class PersonNameFields extends StatelessWidget {
           autofillHints: const [AutofillHints.givenName],
           textInputAction: TextInputAction.next,
           maxLength: _partLimit,
+          liveValidate: liveValidate,
           validator: (v) => ValidationUtils.validateName(v, 'First Name'),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -42,6 +47,7 @@ class PersonNameFields extends StatelessWidget {
           autofillHints: const [AutofillHints.familyName],
           textInputAction: TextInputAction.next,
           maxLength: _partLimit,
+          liveValidate: liveValidate,
           validator: (v) => ValidationUtils.validateName(v, 'Last Name'),
         ),
       ],
