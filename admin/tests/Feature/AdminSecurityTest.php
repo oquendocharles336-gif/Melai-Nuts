@@ -65,15 +65,12 @@ class AdminSecurityTest extends TestCase
             ->assertSee('Pagkuha ng order at downpayment')->assertSee('sa loob ng 7 araw');
         $this->get('/privacy')->assertOk()->assertSee('Melai Nuts Retailing')->assertSee('melaioraya5&#64;gmail.com', false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('Patakaran sa Privacy')->assertSee('iniingatan nang 5 taon');
-        // The staff-access request lives in the homepage's sign-in panel; consent is never pre-ticked.
-        $this->get('/register')->assertRedirect('/?panel=staff-access');
-        $this->get('/?panel=staff-access')->assertOk()->assertSee(route('legal.terms'), false)->assertSee(route('legal.privacy'), false)
-            ->assertSee('action="'.route('register').'"', false)->assertSee('name="terms"', false)
-            ->assertDontSee('name="terms" value="1" checked', false);
-
+        // The website has no staff sign-up any more: staff use the Melai Nuts app only.
+        $this->get('/register')->assertNotFound();
+        $this->get('/?panel=staff-access')->assertOk()->assertDontSee('Request staff access')->assertDontSee('data-panel="staff-access"', false);
         $this->post('/register', ['name' => 'Ana Reyes', 'email' => 'ana@example.com',
-            'password' => 'Kasoy#Tanim42', 'password_confirmation' => 'Kasoy#Tanim42'])
-            ->assertSessionHasErrors('terms');
+            'password' => 'Kasoy#Tanim42', 'password_confirmation' => 'Kasoy#Tanim42', 'terms' => '1'])
+            ->assertNotFound();
     }
 
     public function test_an_admin_never_needs_two_step_sign_in(): void
@@ -93,10 +90,10 @@ class AdminSecurityTest extends TestCase
     public function test_every_change_is_rate_limited_and_429_has_its_own_page(): void
     {
         config(['melai.write_limit_per_minute' => 2]);
-        // Invalid registrations never reach Firebase; they still count as changes.
-        $this->post('/register', [])->assertSessionHasErrors('name');
-        $this->post('/register', [])->assertSessionHasErrors('name');
-        $this->post('/register', [])->assertStatus(429)->assertSee('Too many requests');
+        // Invalid reset requests never reach Firebase; they still count as changes.
+        $this->post('/forgot-password', [])->assertSessionHasErrors('email');
+        $this->post('/forgot-password', [])->assertSessionHasErrors('email');
+        $this->post('/forgot-password', [])->assertStatus(429)->assertSee('Too many requests');
         $this->get('/terms')->assertOk(); // reads are never limited
     }
 

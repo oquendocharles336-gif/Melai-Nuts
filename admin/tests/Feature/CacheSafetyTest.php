@@ -74,42 +74,45 @@ class CacheSafetyTest extends TestCase
         $this->boot();
         $this->perf->orders[0]['status'] = 'pending';
         $owner = $this->linkedLogin('uid-owner');
-        $cora = $this->linkedLogin('uid-cal');
+        $second = $this->secondOwner();
 
-        $this->assertSame('pending', $this->statusOnOrdersPage($cora, 'ORD-CAL-1')); // Cora's own cache
+        $this->assertSame('pending', $this->statusOnOrdersPage($second, 'ORD-CAL-1')); // the second owner's own cache
         $this->signedIn($owner)->postJson('/orders/ORD-CAL-1/advance', ['from' => 'pending'])->assertOk();
-        $this->assertSame('confirmed', $this->statusOnOrdersPage($cora, 'ORD-CAL-1'));
+        $this->assertSame('confirmed', $this->statusOnOrdersPage($second, 'ORD-CAL-1'));
     }
 
     public function test_cache_keys_are_per_login_and_app_account_and_never_shared(): void
     {
         $this->boot();
         $owner = $this->linkedLogin('uid-owner');
+        $second = $this->secondOwner();
         $cora = $this->linkedLogin('uid-cal');
-        $lito = $this->linkedLogin('uid-lb');
 
-        // The owner warms every cache first; each staff member still gets only their own branch.
+        // The owner warms every cache first; the second owner is still answered by the database, as their own account.
         $this->signedIn($owner)->get('/orders')->assertOk();
         $this->assertSame(2, $this->signedIn($owner)->getJson('/ui/counts.json')->json('orders') + 2); // both branches are completed orders
-        $coraRows = $this->signedIn($cora)->get('/orders')->assertOk()->viewData('orders');
-        $litoRows = $this->signedIn($lito)->get('/orders')->assertOk()->viewData('orders');
-        $this->assertSame(['ORD-CAL-1'], array_column($coraRows, 'id'));
-        $this->assertSame(['ORD-LB-1'], array_column($litoRows, 'id'));
-        $this->assertSame('Calamba Branch', $this->signedIn($cora)->getJson('/dashboard/overview.json')->json('scope'));
+        $rows = $this->signedIn($second)->get('/orders')->assertOk()->viewData('orders');
+        $this->assertEqualsCanonicalizing(['ORD-CAL-1', 'ORD-LB-1'], array_column($rows, 'id'));
+        foreach (['admin_portal_orders', 'get_my_staff_context'] as $fn) {
+            $this->assertContains($fn, $this->perf->calledFunctions('uid-owner2'), "$fn ran as the second owner's own UID, not from the first owner's cache");
+        }
 
-        // Every read Cora caused ran as Cora's own UID (the database decided what she sees).
-        $this->assertSame(['uid-cal'], array_values(array_unique(array_column(
-            array_filter($this->perf->calls, fn ($c) => in_array($c['fn'], ['admin_portal_orders', 'get_my_staff_context'], true) && $c['uid'] === 'uid-cal'), 'uid'))));
+        // A staff login gets nothing, cached or not: staff do not use the website.
+        $this->assertStaffKeptOut($this->signedIn($cora)->get('/orders'));
+        $this->assertStaffKeptOut($this->signedIn($cora)->getJson('/dashboard/overview.json'));
+        $this->assertSame([], $this->perf->calledFunctions('uid-cal'));
 
         // The key itself names the login and the app account.
         $this->actingAs($owner);
         $ownerKey = Swr::key('orders-page');
-        $this->actingAs($cora);
-        $this->assertNotSame($ownerKey, Swr::key('orders-page'));
-        $same = $cora->replicate()->forceFill(['staff_uid' => 'uid-lb']);
-        $same->id = $cora->id;
+        $this->actingAs($second);
+        $secondKey = Swr::key('orders-page');
+        $this->assertNotSame($ownerKey, $secondKey);
+        $same = $second->replicate()->forceFill(['staff_uid' => 'uid-other']);
+        $same->id = $second->id;
         $this->actingAs($same);
-        $this->assertNotSame(Swr::key('orders-page'), $ownerKey, 'a re-linked login gets new keys');
+        $this->assertNotSame($secondKey, Swr::key('orders-page'), 'a re-linked login gets new keys');
+        $this->assertNotSame($ownerKey, Swr::key('orders-page'));
     }
 
     public function test_a_deactivated_account_is_cut_off_even_when_everything_is_cached(): void

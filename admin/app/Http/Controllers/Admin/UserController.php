@@ -102,7 +102,8 @@ class UserController extends Controller
         $profile = $provisioner->approve($user, $data['role'], $data['branch_id'] ?? null, $request->user(), $token);
 
         return back()->with('status', "{$user->email} is now registered in the app as {$profile['role']}"
-            .(($profile['branch_name'] ?? null) ? " ({$profile['branch_name']})" : '').' and can use the website.');
+            .(($profile['branch_name'] ?? null) ? " ({$profile['branch_name']})" : '')
+            .($profile['role'] === 'owner' ? ' and can use the website.' : '. They sign in to the Melai Nuts app (staff do not use the website).'));
     }
 
     /** Disable / enable a staff member's or customer's app account (see AppAccountStatus). */
@@ -160,7 +161,7 @@ class UserController extends Controller
                 'role' => $user->role, 'created_by' => $request->user()->id, 'branch' => $profile['branch_name'] ?? null,
             ]);
 
-            return redirect()->route('admin.users.index')->with('status', "App staff account created for {$user->email} ({$profile['branch_name']}). They sign in to the app and this website with that email and password.");
+            return redirect()->route('admin.users.index')->with('status', "App staff account created for {$user->email} ({$profile['branch_name']}). They sign in to the Melai Nuts app with that email and password (staff do not use the website).");
         }
 
         try {

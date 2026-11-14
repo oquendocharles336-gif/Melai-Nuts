@@ -12,7 +12,10 @@ use Mockery;
 use Tests\Support\FakeFirebase;
 use Tests\TestCase;
 
-/** Every link state, decided from (faked) Supabase answers for a verified Firebase identity. */
+/**
+ * Every link state, decided from (faked) Supabase answers for a verified Firebase identity.
+ * Only the owner uses the website (admin login <-> owner account); staff logins are never linked.
+ */
 class AccountLinkStatusTest extends TestCase
 {
     use RefreshDatabase;
@@ -32,13 +35,13 @@ class AccountLinkStatusTest extends TestCase
         $this->app->instance(StaffIdentity::class, $m);
     }
 
-    private function profile(string $role = 'staff', string $email = 'pat@example.com', array $extra = []): array
+    private function profile(string $role = 'owner', string $email = 'pat@example.com', array $extra = []): array
     {
         return ['status' => 'active', 'profile' => array_merge(['firebase_uid' => 'uid-p', 'full_name' => 'Pat', 'email' => $email, 'role' => $role,
             'branch_id' => 'b1', 'branch_name' => 'Calamba'], $extra), 'authorized_branches' => []];
     }
 
-    private function user(string $role = 'staff', array $attrs = []): User
+    private function user(string $role = 'admin', array $attrs = []): User
     {
         $u = User::factory()->create(array_merge(['email' => 'pat@example.com', 'role' => $role, 'has_access' => false], $attrs));
         $u->forceFill(['firebase_uid' => 'uid-p'])->save();
@@ -68,7 +71,7 @@ class AccountLinkStatusTest extends TestCase
     public function test_existing_valid_link_is_kept(): void
     {
         $this->identity($this->profile());
-        $u = $this->user('staff', ['has_access' => true]);
+        $u = $this->user('admin', ['has_access' => true]);
         $u->forceFill(['staff_uid' => 'uid-p', 'staff_linked_at' => now()->subYear()])->save();
         $this->assertSame(LinkState::LINKED, $this->state($u)['state']);
         $this->assertTrue($u->fresh()->staff_linked_at->lt(now()->subMonth()), 'link must not be rewritten');
@@ -82,6 +85,23 @@ class AccountLinkStatusTest extends TestCase
         $this->assertSame(LinkState::PROFILE_MISSING, $r['state']);
         $this->assertStringContainsString('approve', $r['message']);
         $this->assertNull($u->fresh()->staff_uid);
+    }
+
+    public function test_staff_login_is_never_linked_and_gets_no_access(): void
+    {
+        // Staff use the Melai Nuts app only: even a perfectly valid staff account is not linked.
+        $this->identity($this->profile('staff'));
+        $u = $this->user('staff');
+        $this->assertSame(LinkState::NOT_APPLICABLE, $this->state($u)['state']);
+        $this->assertSame(LinkState::NOT_APPLICABLE, app(AccountLinkStatus::class)->resolve($u)['state']);
+
+        // At sign-in the app's registry is asked once more (the account may be an owner by now): still staff, so refused.
+        $r = $this->state($u, [], promote: true);
+        $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $r['state']);
+        $this->assertSame(\App\Http\Controllers\Auth\LoginController::APP_ONLY_MESSAGE, $r['message']);
+        $this->assertNull($u->fresh()->staff_uid);
+        $this->assertFalse($u->fresh()->has_access);
+        $this->assertSame('staff', $u->fresh()->role);
     }
 
     public function test_missing_profile_falls_back_to_the_email_and_names_the_exact_problem(): void
@@ -99,14 +119,23 @@ class AccountLinkStatusTest extends TestCase
         $this->assertStringContainsString('staff_members', $this->state($u)['message']);
     }
 
-    public function test_auto_linker_refuses_with_the_reason_but_lets_a_pending_registration_wait(): void
+    public function test_auto_linker_refuses_with_the_reason_and_staff_with_the_app_only_message(): void
     {
         config(['melai.data_source' => 'supabase']);
         $this->identity(['status' => 'not_provisioned']);
         $linker = app(\App\Services\Auth\AutoLinker::class);
 
-        $pending = $this->user('staff', ['has_access' => false]);
-        $this->assertSame(LinkState::PROFILE_MISSING, $linker->linkAtLogin($pending, $this->claims())['state']);
+        // A staff login (an old website registration, a staff member) never signs in: with or without an app sign-in.
+        $staff = $this->user('staff', ['has_access' => false]);
+        foreach ([$this->claims(), null] as $claims) {
+            try {
+                $linker->linkAtLogin($staff, $claims);
+                $this->fail('expected the staff sign-in to be refused');
+            } catch (\App\Exceptions\AccountLinkException $e) {
+                $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $e->state);
+                $this->assertSame(\App\Http\Controllers\Auth\LoginController::APP_ONLY_MESSAGE, $e->getMessage());
+            }
+        }
 
         $admin = User::factory()->create(['email' => 'adm@example.com', 'role' => 'admin', 'has_access' => true]);
         try {
@@ -130,7 +159,7 @@ class AccountLinkStatusTest extends TestCase
     {
         foreach (['inactive' => 'deactivated', 'suspended' => 'suspended'] as $status => $word) {
             $this->identity(['status' => $status]);
-            $u = User::factory()->create(['email' => "pat-$status@example.com", 'role' => 'staff']);
+            $u = User::factory()->create(['email' => "pat-$status@example.com", 'role' => 'admin']);
             $u->forceFill(['firebase_uid' => "uid-$status"])->save();
             $r = $this->state($u, ['sub' => "uid-$status", 'email' => "pat-$status@example.com"]);
             $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $r['state']);
@@ -140,7 +169,7 @@ class AccountLinkStatusTest extends TestCase
 
     public function test_email_mismatch_never_links(): void
     {
-        $this->identity($this->profile('staff', 'someone-else@example.com'));
+        $this->identity($this->profile('owner', 'someone-else@example.com'));
         $u = $this->user();
         $this->assertSame(LinkState::EMAIL_MISMATCH, $this->state($u)['state']);
         $this->assertSame(LinkState::EMAIL_MISMATCH, $this->state($u, ['email' => 'other@example.com'])['state']);
@@ -163,21 +192,25 @@ class AccountLinkStatusTest extends TestCase
         $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $this->state($admin)['state']);
         $this->assertSame('admin', $admin->fresh()->role);
 
-        // A staff login whose app account is staff stays staff, even with promotion allowed.
+        // A staff login whose app account is staff stays staff (and unlinked), even with promotion allowed.
         $this->identity($this->profile('staff', 'sam@example.com', ['firebase_uid' => 'uid-s']));
         $staff = User::factory()->create(['email' => 'sam@example.com', 'role' => 'staff']);
         $staff->forceFill(['firebase_uid' => 'uid-s'])->save();
-        app(AccountLinkStatus::class)->evaluate($staff, $this->claims(['sub' => 'uid-s', 'email' => 'sam@example.com']), true, true);
+        $r = app(AccountLinkStatus::class)->evaluate($staff, $this->claims(['sub' => 'uid-s', 'email' => 'sam@example.com']), true, true);
+        $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $r['state']);
         $this->assertSame('staff', $staff->fresh()->role);
+        $this->assertNull($staff->fresh()->staff_uid);
     }
 
     public function test_verified_app_owner_promotes_an_unlinked_staff_login_only_at_sign_in(): void
     {
         $this->identity($this->profile('owner', 'pat@example.com', ['branch_id' => null, 'branch_name' => null]));
         $u = $this->user('staff');
-        $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $this->state($u, [], promote: false)['state']);
+        $this->assertSame(LinkState::NOT_APPLICABLE, $this->state($u, [], promote: false)['state']);
+        $this->assertSame('staff', $u->fresh()->role);
         $this->assertSame(LinkState::LINKED, $this->state($u, [], promote: true)['state']);
         $this->assertSame('admin', $u->fresh()->role);
+        $this->assertTrue($u->fresh()->has_access);
     }
 
     public function test_already_linked_staff_login_is_promoted_when_its_app_account_became_owner(): void
@@ -186,7 +219,7 @@ class AccountLinkStatusTest extends TestCase
         $u = $this->user('staff', ['has_access' => true]);
         $u->forceFill(['staff_uid' => 'uid-p'])->save();
 
-        $this->assertSame(LinkState::ROLE_NOT_AUTHORIZED, $this->state($u, [], promote: false)['state']);
+        $this->assertSame(LinkState::NOT_APPLICABLE, $this->state($u, [], promote: false)['state']);
         $this->assertSame(LinkState::LINKED, $this->state($u, [], promote: true)['state']);
         $this->assertSame('admin', $u->fresh()->role);
         $this->assertSame('uid-p', $u->fresh()->staff_uid);

@@ -181,6 +181,10 @@ class SupabaseIntegrationTest extends TestCase
         return $u;
     }
 
+    /**
+     * A website login of branch staff, left from when staff used the website (linked to staff A's app
+     * account). Staff sign in to the Melai Nuts app only now: every request with it is turned away.
+     */
     private function portalStaff(): User
     {
         $u = User::factory()->create(['email' => "staff-a-{$this->sfx}@test.local", 'role' => 'staff', 'has_access' => true]);
@@ -271,7 +275,7 @@ class SupabaseIntegrationTest extends TestCase
         $this->get('/account/link')->assertRedirect('/dashboard'); // the old page is gone
     }
 
-    public function test_login_refuses_wrong_role_or_foreign_registrations_with_the_reason_and_links_staff(): void
+    public function test_login_refuses_wrong_role_staff_and_foreign_registrations_with_the_reason(): void
     {
         $admin = $this->portalAdmin(linked: false);
         $staffEmail = "staff-a-{$this->sfx}@test.local";
@@ -291,12 +295,11 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertNull($admin->fresh()->staff_uid);
         $this->assertTrue(ActivityLog::where('action', 'auth.autolink_failed')->exists());
 
-        // A staff member's first sign-in creates nothing by hand: the existing staff login is bound and linked.
+        // A staff member with the right app password and an old staff login: refused (the app only), never linked.
         $staffLogin = User::factory()->create(['email' => $staffEmail, 'role' => 'staff', 'has_access' => true]);
-        $this->post('/login', ['email' => $staffEmail, 'password' => 'p2'])->assertRedirect(route('dashboard'));
-        $this->assertSame($this->fx['staff_a'], $staffLogin->fresh()->staff_uid);
-        $this->assertTrue(ActivityLog::where('action', 'account.auto_linked')->where('user_id', $staffLogin->id)->exists());
-        $this->post('/logout');
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => $staffEmail, 'password' => 'p2']));
+        $this->assertNull($staffLogin->fresh()->staff_uid);
+        $this->assertFalse(ActivityLog::where('action', 'account.auto_linked')->where('user_id', $staffLogin->id)->exists());
 
         // Same e-mail registered in the staff registry, but under ANOTHER Firebase account: precise reason, nothing linked.
         $other = "other-{$this->sfx}@test.local";
@@ -411,19 +414,17 @@ class SupabaseIntegrationTest extends TestCase
         $this->actingAs($admin)->get('/admin/payments?status=pending')->assertOk()->assertSee($order)->assertSee('Mark as paid');
     }
 
-    public function test_the_live_pulse_runs_as_the_staff_member_and_sees_app_changes(): void
+    public function test_the_live_pulse_runs_as_the_owner_and_sees_app_changes(): void
     {
         $admin = $this->portalAdmin();
         $staff = $this->portalStaff();
-        foreach ([$admin, $staff] as $u) {   // owner and branch staff: RLS lets both read it
-            $this->actingAs($u)->getJson('/ui/pulse.json')->assertOk()->assertJson(['changed' => false]);
-        }
+        $this->actingAs($admin)->getJson('/ui/pulse.json')->assertOk()->assertJson(['changed' => false]);
         $this->assertTrue(\Illuminate\Support\Facades\Cache::get('melai:pulse-off:'.\App\Support\Swr::scope()) === null);
 
         $this->placeOrder('a');   // a customer orders in the app
         $this->actingAs($admin)->getJson('/ui/pulse.json')->assertJson(['changed' => true]);
         $this->actingAs($admin)->getJson('/ui/pulse.json')->assertJson(['changed' => false]);
-        $this->actingAs($staff)->getJson('/ui/pulse.json')->assertJson(['changed' => true]);
+        $this->assertStaffKeptOut($this->actingAs($staff)->getJson('/ui/pulse.json'));   // staff watch the app, not the website
     }
 
     public function test_marking_cash_paid_writes_to_the_apps_database_once(): void
@@ -581,7 +582,7 @@ class SupabaseIntegrationTest extends TestCase
             [$b->address, $b->contact_phone, $b->operating_hours, (float) $b->delivery_fee, (float) $b->daily_sales_target]);
 
         // Staff are refused by the website AND by the database.
-        $this->actingAs($this->portalStaff())->put('/admin/business-settings', ['restock_threshold_default' => '1'])->assertForbidden();
+        $this->assertStaffKeptOut($this->actingAs($this->portalStaff())->put('/admin/business-settings', ['restock_threshold_default' => '1']));
         $this->expectException(\Illuminate\Database\QueryException::class);
         try {
             $this->asAppUser($this->fx['staff_a'], "select public.owner_update_business_settings('{\"restock_threshold_default\": 1}'::jsonb)");
@@ -707,18 +708,16 @@ class SupabaseIntegrationTest extends TestCase
 
     // ---- branch scoping, catalog, inventory ------------------------------------------------
 
-    public function test_branch_staff_only_see_their_branch(): void
+    public function test_branch_staff_see_nothing_on_the_website_and_the_owner_sees_every_branch(): void
     {
         $orderA = $this->placeOrder('a');
         $orderB = $this->placeOrder('b');
         $staff = $this->portalStaff();
 
-        $this->actingAs($staff)->get('/dashboard')->assertOk()->assertSee($this->fx['branch_a_name'])->assertDontSee($this->fx['branch_b_name']);
-        $this->actingAs($staff)->get('/s/inventory?branch='.$this->fx['branch_b'])->assertOk()
-            ->assertSee($this->fx['branch_a_name'])->assertDontSee($this->fx['branch_b_name']);
-        $this->actingAs($staff)->get('/s/sales')->assertOk()->assertSee('your branch only');
-        // Admin-only pages stay admin-only for portal staff.
-        $this->actingAs($staff)->get('/admin/payments')->assertForbidden();
+        // Not their own branch, not another one, not the admin-only pages: staff use the Melai Nuts app.
+        foreach (['/dashboard', '/s/inventory', '/s/inventory?branch='.$this->fx['branch_b'], '/s/sales', '/orders', '/admin/payments'] as $url) {
+            $this->assertStaffKeptOut($this->actingAs($staff)->get($url));
+        }
 
         $owner = $this->portalAdmin();
         $this->actingAs($owner)->get('/admin/payments')->assertSee($orderA)->assertSee($orderB);
@@ -777,22 +776,23 @@ class SupabaseIntegrationTest extends TestCase
             ->assertSee('Staff accounts')->assertSee('IT Staff A')->assertDontSee('Account not linked');
     }
 
-    public function test_app_staff_signs_in_and_sees_only_their_branch_even_via_url(): void
+    public function test_app_staff_cannot_sign_in_to_the_website_and_get_no_website_login(): void
     {
         $this->placeOrder('a');
-        $orderB = $this->placeOrder('b');
         $email = "staff-a-{$this->sfx}@test.local";
-        $this->post('/login', ['email' => $email, 'password' => 'Staff#Pass1'])->assertRedirect();
 
-        $u = User::firstWhere('email', $email);
-        $this->assertSame('staff', $u->role);
-        $this->assertSame($this->fx['staff_a'], $u->staff_uid);
-        $this->withFirebaseSession = false;
-        $this->actingAs($u)->get('/dashboard')->assertOk()->assertSee($this->fx['branch_a_name'])->assertDontSee($this->fx['branch_b_name']);
-        $this->actingAs($u)->get('/s/inventory?branch='.$this->fx['branch_b'])->assertOk()->assertDontSee($this->fx['branch_b_name']);
-        $this->actingAs($u)->get('/s/deliveries?branch='.$this->fx['branch_b'])->assertNotFound(); // no delivery pages on the website
-        $this->actingAs($u)->get('/admin/payments?branch='.$this->fx['branch_b'])->assertForbidden();
-        $this->actingAs($u)->get('/reports/forecast?branch='.$this->fx['branch_b'])->assertDontSee($orderB);
+        // An active staff member, the right app password. Refused by the app's staff registry (no app profile read yet) ...
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Staff#Pass1']));
+        // ... and by the app profile's own role, the way the app stores it.
+        $this->fb->profiles[$this->fx['staff_a']] = ['role' => 'staff', 'email' => $email, 'isActive' => true];
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Staff#Pass1']));
+
+        $this->assertNull(User::firstWhere('email', $email), 'no website login is created for staff');
+        $this->assertTrue(ActivityLog::where('action', 'auth.login_refused')->exists());
+        foreach (['/dashboard', '/s/inventory?branch='.$this->fx['branch_b'], '/admin/payments?branch='.$this->fx['branch_b']] as $url) {
+            $this->get($url)->assertRedirect(route('login'));
+        }
+        $this->get('/s/deliveries?branch='.$this->fx['branch_b'])->assertRedirect(route('login'));
     }
 
     public function test_owner_dashboard_shows_every_branch_and_every_staff_account_with_sales_per_cashier(): void
@@ -836,13 +836,11 @@ class SupabaseIntegrationTest extends TestCase
         $this->placeOrder('b');
         $staff = $this->portalStaff();
 
-        $page = $this->actingAs($staff)->get('/dashboard?branch='.$this->fx['branch_b'])->assertOk()
-            ->assertDontSee($this->fx['branch_b_name'])->assertDontSee('Staff accounts')->assertDontSee('IT Owner');
-        $this->assertNull($page->viewData('staff'));
-        $this->assertNull($page->viewData('branchId'), 'a branch the account may not see is ignored');
-        $this->assertSame([$this->fx['branch_a']], array_column($page->viewData('sales'), 'id'));
+        // The website shows a staff login nothing at all ...
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/dashboard?branch='.$this->fx['branch_b']));
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/admin/users'));
 
-        // The database itself refuses the owner-only function for a staff account.
+        // ... and the database itself refuses the owner-only function for a staff account.
         $this->expectExceptionMessage('Only an active owner can do this.');
         $this->asAppUser($this->fx['staff_a'], 'select public.owner_staff_overview(now() - interval \'1 day\', now(), null)::text');
     }
@@ -857,9 +855,8 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame($before, $this->actingAs($admin)->get('/dashboard')->viewData('kpis')['orders'], 'served from the 45 s cache');
         $this->assertSame($before + 1, $this->actingAs($admin)->get('/dashboard?fresh=1')->viewData('kpis')['orders']);
 
-        // Another account never sees the owner's cached numbers.
-        $staff = $this->portalStaff();
-        $this->assertNull($this->actingAs($staff)->get('/dashboard')->assertOk()->viewData('staff'));
+        // A staff login never sees the owner's cached numbers (or anything else).
+        $this->assertStaffKeptOut($this->actingAs($this->portalStaff())->get('/dashboard'));
     }
 
     public function test_an_app_customer_goes_to_the_shop_side_never_the_admin_side_and_unknown_accounts_get_the_generic_error(): void
@@ -882,13 +879,13 @@ class SupabaseIntegrationTest extends TestCase
 
     public function test_login_page_separates_local_password_missing_profile_and_missing_config(): void
     {
-        // Website login with a local password only; the email has NO Firebase account.
-        $u = User::factory()->create(['email' => "new-{$this->sfx}@test.local", 'role' => 'staff', 'has_access' => true, 'password' => 'Local#Pass1']);
+        // Website (owner) login with a local password only; the email has NO Firebase account.
+        $u = User::factory()->create(['email' => "new-{$this->sfx}@test.local", 'role' => 'admin', 'has_access' => true, 'password' => 'Local#Pass1']);
         $this->post('/login', ['email' => $u->email, 'password' => 'Local#Pass1'])->assertSessionHasErrors('auth');
-        $this->assertStringContainsString("No staff account in the app's staff registry (staff_members) has the email {$u->email}", session('errors')->first('auth'));
+        $this->assertStringContainsString("No active owner in the app's staff registry (staff_members) has the email {$u->email}", session('errors')->first('auth'));
         $this->assertGuest();
 
-        // Firebase account exists, but no staff registration: refused with that reason (the login IS bound to the account).
+        // Firebase account exists, but no owner registration: refused with that reason (the login IS bound to the account).
         $this->fb->addAccount($u->email, "it-new-{$this->sfx}", 'New#Pass1');
         $this->post('/login', ['email' => $u->email, 'password' => 'New#Pass1'])->assertSessionHasErrors('auth');
         $this->assertStringContainsString('App profile missing', session('errors')->first('auth'));
@@ -923,15 +920,28 @@ class SupabaseIntegrationTest extends TestCase
         $this->asAppUser($this->fx['staff_a'], 'select public.owner_all_users(null, 5)::text');
     }
 
-    public function test_website_registration_is_approved_by_the_owner_and_registered_in_the_app(): void
+    /** A registration made on the website before sign-up was removed: a Firebase account + a staff login, no staff row. */
+    private function oldRegistration(string $email, string $name = 'Rhea Reg', bool $verified = false): User
     {
+        $uid = 'it-reg-'.Str::lower(Str::random(6))."-{$this->sfx}";
+        $this->fb->addAccount($email, $uid, 'Kasoy#Tanim12', $verified);
+        $reg = User::factory()->create(['name' => $name, 'email' => $email, 'role' => 'staff', 'has_access' => false]);
+        $reg->forceFill(['firebase_uid' => $uid, 'firebase_email_verified' => $verified])->save();
+
+        return $reg;
+    }
+
+    public function test_an_old_website_registration_is_approved_by_the_owner_and_works_in_the_app_only(): void
+    {
+        // Nobody can register on the website any more ...
         $email = "reg-{$this->sfx}@test.local";
         $this->post('/register', ['name' => 'Rhea Reg', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1'])
-            ->assertRedirect(route('waiting'));
-        $reg = User::firstWhere('email', $email);
+            ->assertNotFound();
+        $this->assertNull(User::firstWhere('email', $email));
+
+        // ... but a registration from before is still waiting for the owner.
+        $reg = $this->oldRegistration($email);
         $uid = $reg->firebase_uid;
-        $this->assertNotNull($this->fb->account($uid));
-        $this->post('/logout');
 
         $owner = $this->portalAdmin();
         // Not approvable before the email is verified.
@@ -939,25 +949,30 @@ class SupabaseIntegrationTest extends TestCase
             ->assertSessionHasErrors('approve');
         $this->assertNull($this->db()->selectOne('select 1 from public.staff_members where firebase_uid = ?', [$uid]));
 
-        // Registrant verifies the email and checks the waiting page once.
+        // Registrant verifies the email and tries to sign in once: refused (no waiting page for staff), but the verified e-mail is noted.
         $this->fb->set($uid, 'verified', true);
-        $this->actingAs($reg)->get('/waiting')->assertOk()->assertSee('Email verified');
+        $this->post('/logout');
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12']));
         $this->assertTrue($reg->fresh()->firebase_email_verified);
 
-        $this->actingAs($owner)->get('/admin/users')->assertOk()->assertSee('Approve');
+        $this->actingAs($owner)->get('/admin/users')->assertOk()->assertSee('Needs approval')->assertSee('Approve');
         $this->actingAs($owner)->from('/admin/users')->post(route('admin.users.approve', $reg), ['role' => 'staff', 'branch_id' => $this->fx['branch_b']])
-            ->assertSessionHasNoErrors()->assertSessionHas('status');
+            ->assertSessionHasNoErrors()->assertSessionHas('status', fn ($m) => str_contains($m, 'sign in to the Melai Nuts app'));
 
         $row = $this->db()->selectOne('select role, branch_id, email, account_status from public.staff_members where firebase_uid = ?', [$uid]);
         $this->assertSame(['staff', $this->fx['branch_b'], $email, 'active'], [$row->role, $row->branch_id, $row->email, $row->account_status]);
         $this->assertSame(['role' => 'staff', 'branch' => $this->fx['branch_b_name']], array_intersect_key($this->fb->profiles[$uid], ['role' => 1, 'branch' => 1]));
         $reg = $reg->fresh();
         $this->assertSame($uid, $reg->staff_uid);
-        $this->assertTrue($reg->has_access);
         $this->assertTrue(ActivityLog::where('action', 'account.provisioned')->exists());
+        $this->actingAs($owner)->get('/admin/users?q='.$email)->assertOk()->assertSee('App · Staff')->assertDontSee('Needs approval')->assertDontSee('No website access');
 
-        // The new staff member works in branch B only.
-        $this->actingAs($reg)->get('/dashboard')->assertOk()->assertSee($this->fx['branch_b_name'])->assertDontSee($this->fx['branch_a_name']);
+        // The new staff member works in branch B in the app (the database knows them) and not on the website.
+        $ctx = json_decode($this->asAppUser($uid, 'select public.get_my_staff_context()::text'), true);
+        $this->assertSame(['active', 'staff', $this->fx['branch_b']], [$ctx['status'], $ctx['profile']['role'], $ctx['profile']['branch_id']]);
+        $this->post('/logout');
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12']));
+        $this->assertStaffKeptOut($this->actingAs($reg)->get('/dashboard'));
     }
 
     public function test_failed_firestore_write_rolls_back_the_staff_registration(): void
@@ -978,19 +993,21 @@ class SupabaseIntegrationTest extends TestCase
 
     public function test_nobody_can_make_themselves_owner(): void
     {
-        // Registration ignores any role field.
+        // There is no registration to slip a role into: the address is gone.
         $email = "self-{$this->sfx}@test.local";
-        $this->post('/register', ['name' => 'Self', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1', 'role' => 'admin']);
-        $self = User::firstWhere('email', $email);
-        $this->assertSame('staff', $self->role);
-        $this->fb->set($self->firebase_uid, 'verified', true);
+        $this->post('/register', ['name' => 'Self', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1', 'role' => 'admin'])
+            ->assertNotFound();
+        $this->assertNull(User::firstWhere('email', $email));
+        $self = $this->oldRegistration($email, 'Self', verified: true);   // a registration from before, still pending
 
-        // A pending or staff login cannot reach the approval endpoint (server-side role check).
-        $this->post(route('admin.users.approve', $self), ['role' => 'owner'])->assertForbidden();
+        // A guest, a pending login or a staff login cannot reach the approval endpoint.
+        $this->post(route('admin.users.approve', $self), ['role' => 'owner'])->assertRedirect(route('login'));
+        $this->assertStaffKeptOut($this->actingAs($self)->post(route('admin.users.approve', $self), ['role' => 'owner']));
         $staff = $this->portalStaff();
-        $this->actingAs($staff)->post(route('admin.users.approve', $self), ['role' => 'owner'])->assertForbidden();
-        $this->actingAs($staff)->post(route('admin.users.approve', $staff), ['role' => 'owner'])->assertForbidden();
+        $this->assertStaffKeptOut($this->actingAs($staff)->post(route('admin.users.approve', $self), ['role' => 'owner']));
+        $this->assertStaffKeptOut($this->actingAs($staff)->post(route('admin.users.approve', $staff), ['role' => 'owner']));
         $this->assertSame('staff', $staff->fresh()->role);
+        $this->assertSame('staff', $self->fresh()->role);
         $this->assertNull($this->db()->selectOne("select 1 from public.staff_members where firebase_uid = ? ", [$self->firebase_uid]));
 
         // Even if the website's own role column were changed to admin, the app account behind it is staff:
@@ -1001,13 +1018,14 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertNull($this->db()->selectOne('select 1 from public.staff_members where firebase_uid = ?', [$self->firebase_uid]));
     }
 
-    public function test_admin_creates_an_app_staff_account_that_can_sign_in(): void
+    public function test_admin_creates_an_app_staff_account_that_signs_in_to_the_app_only(): void
     {
         $owner = $this->portalAdmin();
         $email = "made-{$this->sfx}@test.local";
         $this->actingAs($owner)->post(route('admin.users.store'), ['name' => 'Made Staff', 'email' => $email, 'role' => 'staff',
             'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])
-            ->assertRedirect(route('admin.users.index'));
+            ->assertRedirect(route('admin.users.index'))->assertSessionHasNoErrors()
+            ->assertSessionHas('status', fn ($m) => str_contains($m, 'sign in to the Melai Nuts app'));
 
         // The owner who created it stays signed in (same browser session).
         $this->get(route('admin.users.index', ['q' => $email]))->assertOk()->assertSee($email)->assertDontSee('e-mail not verified');
@@ -1016,15 +1034,19 @@ class SupabaseIntegrationTest extends TestCase
         $u = User::firstWhere('email', $email);
         // Its row shows the app account only: no website-login badge, no Restrict / Grant access.
         $this->get(route('admin.users.index', ['q' => $email]))->assertOk()->assertSee('App · Staff')
-            ->assertDontSee('Website · Staff')->assertDontSee(route('admin.users.toggle-access', $u), false);
+            ->assertDontSee('Website · Staff')->assertDontSee(route('admin.users.toggle-access', $u), false)
+            ->assertDontSee('No website access');   // an app staff account is not a problem to fix
         $this->assertNotNull($this->fb->account($u->firebase_uid), 'Firebase account created');
         $this->assertSame($u->firebase_uid, $u->staff_uid);
         $this->assertSame('staff', $this->db()->selectOne('select role from public.staff_members where firebase_uid = ?', [$u->firebase_uid])->role);
         $this->assertSame('staff', $this->fb->profiles[$u->firebase_uid]['role']);
+        // The app knows the new staff member (same check the app makes at sign-in) ...
+        $ctx = json_decode($this->asAppUser($u->firebase_uid, 'select public.get_my_staff_context()::text'), true);
+        $this->assertSame(['active', 'staff', $this->fx['branch_a']], [$ctx['status'], $ctx['profile']['role'], $ctx['profile']['branch_id']]);
         $this->post('/logout');
 
-        $this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12'])->assertRedirect(route('dashboard'));
-        $this->assertAuthenticatedAs($u->fresh());
+        // ... and the website does not let them in: staff sign in to the Melai Nuts app only.
+        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12']));
 
         // Same email again: refused, nothing duplicated.
         $this->actingAs($owner)->from('/admin/users/create')->post(route('admin.users.store'), ['name' => 'Again', 'email' => $email, 'role' => 'staff',
@@ -1096,7 +1118,7 @@ class SupabaseIntegrationTest extends TestCase
 
         // Never your own account, never staff doing it, and Firestore refusing undoes the database change.
         $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['owner']), ['active' => 0])->assertSessionHasErrors('account');
-        $this->actingAs($staff)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0])->assertForbidden();
+        $this->assertStaffKeptOut($this->actingAs($staff)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0]));
         $this->fb->firestoreDenied = true;
         $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0])->assertSessionHasErrors('account');
         $this->assertTrue((bool) $this->db()->selectOne('select is_active from public.customer_profiles where firebase_uid = ?', [$this->fx['customer']])->is_active);
@@ -1259,11 +1281,14 @@ class SupabaseIntegrationTest extends TestCase
         $report = $this->actingAs($admin)->get("/s/reports?branch=$a&from=$today&to=$today")->assertOk()->viewData('report');
         $this->assertEqualsWithDelta((float) $after['summary']['net_sales'], (float) $report['summary']['net_sales'], 0.001, 'reports = dashboard');
 
-        // Staff Sales page (own branch, sales_overview) = owner Sales page (owner_sales_summary) for the same 30 days.
-        $staffSales = $this->actingAs($this->portalStaff())->get('/s/sales?days=30')->assertOk()->viewData('summary');
+        // What the branch's staff get in the app (sales_overview, asked as the staff member) = the owner's
+        // Sales page on the website (owner_sales_summary), for the same 30 days.
+        $from30 = now('Asia/Manila')->subDays(29)->toDateString();
+        $staffSales = json_decode($this->asAppUser($this->fx['staff_a'], 'select public.sales_overview(?::date, ?::date, null::uuid)::text', [$from30, $today]), true);
         $ownerSales = $this->actingAs($admin)->get('/s/sales?days=30')->assertOk()->viewData('summary');
+        $this->assertSame([$a], array_column($staffSales['by_branch'], 'branch_id'), 'the database gives staff their own branch only');
         $this->assertEqualsWithDelta((float) collect($ownerSales['branches'])->firstWhere('branch_id', $a)['window_revenue'],
-            (float) collect($staffSales['branches'])->firstWhere('branch_id', $a)['window_revenue'], 0.001, 'staff page = owner page');
+            (float) collect($staffSales['by_branch'])->firstWhere('branch_id', $a)['net_sales'], 0.001, 'staff app = owner page');
 
         // CSV = screen, with the refund columns.
         $csv = $this->actingAs($admin)->get("/reports/export?branch=$a&from=$today&to=$today&section=by_day")->streamedContent();
@@ -1289,15 +1314,17 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertTrue(ActivityLog::where('action', 'refund.approved_cash')->exists());
     }
 
-    public function test_reports_need_the_view_reports_permission_for_staff(): void
+    public function test_reports_are_for_the_owner_and_staff_get_none_even_with_the_view_reports_permission(): void
     {
         $staff = $this->portalStaff();
-        $this->actingAs($staff)->get('/s/reports')->assertStatus(403)->assertSee('permission to view reports');
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/s/reports'));
 
+        // The app's view_reports permission is for the app: it opens nothing on the website.
         $this->db()->insert("insert into public.staff_permission_grants (firebase_uid, permission) values (?, 'view_reports')", [$this->fx['staff_a']]);
-        // Staff are pinned to their own branch whatever the query string says.
-        $this->actingAs($staff)->get('/s/reports?branch='.$this->fx['branch_b'])->assertOk()
-            ->assertSee($this->fx['branch_a_name'])->assertDontSee($this->fx['branch_b_name']);
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/s/reports?branch='.$this->fx['branch_b']));
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/reports/export?section=by_day'));
+
+        $this->actingAs($this->portalAdmin())->get('/s/reports?branch='.$this->fx['branch_b'])->assertOk()->assertSee($this->fx['branch_b_name']);
     }
 
     public function test_forecast_is_honest_without_history_and_evaluated_with_history(): void
@@ -1391,44 +1418,45 @@ class SupabaseIntegrationTest extends TestCase
         $cust = $this->fx['customer'];
 
         // Unknown card
-        $this->actingAs($staff)->postJson('/cards/tap', ['card_uid' => $uid])->assertOk()->assertJson(['status' => 'unregistered']);
-        // Staff find the customer by exact phone? (phone '0917' is too short) -> by e-mail
-        $this->actingAs($staff)->post('/cards/find', ['query' => "cust-{$this->sfx}@test.local"])->assertRedirect("/cards/customer/{$cust}");
-        $this->actingAs($staff)->post('/cards/find', ['query' => 'cust-'])->assertSessionHas('error');
+        $this->actingAs($admin)->postJson('/cards/tap', ['card_uid' => $uid])->assertOk()->assertJson(['status' => 'unregistered']);
+        // Find the customer by exact phone? (phone '0917' is too short) -> by e-mail
+        $this->actingAs($admin)->post('/cards/find', ['query' => "cust-{$this->sfx}@test.local"])->assertRedirect("/cards/customer/{$cust}");
+        $this->actingAs($admin)->post('/cards/find', ['query' => 'cust-'])->assertSessionHas('error');
 
         // Link (double submit with the same key links once)
-        $page = $this->actingAs($staff)->get("/cards/customer/{$cust}")->assertOk()->assertSee('Link a card');
+        $page = $this->actingAs($admin)->get("/cards/customer/{$cust}")->assertOk()->assertSee('Link a card');
         $key = 'k'.Str::random(20);
-        $this->actingAs($staff)->post("/cards/customer/{$cust}/register", ['card_uid' => implode(':', str_split($uid, 2)), 'request_key' => $key])
+        $this->actingAs($admin)->post("/cards/customer/{$cust}/register", ['card_uid' => implode(':', str_split($uid, 2)), 'request_key' => $key])
             ->assertRedirect()->assertSessionHas('status');
-        $this->actingAs($staff)->post("/cards/customer/{$cust}/register", ['card_uid' => $uid, 'request_key' => $key])->assertSessionHas('status');
+        $this->actingAs($admin)->post("/cards/customer/{$cust}/register", ['card_uid' => $uid, 'request_key' => $key])->assertSessionHas('status');
         $db = $this->db();
         $this->assertSame(1, (int) $db->selectOne('select count(*) as n from public.loyalty_cards where firebase_uid = ?', [$cust])->n);
         $label = $db->selectOne('select card_label from public.loyalty_cards where firebase_uid = ?', [$cust])->card_label;
         $this->assertSame($label, $db->selectOne('select rfid_card_number from public.customer_profiles where firebase_uid = ?', [$cust])->rfid_card_number);
 
         // Tap -> customer
-        $this->actingAs($staff)->postJson('/cards/tap', ['card_uid' => strtolower($uid)])->assertOk()
+        $this->actingAs($admin)->postJson('/cards/tap', ['card_uid' => strtolower($uid)])->assertOk()
             ->assertJson(['status' => 'active', 'customer' => ['firebase_uid' => $cust]]);
         // Garbage is refused before reaching the database
-        $this->actingAs($staff)->postJson('/cards/tap', ['card_uid' => "x' or 1=1"])->assertStatus(422);
+        $this->actingAs($admin)->postJson('/cards/tap', ['card_uid' => "x' or 1=1"])->assertStatus(422);
 
-        // Owner list shows it; staff cannot see the list (page still works)
+        // Owner list shows it; staff get no card page on the website (they use the app)
         $this->actingAs($admin)->get('/cards')->assertOk()->assertSee($label)->assertSee('All cards');
-        $this->actingAs($staff)->get('/cards')->assertOk()->assertDontSee('All cards');
+        $this->assertStaffKeptOut($this->actingAs($staff)->get('/cards'));
 
-        // Block (staff) -> tap says blocked; staff cannot unblock; owner can
+        // Block -> tap says blocked; staff cannot unblock here; the owner can
         $cardId = $db->selectOne('select id from public.loyalty_cards where firebase_uid = ?', [$cust])->id;
-        $this->actingAs($staff)->post("/cards/{$cardId}/block", ['reason' => 'reported lost'])->assertSessionHas('status');
-        $this->actingAs($staff)->postJson('/cards/tap', ['card_uid' => $uid])->assertJson(['status' => 'blocked'])->assertJsonMissing(['firebase_uid' => $cust]);
-        $this->actingAs($staff)->post("/cards/{$cardId}/unblock")->assertSessionHas('error');
+        $this->actingAs($admin)->post("/cards/{$cardId}/block", ['reason' => 'reported lost'])->assertSessionHas('status');
+        $this->actingAs($admin)->postJson('/cards/tap', ['card_uid' => $uid])->assertJson(['status' => 'blocked'])->assertJsonMissing(['firebase_uid' => $cust]);
+        $this->assertStaffKeptOut($this->actingAs($staff)->post("/cards/{$cardId}/unblock"));
+        $this->assertSame('blocked', $db->selectOne('select status from public.loyalty_cards where id = ?', [$cardId])->status);
         $this->actingAs($admin)->get("/cards/customer/{$cust}")->assertSee('Unblock (card found)');
 
         // Replace the blocked card
-        $this->actingAs($staff)->post("/cards/customer/{$cust}/replace", ['card_uid' => $new, 'reason' => 'lost', 'request_key' => 'r'.Str::random(20)])
+        $this->actingAs($admin)->post("/cards/customer/{$cust}/replace", ['card_uid' => $new, 'reason' => 'lost', 'request_key' => 'r'.Str::random(20)])
             ->assertSessionHas('status');
-        $this->actingAs($staff)->postJson('/cards/tap', ['card_uid' => $uid])->assertJson(['status' => 'replaced']);
-        $this->actingAs($staff)->postJson('/cards/tap', ['card_uid' => $new])->assertJson(['status' => 'active']);
+        $this->actingAs($admin)->postJson('/cards/tap', ['card_uid' => $uid])->assertJson(['status' => 'replaced']);
+        $this->actingAs($admin)->postJson('/cards/tap', ['card_uid' => $new])->assertJson(['status' => 'active']);
         $this->actingAs($admin)->get("/cards/customer/{$cust}")->assertOk()->assertSee('Replaced')->assertSee('Registered');
         $this->assertTrue(ActivityLog::where('action', 'loyalty.card_replaced')->exists());
     }
@@ -1444,14 +1472,14 @@ class SupabaseIntegrationTest extends TestCase
     public function test_ocr_invoice_becomes_a_draft_and_only_approval_posts_stock_once(): void
     {
         \Illuminate\Support\Facades\Storage::fake('local');
-        $staff = $this->portalStaff();
+        $owner = $this->portalAdmin();
         $db = $this->db();
         $stock = fn () => (int) $db->selectOne('select quantity from public.branch_inventory where branch_id = ? and variant_id = ?',
             [$this->fx['branch_a'], $this->fx['variant']])->quantity;
         $before = $stock();
 
         // Supplier
-        $this->actingAs($staff)->post('/suppliers', ['name' => "IT-{$this->sfx} Nut Traders", 'email' => 'sales@nuts.test'])->assertSessionHas('status');
+        $this->actingAs($owner)->post('/suppliers', ['name' => "IT-{$this->sfx} Nut Traders", 'email' => 'sales@nuts.test'])->assertSessionHas('status');
         $supplier = $db->selectOne('select id from public.suppliers where name = ?', ["IT-{$this->sfx} Nut Traders"])->id;
 
         // Scan: OCR text + photo -> draft (no stock yet)
@@ -1459,7 +1487,7 @@ class SupabaseIntegrationTest extends TestCase
         $ocr = "IT-{$this->sfx} NUT TRADERS\nSALES INVOICE No. {$inv}\nDate: ".now('Asia/Manila')->subDay()->format('m/d/Y')
             ."\nIT-{$this->sfx} Garlic Peanuts   12   80.00   960.00\nMystery Item 2 50.00 100.00\nTOTAL 1,060.00";
         $photo = \Illuminate\Http\UploadedFile::fake()->image('invoice.jpg', 800, 1200);
-        $res = $this->actingAs($staff)->post('/receipts', ['branch_id' => $this->fx['branch_a'], 'ocr_text' => $ocr, 'ocr_confidence' => 88.5, 'photo' => $photo]);
+        $res = $this->actingAs($owner)->post('/receipts', ['branch_id' => $this->fx['branch_a'], 'ocr_text' => $ocr, 'ocr_confidence' => 88.5, 'photo' => $photo]);
         $res->assertRedirect()->assertSessionHas('status');
         $id = basename(parse_url($res->headers->get('Location'), PHP_URL_PATH));
         $r = $db->selectOne('select * from public.purchase_receipts where id = ?', [$id]);
@@ -1476,8 +1504,8 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame($before, $stock(), 'a draft never posts stock');
         \Illuminate\Support\Facades\Storage::disk('local')->assertExists($r->document_path);
 
-        $this->actingAs($staff)->get("/receipts/{$id}")->assertOk()->assertSee('match a product')->assertSee('Approve');
-        $this->actingAs($staff)->get("/receipts/{$id}/image")->assertOk();
+        $this->actingAs($owner)->get("/receipts/{$id}")->assertOk()->assertSee('match a product')->assertSee('Approve');
+        $this->actingAs($owner)->get("/receipts/{$id}/image")->assertOk();
 
         // Approving as scanned is refused (line 2 has no product, no expiry)
         $form = fn (array $extra = []) => array_merge([
@@ -1486,31 +1514,31 @@ class SupabaseIntegrationTest extends TestCase
             'lines' => [['raw_text' => $lines[0]->raw_text, 'description' => 'Garlic Peanuts', 'variant_id' => $this->fx['variant'],
                 'quantity' => 12, 'unit_cost' => 80, 'expiration_date' => now('Asia/Manila')->addMonths(4)->toDateString()]],
         ], $extra);
-        $this->actingAs($staff)->post("/receipts/{$id}", $form(['lines' => [['description' => 'x', 'quantity' => 2]], 'action' => 'approve']))
+        $this->actingAs($owner)->post("/receipts/{$id}", $form(['lines' => [['description' => 'x', 'quantity' => 2]], 'action' => 'approve']))
             ->assertSessionHas('error');
         $this->assertSame($before, $stock());
 
         // Reviewer removes the unknown line, sets expiry, approves
-        $this->actingAs($staff)->post("/receipts/{$id}", $form(['action' => 'approve', 'request_key' => 'approve-'.$this->sfx]))->assertSessionHas('status');
+        $this->actingAs($owner)->post("/receipts/{$id}", $form(['action' => 'approve', 'request_key' => 'approve-'.$this->sfx]))->assertSessionHas('status');
         $this->assertSame($before + 12, $stock());
         $this->assertSame('approved', $db->selectOne('select status from public.purchase_receipts where id = ?', [$id])->status);
-        $this->actingAs($staff)->get("/receipts/{$id}")->assertOk()->assertDontSee('Approve &amp; receive', false)->assertSee($r->receipt_code);
+        $this->actingAs($owner)->get("/receipts/{$id}")->assertOk()->assertDontSee('Approve &amp; receive', false)->assertSee($r->receipt_code);
 
         // Double submit of the approve form: no second posting
-        $this->actingAs($staff)->post("/receipts/{$id}", $form(['action' => 'approve', 'request_key' => 'approve-'.$this->sfx]))->assertSessionHas('error');
+        $this->actingAs($owner)->post("/receipts/{$id}", $form(['action' => 'approve', 'request_key' => 'approve-'.$this->sfx]))->assertSessionHas('error');
         $this->assertSame($before + 12, $stock());
 
         // A second scan of the same invoice cannot be approved
-        $res2 = $this->actingAs($staff)->post('/receipts', ['branch_id' => $this->fx['branch_a'], 'ocr_text' => $ocr]);
+        $res2 = $this->actingAs($owner)->post('/receipts', ['branch_id' => $this->fx['branch_a'], 'ocr_text' => $ocr]);
         $id2 = basename(parse_url($res2->headers->get('Location'), PHP_URL_PATH));
-        $this->actingAs($staff)->post("/receipts/{$id2}", $form(['action' => 'approve']))->assertSessionHas('error');
+        $this->actingAs($owner)->post("/receipts/{$id2}", $form(['action' => 'approve']))->assertSessionHas('error');
         $this->assertSame($before + 12, $stock());
 
-        $this->actingAs($staff)->get('/receipts')->assertOk()->assertSee($r->receipt_code);
+        $this->actingAs($owner)->get('/receipts')->assertOk()->assertSee($r->receipt_code);
         $this->assertTrue(ActivityLog::where('action', 'purchase_receipt.approved')->exists());
     }
 
-    public function test_staff_without_inventory_permission_cannot_receive_stock(): void
+    public function test_staff_cannot_receive_stock_on_the_website(): void
     {
         $db = $this->db();
         $uid = "it-cash-{$this->sfx}";
@@ -1519,8 +1547,11 @@ class SupabaseIntegrationTest extends TestCase
         $u = User::factory()->create(['email' => "cash-{$this->sfx}@test.local", 'role' => 'staff', 'has_access' => true]);
         $u->forceFill(['staff_uid' => $uid, 'firebase_uid' => $uid, 'firebase_email_verified' => true])->save();
 
-        $this->actingAs($u)->post('/receipts', ['branch_id' => $this->fx['branch_a'], 'ocr_text' => 'Garlic 1 10.00 10.00'])->assertSessionHas('error');
-        $this->actingAs($u)->post('/suppliers', ['name' => "IT-{$this->sfx} X"])->assertSessionHas('error');
+        // Staff (here: one without the app's inventory permission) receive nothing on the website.
+        $this->assertStaffKeptOut($this->actingAs($u)->post('/receipts', ['branch_id' => $this->fx['branch_a'], 'ocr_text' => 'Garlic 1 10.00 10.00']));
+        $this->assertStaffKeptOut($this->actingAs($u)->post('/suppliers', ['name' => "IT-{$this->sfx} X"]));
+        $this->assertNull($db->selectOne('select 1 from public.suppliers where name = ?', ["IT-{$this->sfx} X"]));
+        $this->assertNull($db->selectOne('select 1 from public.purchase_receipts where created_by = ?', [$uid]));
     }
 
     // ---- HitPay Refund API (20261011020000) --------------------------------------------------

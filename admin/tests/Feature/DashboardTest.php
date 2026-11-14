@@ -24,7 +24,7 @@ class DashboardTest extends TestCase
 
     public function test_the_old_drivers_endpoint_is_gone(): void
     {
-        $this->actingAs(User::factory()->create(['has_access' => true]))->getJson('/dashboard/drivers.json')->assertNotFound();
+        $this->actingAs(User::factory()->create(['role' => 'admin', 'has_access' => true]))->getJson('/dashboard/drivers.json')->assertNotFound();
     }
 
     public function test_branch_filter_and_today_figures(): void
@@ -61,11 +61,17 @@ class DashboardTest extends TestCase
         $this->assertSame($calls, $orderCalls(), 'the orders query was not run again');
         $this->assertContains('get_my_staff_context', $this->db->calledFunctions('uid-owner'), 'the account is still checked on every request');
 
+        // Another account gets its own numbers from the database, never the first owner's cache
+        // (which still shows the count from before the new order).
+        $second = $this->secondOwner();
+        $this->assertSame($first + 1, $this->signedIn($second)->get('/dashboard')->assertOk()->viewData('kpis')['orders']);
+        $this->assertSame($first, $this->signedIn($owner)->get('/dashboard')->assertOk()->viewData('kpis')['orders']);
+
         $this->assertSame($first + 1, $this->signedIn($owner)->get('/dashboard?fresh=1')->viewData('kpis')['orders']);
 
-        // Another account gets its own (scoped) numbers, never the owner's cache.
-        $cora = $this->linkedLogin('uid-cal');
-        $this->assertSame(2, $this->signedIn($cora)->get('/dashboard')->assertOk()->viewData('kpis')['orders']);
+        // A staff login gets no numbers at all: staff do not use the website.
+        $this->assertStaffKeptOut($this->signedIn($this->linkedLogin('uid-cal'))->get('/dashboard'));
+        $this->assertSame([], $this->db->calledFunctions('uid-cal'));
 
         // A deactivated owner is cut off at once, cache or not.
         $this->db->staff['uid-owner']['account_status'] = 'inactive';
@@ -119,7 +125,7 @@ class DashboardTest extends TestCase
             $this->assertNotSame(\App\Http\Controllers\AccountLinkController::class, explode('@', (string) $route->getActionName())[0]);
         }
         $this->assertFileDoesNotExist(app_path('Http/Controllers/AccountLinkController.php'));
-        $this->actingAs(User::factory()->create(['has_access' => true]))->get('/account/link')->assertRedirect('/dashboard');
+        $this->actingAs(User::factory()->create(['role' => 'admin', 'has_access' => true]))->get('/account/link')->assertRedirect('/dashboard');
     }
 
     public function test_without_the_new_migration_the_staff_list_still_shows_and_no_activity_is_guessed(): void

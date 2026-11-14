@@ -51,7 +51,10 @@ class AutoLinker
      */
     public function linkAtLogin(User $user, ?array $claims = null): array
     {
-        if (! $user->canUseWebsite()) {
+        // An old "staff" login signing in with its app account may be an owner in the app by now:
+        // linkWithFirebase() promotes it, or refuses it like every other staff login.
+        $maybeOwnerNow = $claims !== null && $user->role === User::ROLE_STAFF && $this->platform->isSupabase();
+        if (! $user->canUseWebsite() && ! $maybeOwnerNow) {
             throw new AccountLinkException(LinkState::ROLE_NOT_AUTHORIZED, \App\Http\Controllers\Auth\LoginController::APP_ONLY_MESSAGE);
         }
         if (! $this->platform->isSupabase()) {
@@ -66,6 +69,11 @@ class AutoLinker
         $wasLinked = filled($user->staff_uid);
         $wasRole = $user->role;
         $result = $this->status->evaluate($user, $claims, link: true, promoteOwner: true);
+        if (! $user->canUseWebsite()) {
+            // Still a staff login (its app account is not an active owner): the app only.
+            ActivityLogger::log('auth.login_refused', 'Staff account tried to log in to the website', $user, ['role' => $user->role]);
+            throw new AccountLinkException(LinkState::ROLE_NOT_AUTHORIZED, \App\Http\Controllers\Auth\LoginController::APP_ONLY_MESSAGE);
+        }
 
         if ($result['state'] === LinkState::LINKED) {
             if (! $wasLinked) {

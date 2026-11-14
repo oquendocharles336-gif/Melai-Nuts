@@ -114,8 +114,9 @@ class UserDirectory
 
         // A website registration (Firebase account, no app staff row yet) waiting for Approve.
         // Same rule the page has always used; only decidable when the app's staff list loaded.
+        // (The website takes no registrations any more; the ones made before can still be approved.)
         $awaitingApproval = $login && $appLoaded && $login->firebase_uid && ! $login->staff_uid
-            && $login->canUseWebsite() && ! $staffRows->has($login->firebase_uid)
+            && ($login->canUseWebsite() || $login->role === User::ROLE_STAFF) && ! $staffRows->has($login->firebase_uid)
             && ! ($viewer && $login->is($viewer));
 
         $status = match (true) {
@@ -123,8 +124,9 @@ class UserDirectory
             $staff && ($staff['account_status'] ?? 'active') !== 'active' => ['bad', 'App '.($staff['account_status'] ?? 'inactive')],
             $staff && array_key_exists('is_active', $staff) && ! $staff['is_active'] => ['bad', 'App inactive'],
             ! $staff && $customer && ($customer['is_active'] ?? true) === false => ['bad', 'Disabled'],
-            $login && ! $login->canUseWebsite() => ['bad', 'No website access'],
             $awaitingApproval => ['warn', 'Needs approval'],
+            // An app staff member's record is fine as it is: staff use the app, not the website.
+            $login && ! $login->canUseWebsite() => $staff ? ['ok', 'Active'] : ['bad', 'No website access'],
             $login && ! $login->has_access => ['warn', 'Waiting for access'],
             default => ['ok', 'Active'],
         };

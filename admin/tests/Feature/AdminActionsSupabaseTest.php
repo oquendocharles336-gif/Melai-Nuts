@@ -97,7 +97,7 @@ class AdminActionsSupabaseTest extends TestCase
         $this->assertNotContains('staff_update_order_status', $db->calledFunctions());
     }
 
-    public function test_a_stale_screen_does_not_skip_a_step_and_staff_stay_in_their_branch(): void
+    public function test_a_stale_screen_does_not_skip_a_step_and_staff_move_nothing(): void
     {
         $db = $this->fake();
         $db->orders[0]['status'] = 'confirmed';
@@ -107,9 +107,12 @@ class AdminActionsSupabaseTest extends TestCase
 
         $db->orders[1]['status'] = 'pending';
         $lb = 'ORD-LB-1';
+        // Staff move orders in the Melai Nuts app, never on the website: not in another branch, not in their own.
         $cora = $this->linkedLogin('uid-cal');
-        $this->signedIn($cora)->postJson("/orders/$lb/advance", ['from' => 'pending'])->assertNotFound(); // not her branch
-        $this->signedIn($cora)->postJson('/orders/ORD-CAL-1/advance', ['from' => 'completed'])->assertStatus(409);
+        $this->assertStaffKeptOut($this->signedIn($cora)->postJson("/orders/$lb/advance", ['from' => 'pending']));
+        $this->assertStaffKeptOut($this->signedIn($cora)->postJson('/orders/ORD-CAL-1/advance', ['from' => 'confirmed']));
+        $this->assertNotContains('staff_update_order_status', $db->calledFunctions());
+        $this->assertSame('pending', $db->orders[1]['status']);
     }
 
     public function test_receive_stock_posts_a_batch_and_returns_the_database_row(): void

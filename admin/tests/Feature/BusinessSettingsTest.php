@@ -174,9 +174,9 @@ class BusinessSettingsTest extends TestCase
         $this->useFakeSupabase();
         $staff = $this->linkedLogin('uid-cal');
 
-        $this->signedIn($staff)->get('/admin/business-settings')->assertForbidden();
-        $this->signedIn($staff)->put('/admin/business-settings', ['restock_threshold_default' => '1'])->assertForbidden();
-        $this->signedIn($staff)->post('/admin/branches', ['name' => 'X', 'delivery_fee' => '0'])->assertForbidden();
+        $this->assertStaffKeptOut($this->signedIn($staff)->get('/admin/business-settings'));
+        $this->assertStaffKeptOut($this->signedIn($staff)->put('/admin/business-settings', ['restock_threshold_default' => '1']));
+        $this->assertStaffKeptOut($this->signedIn($staff)->post('/admin/branches', ['name' => 'X', 'delivery_fee' => '0']));
         $this->assertNotContains('owner_update_business_settings', $this->db->calledFunctions());
         $this->assertNotContains('owner_save_branch', $this->db->calledFunctions());
     }
