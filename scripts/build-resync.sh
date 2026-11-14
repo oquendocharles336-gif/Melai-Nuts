@@ -48,8 +48,11 @@ done
 } > "$TMP"
 
 if [ "${1:-}" = "--check" ]; then
-  if ! cmp -s "$TMP" "$OUT"; then
+  # Compare ignoring CR (Windows line endings must not fail the check).
+  if ! diff -q <(tr -d '\r' < "$TMP") <(tr -d '\r' < "$OUT") >/dev/null; then
     echo "supabase/repair/20261010_resync_live_database.sql is out of date: run bash scripts/build-resync.sh"
+    echo "--- first differences (expected < / committed >) ---"
+    diff <(tr -d '\r' < "$TMP") <(tr -d '\r' < "$OUT") | head -40 || true
     exit 1
   fi
   echo "resync file is up to date"
