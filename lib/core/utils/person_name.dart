@@ -1,7 +1,7 @@
 /// A customer's name as First Name and Last Name.
 ///
 /// The database keeps one `full_name` value, so this composes it
-/// ("Juan Dela Cruz") and splits it back for forms and display.
+/// and splits it back for forms and display.
 class PersonName {
   final String first;
   final String last;

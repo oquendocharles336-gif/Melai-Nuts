@@ -47,7 +47,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final String _initialName;
   late final String _initialPhone;
 
-  /// The one name value the account stores: "Juan Dela Cruz".
+  /// The one name value the account stores.
   String get _fullName => PersonName(
         first: _firstNameController.text,
         last: _lastNameController.text,

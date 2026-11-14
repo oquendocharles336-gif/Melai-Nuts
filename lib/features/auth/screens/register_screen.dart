@@ -59,7 +59,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  /// The one name value the account stores: "Juan Dela Cruz".
+  /// The one name value the account stores.
   String get _fullName => PersonName(
         first: _firstNameController.text,
         last: _lastNameController.text,
