@@ -46,14 +46,15 @@ class AuthTest extends TestCase
     {
         $this->get('/login')->assertRedirect('/?panel=sign-in');
         $this->get('/shop/login')->assertRedirect('/?panel=sign-in');
-        $this->get('/register')->assertRedirect('/?panel=staff-access');
+        $this->get('/register')->assertNotFound();   // no staff sign-up on the website
         $this->get('/shop/register')->assertRedirect('/?panel=create-account');
         $this->get('/forgot-password')->assertRedirect('/?panel=reset-password');
         $this->get('/shop/forgot-password')->assertRedirect('/?panel=reset-password');
-        foreach (['sign-in' => 'Welcome back', 'create-account' => 'Create your account', 'reset-password' => 'Reset your password', 'staff-access' => 'Request staff access'] as $panel => $title) {
+        foreach (['sign-in' => 'Welcome back', 'create-account' => 'Create your account', 'reset-password' => 'Reset your password'] as $panel => $title) {
             $page = $this->get('/?panel='.$panel)->assertOk()->assertSee('data-shown="'.$panel.'"', false)->assertSee($title);
             $this->assertMatchesRegularExpression('/data-panel="'.$panel.'"\s+aria-labelledby/', $page->getContent(), $panel.' is the visible one');
         }
+        $this->get('/?panel=staff-access')->assertOk()->assertDontSee('data-start-open', false)->assertDontSee('Request staff access');
         $this->get('/?panel=nonsense')->assertOk()->assertDontSee('data-start-open', false);
     }
 

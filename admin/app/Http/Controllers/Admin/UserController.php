@@ -160,7 +160,7 @@ class UserController extends Controller
                 'role' => $user->role, 'created_by' => $request->user()->id, 'branch' => $profile['branch_name'] ?? null,
             ]);
 
-            return redirect()->route('admin.users.index')->with('status', "App staff account created for {$user->email} ({$profile['branch_name']}). They sign in to the app and this website with that email and password.");
+            return redirect()->route('admin.users.index')->with('status', "App staff account created for {$user->email} ({$profile['branch_name']}). They sign in to the Melai Nuts app with that email and password (staff do not use the website).");
         }
 
         try {

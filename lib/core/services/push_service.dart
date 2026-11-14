@@ -48,10 +48,9 @@ class PushService {
       if (!allowed) return;
       // Shown by the system while the app is open, too (iOS / macOS).
       await messaging.setForegroundNotificationPresentationOptions(alert: true, badge: true, sound: true);
-      final token = await messaging.getToken();
-      if (token != null) await _register(token);
       await _refresh?.cancel();
-      _refresh = messaging.onTokenRefresh.listen((t) => unawaited(_register(t)));
+      _refresh = messaging.onRegistered.listen((t) => unawaited(_register(t)));
+      await messaging.register();
     } catch (e, st) {
       AppErrors.report(e, st, 'push_service:registerIfAllowed');
     }
@@ -74,7 +73,7 @@ class PushService {
     if (token == null) return;
     try {
       await SupabaseService.instance.client.rpc('unregister_push_token', params: {'p_token': token});
-      await FirebaseMessaging.instance.deleteToken();
+      await FirebaseMessaging.instance.unregister();
     } catch (e, st) {
       AppErrors.report(e, st, 'push_service:onSigningOut');
     }
