@@ -14,7 +14,7 @@
         <ol>
             <li>@if ($user->firebase_email_verified) <strong>Email verified.</strong>
                 @else <strong>Verify your email:</strong> open the link Firebase sent to {{ $user->email }} (check spam), then press "Check again". @endif</li>
-            <li><strong>An owner approves you</strong> on the Users page and assigns your branch. Until then your account has no staff or owner rights.</li>
+            <li><strong>Your owner account must be linked</strong> to the app's owner registry. Staff do not use the website: they sign in to the Melai Nuts app.</li>
         </ol>
         @if ($state && ! in_array($state['state'], ['linked', 'profile_missing'], true))
             <p class="s-note">{{ \App\Services\Auth\LinkState::describe($state['state'])[0] }}: {{ $state['message'] }}</p>

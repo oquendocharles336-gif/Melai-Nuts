@@ -24,8 +24,8 @@ use Illuminate\Support\Str;
  *  2. The website login for that UID is found, or the login with the same (normalised) email is
  *     bound to it. From then on that login signs in only through Firebase.
  *  3. With no website login yet, one is created ONLY for an account the app's staff registry
- *     (Supabase) reports as an active owner (-> admin login) or staff member with a branch
- *     (-> staff login). Anything else is refused with the precise reason; nothing is created.
+ *     (Supabase) reports as an active owner (-> admin login). Staff accounts and anything else are
+ *     refused with the precise reason; nothing is created (staff use the Melai Nuts app only).
  *  4. LoginController then links the login to its staff/owner row (AutoLinker) before the
  *     person is signed in, so nobody ever has to link an account by hand.
  */
@@ -102,6 +102,9 @@ class FirebaseLogin
             throw new AccountLinkException(LinkState::TEMPORARY_ERROR, $e->getMessage());
         }
         $profile = $ctx['profile'] ?? null;
+        if (($profile['role'] ?? null) !== null && $profile['role'] !== 'owner') {
+            throw new AccountLinkException(LinkState::ROLE_NOT_AUTHORIZED, \App\Http\Controllers\Auth\LoginController::APP_ONLY_MESSAGE);
+        }
         match ($ctx['status'] ?? 'not_provisioned') {
             'active' => null,
             'invalid_branch' => throw new AccountLinkException(LinkState::BRANCH_MISSING, LinkState::describe(LinkState::BRANCH_MISSING)[2]),
@@ -117,7 +120,7 @@ class FirebaseLogin
                 'name' => filled($profile['full_name'] ?? null) ? $profile['full_name'] : $claims['email'],
                 'email' => $this->norm($claims['email']),
                 'password' => Hash::make(Str::random(64)), // never used: Firebase holds the password
-                'role' => $profile['role'] === 'owner' ? User::ROLE_ADMIN : User::ROLE_STAFF,
+                'role' => User::ROLE_ADMIN,   // only an owner reaches this point
                 'is_active' => true,
                 'has_access' => false, // granted by AccountLinkStatus once the link is verified
                 'firebase_uid' => $claims['sub'],
@@ -142,8 +145,8 @@ class FirebaseLogin
     private function notRegisteredMessage(array $claims): string
     {
         return $this->status->registeredUnderAnotherUid($claims)
-            ?? 'Your Melai Nuts app account is not registered as staff or owner, so it cannot use the admin website. '
-            .'New staff: use Create Account on this website and wait for an owner to approve you, or ask an owner to register you in the app\'s User Management.';
+            ?? 'Your Melai Nuts app account is not registered as an owner, so it cannot use the admin website. '
+            .'Staff sign in to the Melai Nuts app instead.';
     }
 
     private function norm(?string $email): string

@@ -1,6 +1,6 @@
 {{--
-    The sign-in panel: the ONLY place to sign in (customers, staff, owners, admins), create an
-    account, reset a password or ask for staff access. A modal on desktop, a full-screen sheet on
+    The sign-in panel: the ONLY place to sign in on the website (customers and the owner), create a
+    customer account or reset a password. Staff sign in to the app only. A modal on desktop, a full-screen sheet on
     phones. It opens from the header's "Sign in" button, or already open from /?panel=<name>
     (App\Support\AuthPanel), e.g. after /login or a "please sign in" redirect.
 
@@ -23,7 +23,6 @@
         AuthPanel::SIGN_IN => 'Welcome back',
         AuthPanel::CREATE_ACCOUNT => 'Create your account',
         AuthPanel::RESET_PASSWORD => 'Reset your password',
-        AuthPanel::STAFF_ACCESS => 'Request staff access',
     ];
 @endphp
 
@@ -38,10 +37,9 @@
                     <h2 id="ap-{{ $panel }}-title">{{ $title }}</h2>
                     <p>
                         @switch($panel)
-                            @case(AuthPanel::SIGN_IN) One sign-in for the shop and the dashboard, with your Melai Nuts app email and password. @break
+                            @case(AuthPanel::SIGN_IN) One sign-in for the shop (and the owner's dashboard), with your Melai Nuts app email and password. @break
                             @case(AuthPanel::CREATE_ACCOUNT) One account for the website and the Melai Nuts app: same cart, orders and points. @break
                             @case(AuthPanel::RESET_PASSWORD) Enter your account's email and we'll send you a link to choose a new password. It works in the app too. @break
-                            @case(AuthPanel::STAFF_ACCESS) For Melai Nuts staff. This creates your app account; an owner approves it and assigns your branch before you can use the dashboard. @break
                         @endswitch
                     </p>
                 </header>
@@ -51,7 +49,7 @@
                         <div class="s-flash {{ $tone }}" role="{{ $tone === 'bad' ? 'alert' : 'status' }}"><x-icon :name="$tone === 'bad' ? 'alert' : 'check'" :size="18" /><span>{{ $text }}</span></div>
                     @endforeach
                 @endif
-                @if ($firebaseMissing && in_array($panel, [AuthPanel::SIGN_IN, AuthPanel::STAFF_ACCESS], true))
+                @if ($firebaseMissing && $panel === AuthPanel::SIGN_IN)
                     <div class="s-flash note" role="status"><x-icon name="alert" :size="18" />
                         <span>Configuration missing: signing in with the Melai Nuts app account is not set up yet ({{ implode(', ', $firebaseMissing) }} empty in admin/.env). See INTEGRATION.md, section 2B.</span></div>
                 @endif
@@ -83,13 +81,13 @@
                         </form>
                         <div class="s-dlg-foot">
                             <p>New to Melai Nuts? <a href="{{ AuthPanel::url(AuthPanel::CREATE_ACCOUNT) }}" data-panel-open="{{ AuthPanel::CREATE_ACCOUNT }}">Create an account</a></p>
-                            <p>Staff without website access? <a href="{{ AuthPanel::url(AuthPanel::STAFF_ACCESS) }}" data-panel-open="{{ AuthPanel::STAFF_ACCESS }}">Request staff access</a></p>
+                            <p>Melai Nuts staff sign in to the Melai Nuts app, not on this website.</p>
                         </div>
                     @break
 
                     {{-- Create an account (customers; same rules as the app) ------------------------ --}}
                     @case(AuthPanel::CREATE_ACCOUNT)
-                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…">
+                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…" data-live-validate>
                             @csrf
                             <input type="hidden" name="_panel" value="{{ $panel }}">
                             <div @class(['s-field', 'has-err' => $err($panel, 'name')])>
@@ -157,53 +155,6 @@
                         </form>
                         <div class="s-dlg-foot">
                             <p><a href="{{ AuthPanel::url(AuthPanel::SIGN_IN) }}" data-panel-open="{{ AuthPanel::SIGN_IN }}">Back to sign in</a></p>
-                        </div>
-                    @break
-
-                    {{-- Request staff access (the owner approves it) ----------------------------------- --}}
-                    @case(AuthPanel::STAFF_ACCESS)
-                        <form method="POST" action="{{ route('register') }}" class="s-form" novalidate data-busy="Sending request…">
-                            @csrf
-                            <input type="hidden" name="_panel" value="{{ $panel }}">
-                            <div @class(['s-field', 'has-err' => $err($panel, 'name')])>
-                                <label for="sa-name">Full name</label>
-                                <input id="sa-name" type="text" name="name" value="{{ $val($panel, 'name') }}" autocomplete="name" required maxlength="{{ \App\Http\Requests\Rules::NAME_MAX }}">
-                                @if ($e = $err($panel, 'name'))<span class="err">{{ $e }}</span>@endif
-                            </div>
-                            <div @class(['s-field', 'has-err' => $err($panel, 'email')])>
-                                <label for="sa-email">Email</label>
-                                <input id="sa-email" type="email" name="email" value="{{ $val($panel, 'email') }}" autocomplete="email" required maxlength="254">
-                                @if ($e = $err($panel, 'email'))<span class="err">{{ $e }}</span>@endif
-                            </div>
-                            <div @class(['s-field', 'has-err' => $err($panel, 'password')])>
-                                <label for="sa-password">Password</label>
-                                <div class="s-pw">
-                                    <input id="sa-password" type="password" name="password" autocomplete="new-password" required maxlength="64" aria-describedby="sa-pw-rules">
-                                    <button type="button" data-show-pw="sa-password" aria-pressed="false">Show</button>
-                                </div>
-                                <ul class="s-rules" id="sa-pw-rules" data-pw-rules="sa-password">
-                                    <li data-rule="length">8 to 64 characters</li>
-                                    <li data-rule="upper">An uppercase letter</li>
-                                    <li data-rule="digit">A number</li>
-                                    <li data-rule="special">A symbol (!@#…)</li>
-                                </ul>
-                                @if ($e = $err($panel, 'password'))<span class="err">{{ $e }}</span>@endif
-                            </div>
-                            <div @class(['s-field', 'has-err' => $err($panel, 'password_confirmation')])>
-                                <label for="sa-password2">Confirm password</label>
-                                <input id="sa-password2" type="password" name="password_confirmation" autocomplete="new-password" required maxlength="64">
-                                @if ($e = $err($panel, 'password_confirmation'))<span class="err">{{ $e }}</span>@endif
-                            </div>
-                            {{-- Consent is an active choice (never pre-ticked); the links open the full documents. --}}
-                            <label @class(['s-check', 'has-err' => $err($panel, 'terms')])>
-                                <input type="checkbox" name="terms" value="1" @checked($val($panel, 'terms'))>
-                                <span>I have read and agree to the <a href="{{ route('legal.terms') }}" target="_blank" rel="noopener">Terms and Conditions</a> and the <a href="{{ route('legal.privacy') }}" target="_blank" rel="noopener">Privacy Policy</a>.</span>
-                            </label>
-                            @if ($e = $err($panel, 'terms'))<span class="s-err">{{ $e }}</span>@endif
-                            <button type="submit" class="s-btn primary block">Request access</button>
-                        </form>
-                        <div class="s-dlg-foot">
-                            <p>Already have an app account? <a href="{{ AuthPanel::url(AuthPanel::SIGN_IN) }}" data-panel-open="{{ AuthPanel::SIGN_IN }}">Sign in with it</a></p>
                         </div>
                     @break
                 @endswitch

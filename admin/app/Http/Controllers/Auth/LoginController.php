@@ -26,11 +26,11 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * THE sign-in for everyone (customers, staff, owners, admins), with the Melai Nuts app account.
+ * THE sign-in for the website (customers and the owner), with the Melai Nuts app account.
  * One Firebase sign-in, then the ACCOUNT decides the side (AccountKind, from its Firestore role):
  * customers go to the shop with their own shop session (never an admin login, never the admin
- * steps below); staff and owners go through the admin steps below to the dashboard; riders are
- * refused.
+ * steps below); owners go through the admin steps below to the dashboard; staff and riders are
+ * refused: they sign in to the Melai Nuts app only.
  *
  * Admin sign-in. Logging in is all it takes: the login is linked to its staff / owner row in
  * the app's database automatically (AutoLinker) BEFORE the person is signed in, at every sign-in.
@@ -80,7 +80,12 @@ class LoginController extends Controller
                 if ($kind === AccountKind::CUSTOMER || $kind === AccountKind::NEW_CUSTOMER) {
                     return $this->customerLogin($request, $tokens, $claims, $profile, $customers);
                 }
-                // Staff / owner: the same admin steps as before.
+                // Staff never use the website, whatever the password: the app only.
+                if (($profile['role'] ?? null) === 'staff') {
+                    ActivityLogger::log('auth.login_refused', 'Staff account tried to log in to the website', null, ['uid' => $claims['sub']]);
+                    $request->failed(self::APP_ONLY_MESSAGE);
+                }
+                // Owner: the admin steps (link, two-step).
                 $user = $firebase->resolveUser($claims, $email);
             } catch (FirebaseAuthException $e) {
                 if (in_array($e->reason, [FirebaseAuthException::USER_DISABLED, FirebaseAuthException::TOO_MANY_ATTEMPTS], true)) {
@@ -128,8 +133,8 @@ class LoginController extends Controller
         return app(CustomerAuthController::class)->afterSignIn($request, 'Welcome back, '.app(CustomerSession::class)->firstName().'!');
     }
 
-    /** Shown when a login whose role is not a website role (admin / staff) tries to sign in. */
-    public const APP_ONLY_MESSAGE = 'This account cannot use the admin website. Sign in to the Melai Nuts app instead.';
+    /** Shown when a login whose role is not the website role (owner / admin) tries to sign in. */
+    public const APP_ONLY_MESSAGE = 'Staff accounts cannot sign in on the website. Please sign in to the Melai Nuts app instead.';
 
     private function firebaseLogin(LoginRequest $request, User $user, array $tokens, array $claims, FirebaseSession $session, AutoLinker $linker)
     {
