@@ -9,7 +9,7 @@ use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RefundController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\LoginController;
-use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\Auth\WaitingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LoyaltyCardController;
 use App\Http\Controllers\OperationsController;
@@ -79,15 +79,13 @@ Route::name('shop.')->group(function () {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Admin website (owners and staff). Customers never get past `no.customers` + `auth`.
+// Admin website (the owner only: staff use the Melai Nuts app). Customers never get past `no.customers` + `auth`.
 // ---------------------------------------------------------------------------------------------
 // Sign-in addresses (logged-in admins are redirected to the dashboard). There are no sign-in pages:
 // each address opens its panel on the shop homepage (App\Support\AuthPanel); the POSTs do the work.
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'create'])->name('login');
     Route::post('/login', [LoginController::class, 'store']);
-    Route::get('/register', [RegisterController::class, 'create'])->name('register');
-    Route::post('/register', [RegisterController::class, 'store'])->middleware('throttle:10,1');
     Route::redirect('/forgot-password', '/?panel=reset-password')->name('password.request');   // the reset panel on the homepage
     Route::post('/forgot-password', [LoginController::class, 'forgot'])->name('password.email')->middleware('throttle:5,1');
 });
@@ -103,8 +101,8 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
     Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm'])->name('two-factor.confirm')->middleware('throttle:10,1');
     Route::delete('/two-factor', [TwoFactorController::class, 'disable'])->name('two-factor.disable')->middleware('throttle:10,1');
 
-    Route::get('/waiting', [RegisterController::class, 'waiting'])->name('waiting');
-    Route::post('/waiting/verify-email', [RegisterController::class, 'resendVerification'])->name('waiting.verify-email')->middleware('throttle:3,1');
+    Route::get('/waiting', [WaitingController::class, 'waiting'])->name('waiting');
+    Route::post('/waiting/verify-email', [WaitingController::class, 'resendVerification'])->name('waiting.verify-email')->middleware('throttle:3,1');
 
     // Admin-only: staff get 403, even without access
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {

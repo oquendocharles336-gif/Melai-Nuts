@@ -14,10 +14,11 @@ class User extends Authenticatable
     public const ROLE_STAFF = 'staff';
 
     /**
-     * The only roles that may sign in to the website. Delivery riders use the Melai Nuts app only;
-     * an old website login with any other role (left in the users table, never deleted) is refused.
+     * The only role that may sign in to the website: the owner / admin. Staff and delivery riders
+     * use the Melai Nuts app only; an old website login with any other role (left in the users
+     * table, never deleted) is refused.
      */
-    public const WEBSITE_ROLES = [self::ROLE_ADMIN, self::ROLE_STAFF];
+    public const WEBSITE_ROLES = [self::ROLE_ADMIN];
 
     // role / has_access / is_active / staff_uid / firebase_uid are NOT fillable on purpose (no mass-assignment tricks).
     protected $fillable = ['name', 'email', 'password'];
@@ -54,7 +55,7 @@ class User extends Authenticatable
     /** May this login use the website at all (sign in, keep a session)? */
     public function canUseWebsite(): bool
     {
-        return in_array($this->role, self::WEBSITE_ROLES, true) || filled($this->staff_uid);
+        return in_array($this->role, self::WEBSITE_ROLES, true);
     }
 
     public function isAdmin(): bool

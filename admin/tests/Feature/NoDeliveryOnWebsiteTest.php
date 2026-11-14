@@ -97,7 +97,7 @@ class NoDeliveryOnWebsiteTest extends TestCase
 
         // ...and the role middleware never lets it through either.
         $this->assertFalse($rider->canUseWebsite());
-        $this->assertTrue(User::factory()->make(['role' => 'staff'])->canUseWebsite());
+        $this->assertFalse(User::factory()->make(['role' => 'staff'])->canUseWebsite());   // staff: the app only
         $this->assertTrue(User::factory()->make(['role' => 'admin'])->canUseWebsite());
     }
 

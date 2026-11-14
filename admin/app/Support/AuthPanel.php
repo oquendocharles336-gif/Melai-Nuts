@@ -8,8 +8,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 /**
- * The sign-in panel on the shop homepage: the ONLY place anyone signs in (customers, staff,
- * owners, admins), creates an account, resets a password or asks for staff access.
+ * The sign-in panel on the shop homepage: the ONLY place anyone signs in on the website
+ * (customers and the owner), creates a customer account or resets a password. Staff do not use
+ * the website: they sign in to the Melai Nuts app.
  *
  * Each panel has its own address (/?panel=sign-in, ...), so links and "please sign in" redirects
  * open it directly. Every form in it sends `_panel`, so a failed submit comes back to the same
@@ -20,9 +21,8 @@ final class AuthPanel
     public const SIGN_IN = 'sign-in';
     public const CREATE_ACCOUNT = 'create-account';
     public const RESET_PASSWORD = 'reset-password';
-    public const STAFF_ACCESS = 'staff-access';
 
-    public const ALL = [self::SIGN_IN, self::CREATE_ACCOUNT, self::RESET_PASSWORD, self::STAFF_ACCESS];
+    public const ALL = [self::SIGN_IN, self::CREATE_ACCOUNT, self::RESET_PASSWORD];
 
     /** The homepage with this panel open. */
     public static function url(string $panel = self::SIGN_IN): string
