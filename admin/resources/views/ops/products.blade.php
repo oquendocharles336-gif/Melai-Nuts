@@ -136,6 +136,7 @@
                                 <img x-show="slot.src" :src="slot.src" :alt="(slot.main ? 'Main photo' : 'Photo ' + (i + 1)) + (current ? ' of ' + current.name : '')" decoding="async">
                                 <span class="pp-badge" x-show="slot.main && !slot.pending">Main photo</span>
                                 <span class="pp-badge pending" x-show="slot.pending && !slot.error" x-text="slot.replaces ? 'Replacement · not saved yet' : 'New · not saved yet'"></span>
+                                <span class="pp-badge warn" x-show="slot.pending && !slot.error && slot.item?.warnings?.length" :title="(slot.item?.warnings || []).join(' ')">Check this photo</span>
 
                                 {{-- Upload progress --}}
                                 <div class="pp-progress" x-show="slot.uploading" role="progressbar" :aria-valuenow="slot.progress" aria-valuemin="0" aria-valuemax="100" aria-label="Upload progress">
@@ -185,8 +186,34 @@
         <div class="modal-foot">
             <span class="pp-foot-note" x-show="pendingCount > 0" x-text="pendingCount === 1 ? '1 photo ready to save' : pendingCount + ' photos ready to save'"></span>
             <button type="button" class="btn" x-on:click="closePhotos()" :disabled="busy" x-text="pendingCount > 0 ? 'Cancel' : 'Close'">Close</button>
-            <button type="button" class="btn primary" x-on:click="save()" :disabled="busy || pendingCount === 0" :class="busy && 'is-busy'"
+            <button type="button" class="btn primary" x-on:click="askSave()" :disabled="busy || pendingCount === 0" :class="busy && 'is-busy'"
                     x-text="busy ? 'Uploading…' : (pendingCount > 1 ? 'Save ' + pendingCount + ' photos' : 'Save photo')">Save photo</button>
+        </div>
+
+        {{-- "Are you sure?" step before saving: the owner sees exactly what customers will see, on which product. --}}
+        <div class="pp-consent-wrap" x-show="saveConfirmOpen" x-transition.opacity x-cloak>
+            <div class="pp-consent pp-saveconfirm" role="alertdialog" aria-modal="true" aria-labelledby="pp-save-title" aria-describedby="pp-save-text"
+                 x-trap.noautofocus="saveConfirmOpen" x-on:keydown.escape.stop.prevent="cancelSave()">
+                <h3 id="pp-save-title" x-text="ready.length === 1 ? 'Are you sure you want to save this photo?' : 'Are you sure you want to save these ' + ready.length + ' photos?'"></h3>
+                <p id="pp-save-text">They will be shown on <strong x-text="current ? current.name : ''"></strong> to every customer in the app and the web shop right away. Check that each photo shows this product.</p>
+                <ul class="pp-save-list">
+                    <template x-for="p in ready" :key="p.key">
+                        <li :class="p.warnings?.length && 'has-warning'">
+                            <img :src="p.src" :alt="p.name">
+                            <div>
+                                <strong x-text="placeOf(p)"></strong>
+                                <span class="pp-save-name" x-text="p.name"></span>
+                                <template x-for="w in (p.warnings || [])" :key="w"><span class="pp-save-warn" x-text="w"></span></template>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+                <p class="pp-save-note" x-show="warnedCount > 0" x-text="warnedCount === 1 ? '1 photo needs a second look. If it is the wrong photo, go back and cancel it.' : warnedCount + ' photos need a second look. If one is wrong, go back and cancel it.'"></p>
+                <div class="pp-consent-actions">
+                    <button type="button" class="btn" x-on:click="cancelSave()">Go back</button>
+                    <button type="button" class="btn primary" x-ref="saveYes" x-on:click="confirmSave()" x-text="ready.length === 1 ? 'Yes, save photo' : 'Yes, save ' + ready.length + ' photos'">Yes, save</button>
+                </div>
+            </div>
         </div>
 
         {{-- "Allow" step: asked once per signed-in owner before the file picker first opens. --}}

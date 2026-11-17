@@ -12,7 +12,7 @@ globalThis.localStorage = {
 let user = '7';
 globalThis.document = { querySelector: (sel) => (sel === 'meta[name="melai-user"]' ? { content: user } : null) };
 
-const { checkFile, readPhotoAccess, savePhotoAccess, clearPhotoAccess } = await import('../../resources/js/product-photos.js');
+const { checkFile, readPhotoAccess, savePhotoAccess, clearPhotoAccess, photoWarnings, fileKey } = await import('../../resources/js/product-photos.js');
 
 const file = (name, type, size) => new File([new Uint8Array(size)], name, { type });
 
@@ -49,4 +49,24 @@ test('blocked storage (private mode) means "ask again", never an error', () => {
     } finally {
         globalThis.localStorage = real;
     }
+});
+
+test('a normal product photo gets no warning before saving', () => {
+    assert.deepEqual(photoWarnings(1200, 1200), []);
+    assert.deepEqual(photoWarnings(1600, 1000), []);
+});
+
+test('tiny, very wide and very tall photos are flagged in the "Are you sure?" step', () => {
+    assert.match(photoWarnings(200, 200)[0], /Small photo \(200 × 200 px\)/);
+    assert.match(photoWarnings(1600, 600)[0], /Very wide photo/);
+    assert.match(photoWarnings(600, 1400)[0], /Very tall photo/);
+    assert.equal(photoWarnings(300, 900).length, 2);
+});
+
+test('the same file chosen twice has the same key', () => {
+    const a = new File([new Uint8Array(5)], 'a.jpg', { type: 'image/jpeg', lastModified: 1 });
+    const b = new File([new Uint8Array(5)], 'a.jpg', { type: 'image/jpeg', lastModified: 1 });
+    const c = new File([new Uint8Array(6)], 'a.jpg', { type: 'image/jpeg', lastModified: 1 });
+    assert.equal(fileKey(a), fileKey(b));
+    assert.notEqual(fileKey(a), fileKey(c));
 });

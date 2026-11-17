@@ -186,7 +186,10 @@ class ProductPhotosTest extends TestCase
             ->assertSee('Photo access:', false)
             ->assertSee(route('legal.privacy').'#privacy-9', false)
             ->assertSee('aria-label="Add a photo to Chili Garlic Peanuts"', false)   // the empty holder opens the modal
-            ->assertSee('blocker: null', false);                                       // nothing to fix for this owner
+            ->assertSee('blocker: null', false)                                       // nothing to fix for this owner
+            ->assertSee('Are you sure you want to save')   // asked before anything is uploaded
+            ->assertSee('Check that each photo shows this product.')
+            ->assertSee('x-on:click="askSave()"', false);
     }
 
     public function test_the_page_says_up_front_when_the_owner_has_no_app_sign_in(): void

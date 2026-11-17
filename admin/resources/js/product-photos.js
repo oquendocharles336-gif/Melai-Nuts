@@ -74,13 +74,31 @@ export function checkFile(file) {
     return null;
 }
 
-async function prepare(file, limit = MAX_BYTES) {
+/**
+ * Things worth a second look before saving (shown in the "Are you sure?" step). The website cannot
+ * tell WHAT a photo shows, so it points out the usual signs of a wrong pick: a tiny image (icon,
+ * thumbnail), or a very wide / tall one (screenshot, banner), which the square product card crops.
+ */
+export function photoWarnings(w, h) {
+    const out = [];
+    if (!w || !h) return out;
+    if (Math.min(w, h) < 400) out.push(`Small photo (${w} × ${h} px): it may look blurry in the app.`);
+    const ratio = Math.max(w, h) / Math.min(w, h);
+    if (ratio >= 2) out.push(`Very ${w > h ? 'wide' : 'tall'} photo (${w} × ${h} px), like a screenshot or banner: the product card crops it to a square.`);
+    return out;
+}
+
+/** Same file chosen twice (name, size and date match). */
+export const fileKey = (f) => `${f.name}|${f.size}|${f.lastModified || 0}`;
+
+async function prepare(file, limit = MAX_BYTES, info = {}) {
     const problem = checkFile(file);
     if (problem) throw new Error(problem);
 
     let image;
     try { image = await loadImage(file); } catch (e) { throw new Error(`"${file.name}" could not be opened as a photo. It may be damaged.`); }
     const w = image.width, h = image.height;
+    info.w = w; info.h = h;
     if (!w || !h) throw new Error(`"${file.name}" could not be opened as a photo.`);
 
     if (Math.max(w, h) <= MAX_EDGE && file.size <= Math.min(KEEP_AS_IS_BYTES, limit)) return file;
@@ -123,6 +141,7 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
         limit: Math.min(MAX_BYTES, maxBytes || MAX_BYTES),
         currentId: null, pending: [], busy: false, error: null, confirmKey: null, dropOn: null, replacing: null,
         access: readPhotoAccess(), consentOpen: false, consentFor: null, consentReturn: null,
+        saveConfirmOpen: false, confirmReturn: null,
 
         get current() { return this.currentId ? this.rows[this.currentId] : null; },
         get isFull() { return (this.current?.images.length || 0) + this.pending.filter(p => !p.replaces).length >= this.max; },
@@ -162,7 +181,7 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
         },
         closePhotos() {
             if (this.busy) return;
-            this.consentOpen = false; this.consentFor = null;
+            this.consentOpen = false; this.consentFor = null; this.saveConfirmOpen = false;
             this.clearPending();
             window.dispatchEvent(new CustomEvent('close-modal', { detail: 'product-photos' }));
         },
@@ -227,6 +246,16 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
         addFiles(files) {
             if (!files.length) return;
             this.error = null;
+            // The same file twice is almost always a slip: keep the first, say so.
+            const seen = new Set(this.pending.map(p => p.fileKey));
+            const dupes = [];
+            files = files.filter(f => {
+                const k = fileKey(f);
+                if (seen.has(k)) { dupes.push(f.name); return false; }
+                seen.add(k); return true;
+            });
+            if (dupes.length) this.error = `${dupes.map(n => `"${n}"`).join(', ')} ${dupes.length === 1 ? 'was' : 'were'} already chosen, so ${dupes.length === 1 ? 'it was' : 'they were'} not added again.`;
+            if (!files.length) return;
             if (this.replacing) {
                 const old = this.pending.find(p => p.replaces === this.replacing);
                 if (old) this.discard({ item: old });
@@ -243,10 +272,13 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
         queue(file, replaces) {
             const problem = checkFile(file);   // wrong type / over 5 MB: no preview, just the reason
             this.pending.push({ key: 'new-' + (++seq), file: null, src: problem ? '' : URL.createObjectURL(file), name: file.name,
-                replaces, uploading: false, progress: 0, error: problem });
+                fileKey: fileKey(file), w: 0, h: 0, warnings: [], replaces, uploading: false, progress: 0, error: problem });
             if (problem) return;
             const item = this.pending[this.pending.length - 1];   // the reactive copy
-            prepare(file, this.limit).then(f => { item.file = f; }).catch(err => { item.error = err.message; });
+            const info = {};
+            prepare(file, this.limit, info).then(f => {
+                Object.assign(item, { file: f, w: info.w, h: info.h, warnings: photoWarnings(info.w, info.h) });
+            }).catch(err => { item.error = err.message; });
         },
 
         discard(slot) {
@@ -284,6 +316,34 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
                 xhr.ontimeout = () => reject(new Error('The upload took too long. Check the connection and try again.'));
                 xhr.send(fd);
             });
+        },
+
+        // ---- "Are you sure you want to save these photos?" -----------------------------------
+        /** Save button: show every new photo with the product's name before anything is uploaded. */
+        askSave() {
+            if (this.busy || !this.ready.length) return;
+            this.confirmReturn = document.activeElement;
+            this.saveConfirmOpen = true;
+            this.$nextTick(() => setTimeout(() => this.$refs.saveYes?.focus(), 30));
+        },
+        cancelSave() {
+            this.saveConfirmOpen = false;
+            const back = this.confirmReturn; this.confirmReturn = null;
+            this.$nextTick(() => back?.focus?.());
+        },
+        confirmSave() {
+            this.saveConfirmOpen = false; this.confirmReturn = null;
+            this.save();
+        },
+        get warnedCount() { return this.ready.filter(p => p.warnings?.length).length; },
+        /** Where each new photo will go, in plain words. */
+        placeOf(p) {
+            if (p.replaces) {
+                const i = (this.current?.images || []).indexOf(p.replaces);
+                return i === 0 ? 'Replaces the main photo' : `Replaces photo ${i + 1}`;
+            }
+            const before = (this.current?.images.length || 0) + this.ready.filter(x => !x.replaces).indexOf(p);
+            return before === 0 ? 'New main photo' : `New photo ${before + 1}`;
         },
 
         async save() {

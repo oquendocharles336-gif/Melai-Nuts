@@ -747,6 +747,17 @@ details.explain p { margin: 10px 0 0; color: var(--ink-2); font-size: 13px; line
 .pp-consent-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .pp-badge { position: absolute; left: 8px; top: 8px; padding: 3px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; background: var(--accent); color: var(--accent-ink); box-shadow: 0 2px 8px rgba(0,0,0,.25); }
 .pp-badge.pending { background: var(--honey); color: #1F120B; }
+.pp-badge.warn { top: auto; bottom: 8px; background: var(--bad); color: #fff; }
+.pp-saveconfirm { width: min(480px, 100%); }
+.pp-save-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.pp-save-list li { display: flex; gap: 12px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.pp-save-list li.has-warning { border-color: var(--bad); }
+.pp-save-list img { width: 64px; height: 64px; flex: none; object-fit: cover; border-radius: 8px; background: var(--surface); }
+.pp-save-list div { display: grid; gap: 2px; min-width: 0; font-size: 12.5px; }
+.pp-save-list strong { color: var(--ink); }
+.pp-save-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-save-warn { color: var(--bad); }
+.pp-save-note { margin: 10px 0 0 !important; color: var(--bad) !important; }
 .pp-progress { position: absolute; left: 8px; right: 8px; bottom: 8px; height: 6px; border-radius: 99px; background: rgba(0,0,0,.35); overflow: hidden; }
 .pp-progress span { display: block; height: 100%; background: var(--honey); border-radius: inherit; transition: width .2s var(--ease); }
 .pp-confirm { position: absolute; inset: 0; display: grid; place-content: center; gap: 10px; padding: 12px; text-align: center; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(2px); }
