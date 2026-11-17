@@ -12,6 +12,9 @@ import '../../../l10n/generated/app_localizations.dart';
 /// * Starts **unticked**: consent is an active choice, never pre-filled.
 /// * "Terms and Conditions" and "Privacy Policy" are tappable links that open
 ///   the full documents.
+/// * The box is **locked until both documents have been opened**: nobody can
+///   agree to something they have not looked at. A hint under the box says
+///   which document is still to be opened.
 /// * It is a [FormField], so `Form.validate()` / `FormUtils.validateAndFocus`
 ///   show an inline error **under the checkbox** when it is not ticked —
 ///   submit is never silently disabled.
@@ -40,9 +43,31 @@ class _TermsConsentBody extends StatefulWidget {
 
 class _TermsConsentBodyState extends State<_TermsConsentBody> {
   late final TapGestureRecognizer _termsTap = TapGestureRecognizer()
-    ..onTap = () => Navigator.of(context).pushNamed(AppRoutes.legalTerms);
+    ..onTap = () => _open(AppRoutes.legalTerms);
   late final TapGestureRecognizer _privacyTap = TapGestureRecognizer()
-    ..onTap = () => Navigator.of(context).pushNamed(AppRoutes.legalPrivacy);
+    ..onTap = () => _open(AppRoutes.legalPrivacy);
+
+  // The box unlocks only after each document was opened from this form.
+  // (A box that arrives already ticked was agreed to earlier, so it stays usable.)
+  late bool _termsViewed = widget.state.value ?? false;
+  late bool _privacyViewed = widget.state.value ?? false;
+
+  bool get _unlocked => _termsViewed && _privacyViewed;
+
+  void _open(String route) {
+    setState(() {
+      if (route == AppRoutes.legalTerms) _termsViewed = true;
+      if (route == AppRoutes.legalPrivacy) _privacyViewed = true;
+    });
+    Navigator.of(context).pushNamed(route);
+  }
+
+  /// What is still to be opened, or null once the box is unlocked.
+  String? _lockedHint(AppLocalizations t) {
+    if (_unlocked) return null;
+    if (!_termsViewed && !_privacyViewed) return t.consentViewBoth;
+    return t.consentViewOne(_termsViewed ? t.legalPrivacyTitle : t.legalTermsTitle);
+  }
 
   @override
   void dispose() {
@@ -61,6 +86,7 @@ class _TermsConsentBodyState extends State<_TermsConsentBody> {
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context);
     final checked = widget.state.value ?? false;
+    final lockedHint = _lockedHint(t);
     final link = AppTextStyles.bodySm.copyWith(
       color: AppColors.primary,
       fontWeight: FontWeight.w700,
@@ -76,7 +102,8 @@ class _TermsConsentBodyState extends State<_TermsConsentBody> {
               value: checked,
               isError: widget.state.hasError,
               activeColor: AppColors.success, // green once ticked
-              onChanged: (v) => _set(v ?? false),
+              // Greyed out and not tickable until both documents were opened.
+              onChanged: _unlocked ? (v) => _set(v ?? false) : null,
             ),
             Expanded(
               child: Padding(
@@ -97,6 +124,23 @@ class _TermsConsentBodyState extends State<_TermsConsentBody> {
             ),
           ],
         ),
+        if (lockedHint != null)
+          Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.sm, top: AppSpacing.xs2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.lock_outline, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: AppSpacing.xs2),
+                Expanded(
+                  child: Text(
+                    lockedHint,
+                    style: AppTextStyles.bodySm.copyWith(color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (widget.state.hasError)
           Padding(
             padding: const EdgeInsets.only(left: AppSpacing.sm, top: AppSpacing.xs2),

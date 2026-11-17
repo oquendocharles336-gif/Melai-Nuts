@@ -103,6 +103,8 @@
   "consentAnd": " at sa ",
   "consentSuffix": ".",
   "consentRequired": "Pakilagyan ng tsek ang kahon para sumang-ayon sa Mga Tuntunin at Kundisyon at sa Patakaran sa Privacy.",
+  "consentViewBoth": "Buksan muna ang Mga Tuntunin at Kundisyon at ang Patakaran sa Privacy. Malalagyan mo ng tsek ang kahon kapag natingnan mo na ang dalawa.",
+  "consentViewOne": "Buksan naman ang {document} para ma-unlock ang kahon.",
   "consentOrderUpdates": "Padalhan ako ng update tungkol sa order at refund (opsyonal).",
   "legalUpdatedTitle": "Binago namin ang aming mga tuntunin",
   "legalUpdatedBody": "Pakibasa ang bagong Mga Tuntunin at Kundisyon at Patakaran sa Privacy at tanggapin ang mga ito para patuloy na magamit ang app.",

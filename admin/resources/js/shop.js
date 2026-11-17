@@ -356,6 +356,36 @@ document.addEventListener('click', (e) => {
     }, true);
 })();
 
+// ---- Consent: the box can be ticked only after both documents were opened --------------------
+document.querySelectorAll('label.s-check input[name="terms"]').forEach((box) => {
+    const label = box.closest('label.s-check');
+    const links = [...label.querySelectorAll('a[data-legal-doc]')];
+    const hint = label.querySelector('[data-terms-hint]');
+    if (!links.length || !hint) return;
+    // A box the server sent back already ticked was agreed to after viewing: keep it usable.
+    const seen = new Set(box.checked ? links : []);
+    const locked = () => seen.size < links.length;
+    const sync = () => {
+        const left = links.filter((a) => !seen.has(a)).map((a) => a.dataset.legalDoc);
+        label.classList.toggle('is-locked', left.length > 0);
+        if (left.length) box.setAttribute('aria-disabled', 'true'); else box.removeAttribute('aria-disabled');
+        hint.hidden = left.length === 0;
+        hint.textContent = left.length === links.length
+            ? `Open the ${left.join(' and the ')} first. You can tick the box after viewing both.`
+            : left.length ? `Now open the ${left[0]} to unlock the box.` : '';
+    };
+    links.forEach((a) => ['click', 'auxclick'].forEach((type) => a.addEventListener(type, () => { seen.add(a); sync(); })));
+    // Mouse, touch and the space key all arrive as a click on the box.
+    box.addEventListener('click', (e) => {
+        if (!locked()) return;
+        e.preventDefault();
+        hint.classList.remove('nudge');
+        void hint.offsetWidth; // restart the attention animation
+        hint.classList.add('nudge');
+    });
+    sync();
+});
+
 // ---- Payment check after HitPay (only the HitPay webhook marks money paid) --------------------
 const poll = document.querySelector('[data-poll-url]');
 if (poll) {

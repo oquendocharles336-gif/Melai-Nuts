@@ -127,7 +127,9 @@
                             </div>
                             <label @class(['s-check', 'has-err' => $err($panel, 'terms')])>
                                 <input type="checkbox" name="terms" value="1" @checked($val($panel, 'terms')) required>
-                                <span>I agree to the <a href="{{ route('legal.terms') }}" target="_blank" rel="noopener">Terms and Conditions</a> and the <a href="{{ route('legal.privacy') }}" target="_blank" rel="noopener">Privacy Policy</a>.</span>
+                                <span>I agree to the <a href="{{ route('legal.terms') }}" target="_blank" rel="noopener" data-legal-doc="Terms and Conditions">Terms and Conditions</a> and the <a href="{{ route('legal.privacy') }}" target="_blank" rel="noopener" data-legal-doc="Privacy Policy">Privacy Policy</a>.
+                                    {{-- Filled in by shop.js: the box stays locked until both links were opened. --}}
+                                    <small class="s-check-hint" data-terms-hint hidden></small></span>
                             </label>
                             @if ($e = $err($panel, 'terms'))<span class="s-err">{{ $e }}</span>@endif
                             <label class="s-check">

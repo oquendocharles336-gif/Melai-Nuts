@@ -172,6 +172,15 @@
   "consentAnd": " and the ",
   "consentSuffix": ".",
   "consentRequired": "Please tick the box to agree to the Terms and Conditions and the Privacy Policy.",
+  "consentViewBoth": "Open the Terms and Conditions and the Privacy Policy first. You can tick the box after viewing both.",
+  "consentViewOne": "Now open the {document} to unlock the box.",
+  "@consentViewOne": {
+    "placeholders": {
+      "document": {
+        "type": "String"
+      }
+    }
+  },
   "consentOrderUpdates": "Send me order and refund updates (optional).",
   "legalUpdatedTitle": "We updated our terms",
   "legalUpdatedBody": "Please read the new Terms and Conditions and Privacy Policy and accept them to keep using the app.",

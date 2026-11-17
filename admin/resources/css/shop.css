@@ -465,6 +465,12 @@ html:has(.s-dlg[open]) { overflow: hidden; }
 .s-err { color: var(--bad); font-size: 13px; font-weight: 600; margin-top: -8px; }
 .s-check.has-err input { outline: 2px solid var(--bad); outline-offset: 1px; }
 .s-check.is-valid input { accent-color: var(--ok); }
+/* Consent box locked until both legal documents were opened (shop.js). */
+.s-check.is-locked input { opacity: .45; cursor: not-allowed; }
+.s-check-hint { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.s-check-hint.nudge { color: var(--bad); font-weight: 600; animation: s-nudge .3s; }
+@keyframes s-nudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+@media (prefers-reduced-motion: reduce) { .s-check-hint.nudge { animation: none; } }
 .s-btn[aria-busy="true"] { opacity: .8; cursor: progress; }
 @keyframes s-dlg-in { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes s-sheet-up { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
