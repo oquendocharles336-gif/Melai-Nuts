@@ -232,6 +232,43 @@ class ProductPhotosTest extends TestCase
         $this->assertSame('2026-11-17', config('melai.legal.privacy_version'));
     }
 
+    public function test_a_token_without_the_role_claim_gets_it_from_grant_role_claim_before_uploading(): void
+    {
+        // A real Firebase token has no `role` claim until grant-role-claim adds it; Storage would
+        // then treat the upload as a guest and refuse it (row-level security).
+        $calls = [];
+        Http::fake(['demo.supabase.co/functions/v1/grant-role-claim' => function (HttpRequest $r) use (&$calls) {
+            $calls[] = $r->header('Authorization')[0] ?? '';
+
+            return Http::response(['granted' => true]);
+        }]);
+        $owner = $this->owner();
+        $noRole = $this->fb->token($owner->firebase_uid, $owner->email, true, ['role' => null]);
+
+        $this->actingAs($owner)->withSession($this->fb->sessionFor($owner, 3600, $noRole))
+            ->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])->assertOk();
+
+        $this->assertSame(['Bearer '.$noRole], $calls);                 // asked once, with the owner's own token
+        $sent = $this->storage[0][2]['Authorization'][0];
+        $this->assertNotSame('Bearer '.$noRole, $sent);                  // uploaded with the refreshed token
+        $payload = json_decode(base64_decode(strtr(explode('.', substr($sent, 7))[1], '-_', '+/')), true);
+        $this->assertSame('authenticated', $payload['role']);
+        $this->assertCount(1, $this->images());
+    }
+
+    public function test_grant_role_claim_failing_is_a_clear_message_and_nothing_is_uploaded(): void
+    {
+        Http::fake(['demo.supabase.co/functions/v1/grant-role-claim' => Http::response(['error' => 'no service account'], 502)]);
+        $owner = $this->owner();
+        $noRole = $this->fb->token($owner->firebase_uid, $owner->email, true, ['role' => null]);
+
+        $this->actingAs($owner)->withSession($this->fb->sessionFor($owner, 3600, $noRole))
+            ->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])
+            ->assertStatus(403)->assertJsonPath('message', fn ($m) => str_contains($m, 'grant-role-claim answered HTTP 502'));
+        $this->assertSame([], $this->storage);
+        $this->assertSame([], $this->images());
+    }
+
     public function test_bad_product_ids_are_404(): void
     {
         $this->signedIn($this->owner())->postJson('/products/not-a-uuid/photos', ['photo' => $this->photo()])->assertNotFound();

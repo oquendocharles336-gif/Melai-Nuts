@@ -183,9 +183,33 @@ class ProductPhotoStorage
             throw new BackendActionException('Uploading photos needs your Melai Nuts app sign-in. Sign out, then sign in again with the email and password you use in the app.');
         }
         try {
+            // Supabase only applies the owner rules to a token whose `role` claim is "authenticated";
+            // Firebase tokens have no such claim until the grant-role-claim function adds it (the app
+            // does the same in lib/core/services/supabase_token.dart). Without it Storage treats the
+            // upload as a guest and refuses it ("new row violates row-level security policy").
+            if (($this->firebase->claimsFor($user)['claims']['role'] ?? null) !== 'authenticated') {
+                $this->grantRoleClaim($this->firebase->idTokenFor($user));
+                if (($this->firebase->claimsFor($user, true)['claims']['role'] ?? null) !== 'authenticated') {
+                    throw new BackendActionException('Your app account could not get the upload permission yet. Sign out, sign in again, and try once more. If it keeps happening, check the grant-role-claim function in Supabase (supabase/functions/README.md).');
+                }
+            }
+
             return $this->firebase->idTokenFor($user);
         } catch (FirebaseSessionRequiredException $e) {
             throw new BackendActionException('Your app sign-in has ended. Sign out and sign in again, then upload the photo again.', 0, $e);
+        }
+    }
+
+    /** Asks the grant-role-claim edge function to add role=authenticated to this Firebase account. */
+    private function grantRoleClaim(string $idToken): void
+    {
+        $r = $this->send(fn () => Http::acceptJson()->timeout(20)
+            ->withHeaders(['apikey' => $this->anonKey(), 'Authorization' => 'Bearer '.$idToken])
+            ->post($this->baseUrl().'/functions/v1/grant-role-claim'));
+
+        if (! $r->successful()) {
+            Log::warning('[product-photos] grant-role-claim refused', ['status' => $r->status(), 'body' => Str::limit($r->body(), 300)]);
+            throw new BackendActionException('Supabase could not give your app account the upload permission (grant-role-claim answered HTTP '.$r->status().'). Check that function and its FIREBASE_SERVICE_ACCOUNT secret (supabase/functions/README.md).');
         }
     }
 
