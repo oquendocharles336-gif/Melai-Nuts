@@ -13,6 +13,8 @@ import '../../../data/models/promotion.dart';
 import '../../../data/repositories/products_repository.dart';
 import '../cart_controller.dart';
 import '../widgets/product_card.dart';
+import '../widgets/product_gallery.dart';
+import '../../../data/catalog_store.dart';
 import 'cart_screen.dart';
 import '../../../data/repositories/storefront_settings_repository.dart';
 import '../widgets/favorite_button.dart';
@@ -170,12 +172,13 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            AspectRatio(
-              aspectRatio: 1.4,
-              child: ProductThumbnail(
-                product: product,
-                size: double.infinity,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+            // All of the owner's photos, swipeable. Rebuilt when the catalog
+            // reloads (e.g. the owner just changed the photos on the admin
+            // website), so the newest photos show without leaving the page.
+            ListenableBuilder(
+              listenable: ProductsRepository.instance,
+              builder: (context, _) => ProductPhotoGallery(
+                product: tryFindProductById(product.id) ?? product,
               ),
             ),
             const SizedBox(height: AppSpacing.md),

@@ -7,6 +7,7 @@ import { lineChart, barChart, sparkPath } from './charts';
 import { peso, int, pct, shortDate, longDate, dateTime, ago, initials } from './format';
 import { noteFailedSale, rotateSaleKey, startNewSale } from './sale-key';
 import { bootPagers, enhanceTables, setPageSize, withPager } from './pager';
+import { productPhotosComponent } from './product-photos';
 
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
 const uid = () => document.querySelector('meta[name="melai-user"]')?.content || 'guest';
@@ -195,6 +196,7 @@ export function registerUi(Alpine) {
     Alpine.data('ordersPage', (rows, opts) => ordersComponent(rows, opts));
     Alpine.data('stockPage', (items, opts) => stockComponent(items, opts));
     Alpine.data('newOrder', (opts) => newOrderComponent(opts));
+    Alpine.data('productPhotos', (rows, opts) => productPhotosComponent(rows, opts, { api, changed }));
 }
 
 /** Theme, keyboard shortcuts, flash → toast, badge refresh. Runs once per page. */

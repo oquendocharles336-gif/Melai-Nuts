@@ -216,7 +216,7 @@ with the reason.
 | Loyalty | ✅ Live | Members/balances/history from the ledger; owners change earn rate, redeem rate and max discount (used by checkout immediately) and add/deduct points (appended to the ledger, customer notified, audited). |
 | Dashboard | ✅ Live | Owners: all branches by default + branch filter, every staff account (`owner_staff_overview`: role, branch, status, POS sales per cashier, shifts, open drawers, last activity), top branches and cashiers, today's figures; staff: own branch only. Net / gross paid sales, refunds, average order value, orders by status, paid sales by payment method, unpaid/failed payments, customers who ordered, low/out-of-stock counts — for today / this week / this month, all from the database; plus sales vs. target per branch, stock health, refunds, loyalty totals. Refreshes every minute; a failed refresh keeps the last real numbers and says so. |
 | Sales | ✅ Live | `owner_sales_summary` for owners; own branch for staff. |
-| Products | ✅ Live | Full catalog + stock; admins hide/show products (`staff_set_product_active`). Editing details stays in the app. |
+| Products | ✅ Live | Full catalog + stock; admins hide/show products (`staff_set_product_active`) and manage **product photos** (up to 3 per product: add with preview, replace, make main, remove). Photos go to Supabase Storage (`product-images`) and `products.images`; the app and the web shop show them to every customer and branch at once. Editing details stays in the app. |
 | Inventory | ✅ Live (read) | Stock per branch/variant, thresholds, stock movements. Receiving/adjusting/transfers stay in the app (batch/FEFO screens). |
 | Deliveries | App only | Removed from the website (2026-10-16): runs, drivers, dispatch and maps are in the app. Delivery orders are listed read-only (no "next stage"). |
 | Users & roles | ✅ | Website logins **are** app accounts (Firebase sign-in, ID tokens verified on the server) and are linked to `staff_members` after Supabase verifies them (active, same email, admin↔owner, staff↔staff with branch). Create Account makes a Firebase account; owners approve it on Users (registers it in Supabase + Firestore). Deactivating in the app, disabling the Firebase user or revoking its sessions blocks the website. |
@@ -293,9 +293,34 @@ Refunds now count the same way on every screen of the app and the website, compu
 * Tests: `supabase/tests/refunds_analytics_test.sql` (one branch day with a full, partial, cross-day,
   HitPay, POS cash, pending and rejected refund; every figure checked against the others).
 
+### Added 2026-11-17 (`20261117000000_product_photo_management.sql`, run after the others; safe to re-run)
+
+Product photos, managed by the owner on **Products** (Add photo / Photos n/3):
+
+* **Files**: existing public bucket `product-images`, one folder per product
+  (`<product id>/<random>.<jpg|png|webp>`), 5 MB each. Every upload gets a new name, so a replaced
+  photo has a new URL and no phone or browser keeps the old picture. Old files are deleted.
+* **List**: existing column `products.images` (main photo first). No new table, no Base64.
+* **Who**: active owners only, enforced twice: Storage policies (`can_write_product_image`,
+  `can_manage_product_images`, which replace the old rule that read `staff_members` directly) and
+  `owner_add_product_image`, `owner_remove_product_image`, `owner_set_product_image_order`
+  (row lock, 3 at most, URL must be in that product's folder, audited). Everyone can view.
+* **Keeps photos safe**: a trigger keeps `products.images` when an app save (`staff_save_product`)
+  sends back an older list. The SQL editor / service role are not affected.
+* `admin_portal_products()` also returns `images`.
+* **Website**: uploads to Storage **as the owner**, with the owner's Firebase ID token and the anon
+  key (`SUPABASE_URL`, `SUPABASE_ANON_KEY` in `admin/.env`); no service key. A session signed in with
+  the website's own password is asked to sign in with the app account. Large photos are resized in
+  the browser (1600 px, WEBP) before uploading.
+* **App**: the catalog listens to `products` changes over Realtime (and reloads on resume), the
+  product page is a swipeable gallery (dots, counter, full-screen zoom); no photo = the usual placeholder.
+* Tests: `supabase/tests/product_photos_test.sql` (46 checks), `admin/tests/Feature/ProductPhotosTest.php`,
+  and `SupabaseIntegrationTest::test_product_photos_reach_app_customers_through_the_owner_functions`.
+
 ## 5. Website routes added
 
 `GET /s/{sales|products|inventory}` (live pages; `/s/deliveries`, `/s/driver-tracking` and `/dashboard/drivers.json` were removed 2026-10-16 and answer 404), `POST /products/{id}/toggle-active`,
+`POST|DELETE /products/{id}/photos`, `PUT /products/{id}/photos/order` (added 2026-11-17, owner only, JSON),
 `POST /admin/refunds/{order}/complete`, `POST /admin/users/{user}/link|unlink`,
 `GET|POST /account/link` (removed 2026-10-13: redirects to the dashboard, linking happens at sign-in). Artisan:
 `php artisan melai:link-staff {email} {uid} [--unlink]`. To change the admin login's email in place

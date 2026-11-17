@@ -15,24 +15,34 @@ class ProductThumbnail extends StatelessWidget {
   final double size;
   final BorderRadius? borderRadius;
 
+  /// Which photo to show; null = the product's main (first) photo. Used by
+  /// the product page's swipeable gallery for photos 2 and 3.
+  final String? imageUrl;
+
+  /// How the photo fills the tile (the full-screen viewer uses contain).
+  final BoxFit fit;
+
   const ProductThumbnail({
     super.key,
     required this.product,
     this.size = 84,
     this.borderRadius,
+    this.imageUrl,
+    this.fit = BoxFit.cover,
   });
 
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.circular(14);
-    if (product.images.isNotEmpty) {
+    final url = imageUrl ?? (product.images.isNotEmpty ? product.images.first : null);
+    if (url != null && url.isNotEmpty) {
       return ClipRRect(
         borderRadius: radius,
         child: Image.network(
-          product.images.first,
+          url,
           width: size,
           height: size,
-          fit: BoxFit.cover,
+          fit: fit,
           // A broken/expired image URL falls back to the placeholder
           // instead of Flutter's default error icon.
           errorBuilder: (context, error, stackTrace) => _placeholder(radius),

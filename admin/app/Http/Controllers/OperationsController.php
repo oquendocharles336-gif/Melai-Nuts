@@ -74,6 +74,7 @@ class OperationsController extends Controller
         abort_unless(preg_match('/^[0-9a-f-]{36}$/i', $product), 404);
         $active = $request->boolean('active');
         $this->repo()->setProductActive($product, $active);
+        \App\Services\Shop\ShopCatalog::invalidate();   // the web shop hides / shows it at once too
         ActivityLogger::log('product.active_changed', ($active ? 'Showed' : 'Hid')." product {$product} in the app", null, [
             'product_id' => $product, 'is_active' => $active, 'source' => 'supabase',
         ]);

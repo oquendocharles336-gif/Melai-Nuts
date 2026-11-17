@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/services/branch_choice.dart' show BranchStock;
@@ -67,6 +68,7 @@ class ProductsRepository extends ChangeNotifier {
   /// *different* branch waits for the running request and then runs its own,
   /// so a branch switch is never silently dropped.
   Future<void> loadCatalog({String? branchId}) {
+    _lastBranchId = branchId;
     final running = _inFlight;
     if (running != null) {
       if (_inFlightBranchId == branchId) return running;
@@ -76,6 +78,57 @@ class ProductsRepository extends ChangeNotifier {
     _inFlight = future;
     _inFlightBranchId = branchId;
     return future;
+  }
+
+  // ---- Live catalog -------------------------------------------------------
+  // Product changes made elsewhere — above all the owner adding, replacing or
+  // removing product photos on the admin website, but also hide/show and
+  // price edits — reach every open screen of every customer, guest and
+  // branch without a restart: Supabase Realtime reports changed `products`
+  // rows (the table is in the supabase_realtime publication, migrations
+  // 20261001000000 / 20261117000000) and the catalog is read again.
+
+  String? _lastBranchId;
+  DateTime? _lastLoadedAt;
+  RealtimeChannel? _catalogChannel;
+  Timer? _catalogReload;
+  AppLifecycleListener? _lifecycle;
+
+  /// Starts watching the catalog for changes (once; safe to call again).
+  void watchCatalogChanges() {
+    if (_catalogChannel != null) return;
+    try {
+      _catalogChannel = _client
+          .channel('catalog-products')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'products',
+            callback: (_) => _scheduleCatalogReload(),
+          )
+          .subscribe();
+    } catch (caughtError, caughtStack) {
+      // Live updates are a bonus: without them the catalog still refreshes
+      // on reconnect, on branch changes, on pull-to-refresh and on resume.
+      AppErrors.report(caughtError, caughtStack, 'products_repository:watchCatalogChanges');
+      _catalogChannel = null;
+    }
+    // A phone in the background may miss realtime events; read the catalog
+    // again when the app comes back if it is more than a minute old.
+    _lifecycle ??= AppLifecycleListener(onResume: () {
+      final at = _lastLoadedAt;
+      if (at == null || DateTime.now().difference(at) > const Duration(minutes: 1)) {
+        _scheduleCatalogReload();
+      }
+    });
+  }
+
+  /// Several rows often change together (e.g. photos then order): one reload.
+  void _scheduleCatalogReload() {
+    _catalogReload?.cancel();
+    _catalogReload = Timer(const Duration(milliseconds: 800), () {
+      unawaited(loadCatalog(branchId: _lastBranchId));
+    });
   }
 
   Future<void> _runLoad(String? branchId) async {
@@ -92,6 +145,7 @@ class ProductsRepository extends ChangeNotifier {
       );
       _error = null;
       _hasLoaded = true;
+      _lastLoadedAt = DateTime.now();
     } catch (e) {
       // Keep whatever catalog was last loaded; report the failure instead.
       _error = AppErrors.from(e, scope: ErrorScope.catalog);

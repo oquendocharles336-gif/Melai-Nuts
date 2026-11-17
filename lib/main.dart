@@ -89,6 +89,8 @@ Future<void> _start() async {
     connectivity: ConnectivityService.instance,
   );
   unawaited(ProductsRepository.instance.loadCatalog());
+  // New / replaced product photos and other catalog edits show up live.
+  ProductsRepository.instance.watchCatalogChanges();
   ConnectivityService.instance.onReconnect(() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {

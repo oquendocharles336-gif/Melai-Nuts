@@ -31,6 +31,9 @@ class FakeSupabase extends SupabaseGateway
     /** uid => customer_profiles row with its order figures (owner_all_users shape) */
     public array $customers = [];
 
+    /** admin_portal_products rows (with `images`); the owner_*_product_image functions change them. */
+    public array $products = [];
+
     /** owner_set_customer_active(): firebase uid => is_active. */
     public array $customerActive = [];
     /** uid => overview metrics merged into owner_staff_overview rows */
@@ -240,8 +243,55 @@ class FakeSupabase extends SupabaseGateway
             'owner_disabled_customers' => $me['role'] === 'owner' ? array_keys(array_filter($this->customerActive, fn ($a) => ! $a)) : throw new BackendActionException('Only an active owner can do this.'),
             'owner_set_customer_active' => $me['role'] === 'owner' ? ($this->customerActive[$bindings[0]] = $bindings[1] === 'true') : throw new BackendActionException('Only an active owner can do this.'),
             'owner_set_staff_active' => $me['role'] === 'owner' ? ($this->staff[$bindings[0]]['account_status'] = $bindings[1] === 'true' ? 'active' : 'inactive') : throw new BackendActionException('Only an active owner can do this.'),
+            'admin_portal_products' => array_values($this->products),
+            'owner_add_product_image', 'owner_remove_product_image', 'owner_set_product_image_order' => $me['role'] === 'owner'
+                ? $this->productImages($fn, $bindings) : throw new BackendActionException('Only an active owner can do this.'),
             default => throw new BackendUnavailableException("FakeSupabase has no answer for {$fn}()."),
         };
+    }
+
+    /** Same rules as the SQL functions in 20261117000000_product_photo_management.sql. */
+    private function productImages(string $fn, array $b): array
+    {
+        $id = (string) $b[0];
+        $p = $this->products[$id] ?? throw new BackendActionException('That product could not be found.');
+        $old = $p['images'] ?? [];
+        $removed = [];
+        if ($fn === 'owner_add_product_image') {
+            [$url, $replace] = [(string) $b[1], $b[2] ?? null];
+            if (! preg_match('#^https?://[^/\s]+/storage/v1/object/public/product-images/'.preg_quote($id, '#').'/[A-Za-z0-9_-]{1,64}\.(jpg|jpeg|png|webp)$#', $url)) {
+                throw new BackendActionException('That photo was not uploaded to this product\'s folder.');
+            }
+            if (in_array($url, $old, true)) {
+                throw new BackendActionException('That photo is already saved for this product.');
+            }
+            if ($replace !== null) {
+                $i = array_search($replace, $old, true);
+                if ($i === false) {
+                    throw new BackendActionException('The photo you are replacing was changed in the meantime. Reload the page and try again.');
+                }
+                $new = $old;
+                $new[$i] = $url;
+                $removed = [$replace];
+            } else {
+                if (count($old) >= 3) {
+                    throw new BackendActionException('A product can have at most 3 photos. Replace or remove one first.');
+                }
+                $new = [...$old, $url];
+            }
+        } elseif ($fn === 'owner_remove_product_image') {
+            $new = array_values(array_filter($old, fn ($u) => $u !== $b[1]));
+            $removed = count($new) < count($old) ? [$b[1]] : [];
+        } else {
+            $new = str_getcsv(trim((string) $b[1], '{}'), ',', '"', '\\');
+            $x = $new; sort($x); $y = $old; sort($y);
+            if ($x !== $y) {
+                throw new BackendActionException('The photos were changed in the meantime. Reload the page and try again.');
+            }
+        }
+        $this->products[$id]['images'] = $new;
+
+        return ['product_id' => $id, 'images' => $new, 'removed' => $removed];
     }
 
     private function updateSettings(array $values, array $allowed): array

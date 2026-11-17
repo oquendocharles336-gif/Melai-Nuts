@@ -256,6 +256,19 @@ class ShopCatalog
 
     private function key(string $what): string
     {
-        return 'shop:catalog:'.$what;
+        return 'shop:catalog:v'.(int) Cache::get(self::VERSION_KEY, 0).':'.$what;
+    }
+
+    private const VERSION_KEY = 'shop:catalog:version';
+
+    /**
+     * Drop every cached catalog read (all branches) at once, e.g. after the owner changes product
+     * photos or hides a product on the admin Products page: the next shop page reads Supabase again.
+     */
+    public static function invalidate(): void
+    {
+        if (! Cache::add(self::VERSION_KEY, 1)) {
+            Cache::increment(self::VERSION_KEY);
+        }
     }
 }

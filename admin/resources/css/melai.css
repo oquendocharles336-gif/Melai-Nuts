@@ -694,3 +694,49 @@ details.explain p { margin: 10px 0 0; color: var(--ink-2); font-size: 13px; line
 /* "Show password" checkbox under password fields (e.g. All users > Create account). */
 .show-password { display: flex; width: fit-content; align-items: center; gap: 8px; margin: -2px 0 16px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
 .show-password input { width: 15px; height: 15px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+
+/* Products > photos (resources/views/ops/products.blade.php, resources/js/product-photos.js). */
+.pp-cell { min-width: 150px; }
+.pp-strip { display: flex; align-items: center; gap: 6px; min-height: 40px; }
+.pp-thumb { width: 40px; height: 40px; padding: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; flex: none; transition: transform .15s var(--ease), box-shadow .15s; }
+.pp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pp-thumb:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.pp-thumb.is-main { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pp-none { width: 40px; height: 40px; border-radius: 10px; border: 1px dashed var(--line-strong); display: grid; place-items: center; color: var(--faint); }
+.pp-open { margin-top: 8px; padding: .3rem .8rem; font-size: 12.5px; white-space: nowrap; }
+
+.pp-body { display: grid; gap: 12px; }
+.pp-product { margin: 0; font-weight: 620; color: var(--ink); }
+.pp-body > .form-hint { margin: 0; }
+.pp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.pp-slot { display: grid; grid-template-rows: auto auto auto; gap: 6px; align-content: start; }
+.pp-photo, .pp-add { position: relative; aspect-ratio: 1; width: 100%; border-radius: var(--radius-sm); overflow: hidden; }
+.pp-photo { background: var(--surface-2); border: 1px solid var(--line); }
+.pp-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pp-slot.is-pending .pp-photo { border: 2px dashed var(--accent); }
+.pp-slot.has-error .pp-photo { border-color: var(--bad); }
+.pp-add { display: grid; place-items: center; align-content: center; gap: 4px; border: 1.5px dashed var(--line-strong); background: var(--surface-2); color: var(--ink-2); cursor: pointer; font: inherit; transition: border-color .15s, background .15s; }
+.pp-add:hover, .pp-slot.is-drop .pp-add { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.pp-add:disabled { opacity: .55; cursor: not-allowed; }
+.pp-add-label { font-weight: 600; font-size: 13.5px; }
+.pp-add-hint { font-size: 11.5px; color: var(--muted); }
+.pp-badge { position: absolute; left: 8px; top: 8px; padding: 3px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; background: var(--accent); color: var(--accent-ink); box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.pp-badge.pending { background: var(--honey); color: #1F120B; }
+.pp-progress { position: absolute; left: 8px; right: 8px; bottom: 8px; height: 6px; border-radius: 99px; background: rgba(0,0,0,.35); overflow: hidden; }
+.pp-progress span { display: block; height: 100%; background: var(--honey); border-radius: inherit; transition: width .2s var(--ease); }
+.pp-confirm { position: absolute; inset: 0; display: grid; place-content: center; gap: 10px; padding: 12px; text-align: center; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(2px); }
+.pp-confirm p { margin: 0; font-size: 12.5px; color: var(--ink); }
+.pp-confirm div { display: flex; gap: 6px; justify-content: center; }
+.pp-error { margin: 0; font-size: 12px; color: var(--bad); }
+.pp-actions { display: flex; flex-wrap: wrap; gap: 2px; min-height: 30px; }
+.pp-actions-row { display: flex; flex-wrap: nowrap; gap: 2px; width: 100%; }
+.pp-actions-row .pp-remove { margin-left: auto; }
+.pp-actions .btn { gap: 5px; padding: 0 7px; }
+.pp-actions .btn.icon { width: 30px; padding: 0; }
+.pp-foot-note { margin-right: auto; align-self: center; font-size: 12.5px; color: var(--muted); }
+@media (max-width: 640px) {
+    .pp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .modal-foot { flex-wrap: wrap; }
+    .pp-foot-note { width: 100%; }
+}
+@media (max-width: 380px) { .pp-grid { grid-template-columns: 1fr; } }

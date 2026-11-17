@@ -471,6 +471,42 @@ class SupabaseRepository
         $this->call('select public.staff_set_product_active(?::uuid, ?::boolean)::text as r', [$productId, $active ? 'true' : 'false']);
     }
 
+    // ---- Product photos (owner only; migration 20261117000000_product_photo_management.sql) -----
+    // Each returns ['product_id', 'images' => [urls, main photo first], 'removed' => [urls no longer used]].
+
+    /** Add a photo, or put it in place of $replaceUrl (same position). */
+    public function addProductImage(string $productId, string $url, ?string $replaceUrl = null): array
+    {
+        return $this->photoCall('select public.owner_add_product_image(?::uuid, ?::text, ?::text)::text as r', [$productId, $url, $replaceUrl]);
+    }
+
+    public function removeProductImage(string $productId, string $url): array
+    {
+        return $this->photoCall('select public.owner_remove_product_image(?::uuid, ?::text)::text as r', [$productId, $url]);
+    }
+
+    /** $urls: the same photos in their new order. */
+    public function setProductImageOrder(string $productId, array $urls): array
+    {
+        $literal = '{'.implode(',', array_map(fn ($u) => '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], (string) $u).'"', $urls)).'}';
+
+        return $this->photoCall('select public.owner_set_product_image_order(?::uuid, ?::text[])::text as r', [$productId, $literal]);
+    }
+
+    private function photoCall(string $sql, array $bindings): array
+    {
+        try {
+            $r = $this->call($sql, $bindings) ?? [];
+        } catch (\App\Exceptions\BackendUnavailableException $e) {
+            if (SupabaseGateway::isMissingFunction($e)) {
+                throw new \App\Exceptions\BackendActionException('Product photos need the database update supabase/migrations/20261117000000_product_photo_management.sql. Run it in the Supabase SQL editor, then try again.', 0, $e);
+            }
+            throw $e;
+        }
+
+        return ['product_id' => $r['product_id'] ?? null, 'images' => array_values((array) ($r['images'] ?? [])), 'removed' => array_values((array) ($r['removed'] ?? []))];
+    }
+
     // ---- RFID loyalty cards (migration 20261011000000_loyalty_cards.sql) ---------------------
 
     /** A tapped card: ['status' => active|blocked|replaced|unregistered, 'card' => [...], 'customer' => [...]]. */

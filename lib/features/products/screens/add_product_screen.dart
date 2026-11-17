@@ -115,11 +115,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.image_not_supported_outlined, color: AppColors.textSecondary),
+                      const Icon(Icons.add_photo_alternate_outlined, color: AppColors.textSecondary),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Product photos can\'t be uploaded yet. The product will be saved without a photo.',
+                          'Photos are added by the owner on the admin website (Products > Add photo), up to 3 per product. Until then the app shows the product\'s placeholder.',
                           style: AppTextStyles.bodyMd,
                         ),
                       ),

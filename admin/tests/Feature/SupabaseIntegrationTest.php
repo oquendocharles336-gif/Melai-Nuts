@@ -736,6 +736,29 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame(1, (int) $this->asAppUser($this->fx['customer'], 'select count(*) from public.products where id = ?', [$this->fx['product']]));
     }
 
+    public function test_product_photos_reach_app_customers_through_the_owner_functions(): void
+    {
+        $this->actingAs($this->portalAdmin());
+        $repo = app(\App\Services\Supabase\SupabaseRepository::class);
+        $id = $this->fx['product'];
+        $url = fn ($f) => "https://demo.supabase.co/storage/v1/object/public/product-images/$id/$f";
+
+        $repo->addProductImage($id, $url('a.webp'));
+        $repo->addProductImage($id, $url('b.jpg'));
+        $r = $repo->setProductImageOrder($id, [$url('b.jpg'), $url('a.webp')]);
+        $this->assertSame([$url('b.jpg'), $url('a.webp')], $r['images']);
+        $r = $repo->addProductImage($id, $url('c.png'), $url('a.webp'));
+        $this->assertSame([$url('a.webp')], $r['removed']);
+
+        // A customer in the app reads the same list, main photo first.
+        $seen = $this->asAppUser($this->fx['customer'], 'select array_to_json(images)::text from public.products where id = ?', [$id]);
+        $this->assertSame([$url('b.jpg'), $url('c.png')], json_decode((string) $seen, true));
+        $this->assertSame([$url('b.jpg'), $url('c.png')], collect($repo->products())->firstWhere('id', $id)['images']);
+
+        $this->assertSame([$url('c.png')], $repo->removeProductImage($id, $url('b.jpg'))['images']);
+        $repo->removeProductImage($id, $url('c.png'));
+    }
+
     public function test_inventory_reflects_app_sales_and_audit_log_shows_app_actions(): void
     {
         $this->placeOrder('a', 'Cash on Counter Pickup', 3); // checkout deducts stock: 50 -> 47

@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ProfitReportController;
 use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\Admin\LoyaltyController;
 use App\Http\Controllers\Admin\PaymentController;
+use App\Http\Controllers\Admin\ProductPhotoController;
 use App\Http\Controllers\Admin\RefundController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\LoginController;
@@ -150,6 +151,10 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
     // Admin-only actions on the shared catalog (Supabase mode)
     Route::middleware(['role:admin', 'has.access'])->group(function () {
         Route::post('/products/{product}/toggle-active', [OperationsController::class, 'toggleProduct'])->name('ops.products.toggle');
+        // Product photos (up to 3 per product) shown in the app and the web shop: owner only, also in the database.
+        Route::post('/products/{product}/photos', [ProductPhotoController::class, 'store'])->name('ops.products.photos.store')->middleware('throttle:30,1');
+        Route::delete('/products/{product}/photos', [ProductPhotoController::class, 'destroy'])->name('ops.products.photos.destroy')->middleware('throttle:30,1');
+        Route::put('/products/{product}/photos/order', [ProductPhotoController::class, 'order'])->name('ops.products.photos.order')->middleware('throttle:30,1');
     });
 
     // Needs granted access; new accounts are redirected to /waiting

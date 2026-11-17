@@ -174,7 +174,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Product photos can\'t be changed yet. Existing photos are kept as they are.',
+                        'Photos are managed by the owner on the admin website (Products > Photos). Saving here keeps the current photos.',
                         style: AppTextStyles.bodyMd,
                       ),
                     ),
