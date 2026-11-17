@@ -5,6 +5,7 @@ namespace App\Services\Supabase;
 use App\Exceptions\BackendActionException;
 use App\Exceptions\BackendUnavailableException;
 use App\Exceptions\FirebaseSessionRequiredException;
+use App\Models\User;
 use App\Services\Firebase\FirebaseSession;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -40,6 +41,50 @@ class ProductPhotoStorage
     public function configured(): bool
     {
         return filled($this->baseUrl()) && filled($this->anonKey());
+    }
+
+    /**
+     * Why $user cannot upload photos right now, as a message with the fix, or null when nothing is in
+     * the way. Checked without any network call, so the Products page can say it BEFORE the owner
+     * picks a photo (the same checks run again on upload, in client() / idToken()).
+     */
+    public function blocker(?User $user): ?string
+    {
+        if (! $this->configured()) {
+            return 'Photo uploads are not set up yet: add SUPABASE_URL and SUPABASE_ANON_KEY (the same values as the app\'s env/supabase.json) to the website\'s .env file, then restart the website.';
+        }
+        if (! $user || ! $user->usesFirebase() || ! $this->firebase->isFor($user)) {
+            return 'Uploading photos needs your Melai Nuts app sign-in. Sign out, then sign in again with the email and password you use in the app.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Largest photo this server accepts, in bytes: 5 MB, or less when php.ini's upload_max_filesize /
+     * post_max_size are lower (PHP's own default is 2 MB). The page shrinks photos to fit under it
+     * before uploading, so a low php.ini limit no longer makes uploads fail.
+     */
+    public static function uploadLimitBytes(): int
+    {
+        $limits = [5 * 1024 * 1024, self::iniBytes((string) ini_get('upload_max_filesize'))];
+        $post = self::iniBytes((string) ini_get('post_max_size'));
+        if ($post > 0) {
+            $limits[] = max(256 * 1024, $post - 64 * 1024);   // room for the rest of the form
+        }
+
+        return min(array_filter($limits, fn (int $v) => $v > 0));
+    }
+
+    /** "2M" / "512K" / "1G" / "1048576" in bytes; 0 = no limit. */
+    private static function iniBytes(string $value): int
+    {
+        $value = trim($value);
+        if ($value === '' || ! preg_match('/^(\d+)\s*([kmg]?)/i', $value, $m)) {
+            return 0;
+        }
+
+        return (int) $m[1] * match (strtolower($m[2])) { 'g' => 1024 ** 3, 'm' => 1024 ** 2, 'k' => 1024, default => 1 };
     }
 
     /** Public URL of a file in the bucket. */

@@ -8,39 +8,39 @@
 <article class="card" lang="fil" style="max-width:760px;line-height:1.6">
     <h1>Mga Tuntunin at Kundisyon</h1>
     <p class="muted">Bersyon {{ config('melai.legal.terms_version') }} · <a class="link" href="{{ route('legal.terms', ['lang' => 'en']) }}">English</a></p>
-    <section>
+    <section id="terms-1">
         <h2>1. Ano ang ginagawa ng app na ito</h2>
         <p>Sa Melai Nuts, makikita mo ang mga produkto, makaka-order ka sa isang branch ng Melai Nuts para kunin sa counter, masusubaybayan mo ang iyong order, makakahiling ng refund, at makakaipon ng loyalty points. Ginagamit din ng staff at may-ari ang parehong app para sa counter at stock.</p>
     </section>
-    <section>
+    <section id="terms-2">
         <h2>2. Ang iyong account</h2>
         <p>Ibigay ang iyong totoong pangalan, isang gumaganang email at mobile number na pag-aari mo. Ilihim ang iyong password at huwag ipagamit ang iyong account. Ikaw ang mananagot sa anumang ginawa gamit ang iyong account. Sabihan agad ang isang branch kung sa tingin mo ay may ibang gumagamit nito. Maaari naming i-deactivate ang account na lumalabag sa mga tuntuning ito.</p>
     </section>
-    <section>
+    <section id="terms-3">
         <h2>3. Mga order at bayad</h2>
         <p>Sinusuri ng aming sistema ang presyo, stock at diskwento kapag nag-order ka; ang total sa iyong kumpirmasyon ang babayaran mo. Ang mga order ay kinukuha sa counter ng branch. Kapag bukas ang online payment, magbabayad ka ng 30% na downpayment online sa HitPay (GCash, QR Ph o card) at ang natitira ay cash pagkuha mo. Kapag sarado ang online payment, buong halaga ang babayaran nang cash pagkuha mo. Maaaring makansela ang order kung maubos ang isang item; hindi ka sisingilin para sa nakanselang item.</p>
     </section>
-    <section>
+    <section id="terms-4">
         <h2>4. Mga refund</h2>
         <p>Maaari kang humiling ng refund sa app, kasama ang dahilan, sa loob ng 7 araw mula nang makuha mo ang iyong order. Sinusuri ng branch ang bawat kahilingan. Kinukuwenta ng sistema ang halaga ng refund mula sa mga item na ibinalik mo, hindi ito tina-type ng kahit sino. Ang naaprubahang refund ay ibinabalik nang cash sa branch o sa orihinal na paraan ng pagbayad.</p>
     </section>
-    <section>
+    <section id="terms-5">
         <h2>5. Loyalty points</h2>
         <p>Makakakuha ka ng points kapag nakumpleto ang isang order. Binabawi ang points mula sa order na na-refund. Walang katumbas na pera ang points, hindi maililipat sa ibang tao, at magagamit lamang para sa rewards sa app na ito. Maaaring baguhin ng Melai Nuts ang mga patakaran sa pag-ipon at rewards; ipinapakita muna sa app ang pagbabago nang hindi bababa sa 30 araw bago ito ipatupad.</p>
     </section>
-    <section>
+    <section id="terms-6">
         <h2>6. Pagkuha ng order at downpayment</h2>
         <ul><li>Bayaran ang downpayment sa loob ng 30 minuto mula nang mag-order. Kung hindi nabayaran sa oras, makakansela ang order at walang sisingilin.</li><li>Kunin ang iyong order sa loob ng 2 araw mula nang ito ay maging &quot;Ready for Pickup&quot;. Kung hindi mo ito nakuha sa oras, makakansela ang order at hindi na ibabalik ang downpayment.</li><li>Kung makansela ang order sa ibang dahilan, kasama na kung ang tindahan ang nagkansela, ibabalik nang buo ang iyong downpayment sa paraan ng pagbayad na ginamit mo.</li><li>Bayaran ang natitira nang cash sa counter pagkuha mo.</li></ul>
     </section>
-    <section>
+    <section id="terms-7">
         <h2>7. Tamang paggamit</h2>
         <p>Huwag gumawa ng pekeng order, manghula ng voucher code, kopyahin ang catalog gamit ang automated tools, subukang lusutan ang seguridad ng app, o gumamit ng account ng iba. Nililimitahan ng app ang paulit-ulit na pagsubok para protektahan ang bawat customer.</p>
     </section>
-    <section>
+    <section id="terms-8">
         <h2>8. Pagbabago sa mga tuntuning ito</h2>
         <p>Kapag nagbago ang mga tuntuning ito o ang Patakaran sa Privacy, ipapakita ng app ang bagong bersyon at hihilingin na tanggapin mo itong muli bago ka magpatuloy.</p>
     </section>
-    <section>
+    <section id="terms-9">
         <h2>9. Pakikipag-ugnayan</h2>
         <p>Para sa tanong tungkol sa iyong account, order o sa mga tuntuning ito, makipag-ugnayan sa alinmang branch ng Melai Nuts. Makikita ang numero ng branch sa app, sa order details at sa checkout.</p>
     </section>
@@ -50,39 +50,39 @@
 <article class="card" lang="en" style="max-width:760px;line-height:1.6">
     <h1>Terms and Conditions</h1>
     <p class="muted">Version {{ config('melai.legal.terms_version') }} · <a class="link" href="{{ route('legal.terms', ['lang' => 'fil']) }}">Filipino</a></p>
-    <section>
+    <section id="terms-1">
         <h2>1. What this app does</h2>
         <p>Melai Nuts lets you browse products, order from a Melai Nuts branch for pickup at the counter, track your orders, request refunds and earn loyalty points. Staff and owners use the same app for the shop counter and stock.</p>
     </section>
-    <section>
+    <section id="terms-2">
         <h2>2. Your account</h2>
         <p>Give your real name, a working email and a mobile number you own. Keep your password secret and do not share your account. You are responsible for what is done with your account. Tell a branch right away if you think someone else is using it. We may deactivate an account that breaks these terms.</p>
     </section>
-    <section>
+    <section id="terms-3">
         <h2>3. Orders and payment</h2>
         <p>Prices, stock and discounts are checked by our system when you place the order; the total on your confirmation is the amount you pay. Orders are for pickup at the branch counter. When online payment is on, you pay a 30% downpayment online through HitPay (GCash, QR Ph or card) and the rest in cash when you pick up. When online payment is off, you pay the full amount in cash at pickup. An order may be cancelled if an item runs out; you are not charged for cancelled items.</p>
     </section>
-    <section>
+    <section id="terms-4">
         <h2>4. Refunds</h2>
         <p>You can ask for a refund in the app, with a reason, within 7 days after you pick up your order. The branch reviews each request. The refund amount is computed by the system from the items you return, not typed in by anyone. Approved refunds are paid back in cash at the branch or to the original payment method.</p>
     </section>
-    <section>
+    <section id="terms-5">
         <h2>5. Loyalty points</h2>
         <p>You earn points when an order is completed. Points from an order that is refunded are taken back. Points have no cash value, cannot be transferred to another person and are used only for rewards in this app. Melai Nuts may change the earning and reward rules; changes are shown in the app at least 30 days before they apply.</p>
     </section>
-    <section>
+    <section id="terms-6">
         <h2>6. Pickup and downpayment</h2>
         <ul><li>Pay the downpayment within 30 minutes of placing the order. If it is not paid in time, the order is cancelled and nothing is charged.</li><li>Pick up your order within 2 days after it is marked &quot;Ready for Pickup&quot;. If you do not pick it up in time, the order is cancelled and the shop keeps the downpayment.</li><li>If the order is cancelled for any other reason, including by the shop, your downpayment is refunded in full to the payment method you used.</li><li>Pay the balance in cash at the counter when you pick up.</li></ul>
     </section>
-    <section>
+    <section id="terms-7">
         <h2>7. Acceptable use</h2>
         <p>Do not place orders you do not mean to pay for or collect, guess voucher codes, copy the catalog with automated tools, try to get around the app&#x27;s security, or use another person&#x27;s account. The app limits repeated attempts to protect every customer.</p>
     </section>
-    <section>
+    <section id="terms-8">
         <h2>8. Changes to these terms</h2>
         <p>When these terms or the Privacy Policy change, the app shows the new version and asks you to accept it again before you continue.</p>
     </section>
-    <section>
+    <section id="terms-9">
         <h2>9. Contact</h2>
         <p>For questions about your account, an order or these terms, contact any Melai Nuts branch. Branch phone numbers are shown in the app on the order details and checkout screens.</p>
     </section>

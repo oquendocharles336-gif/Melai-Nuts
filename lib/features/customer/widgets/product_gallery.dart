@@ -60,8 +60,8 @@ class _ProductPhotoGalleryState extends State<ProductPhotoGallery> {
       PageRouteBuilder<void>(
         opaque: false,
         barrierColor: Colors.black,
-        pageBuilder: (_, __, ___) => _PhotoViewer(product: widget.product, photos: _photos, start: start),
-        transitionsBuilder: (_, animation, __, child) => FadeTransition(opacity: animation, child: child),
+        pageBuilder: (_, _, _) => _PhotoViewer(product: widget.product, photos: _photos, start: start),
+        transitionsBuilder: (_, animation, _, child) => FadeTransition(opacity: animation, child: child),
       ),
     );
   }

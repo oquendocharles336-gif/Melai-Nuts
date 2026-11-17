@@ -7,17 +7,40 @@
 // database now holds it, and that list is what this page shows: nothing is assumed.
 //
 // Large photos are resized in the browser first (longest side 1600 px, WEBP), which keeps uploads fast and
-// the app light on mobile data. A small photo is uploaded as it is.
+// the app light on mobile data. A small photo is uploaded as it is. When this server's PHP accepts less
+// than 5 MB (upload_max_filesize / post_max_size), photos are shrunk further to fit under that limit.
+//
+// "Allow" step: the first time an owner chooses photos, a small dialog explains in plain words what the
+// website can read (only the files they pick) and where the photos go, before the browser's file picker
+// opens. The choice is remembered per signed-in user in this browser (localStorage) and can be reset.
 
 const TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const EXT = /\.(jpe?g|png|webp)$/i;
 const MAX_BYTES = 5 * 1024 * 1024;   // the server and the storage bucket refuse anything larger
-const MAX_RAW_BYTES = 40 * 1024 * 1024; // bigger originals are refused before even opening them
 const MAX_EDGE = 1600;
 const KEEP_AS_IS_BYTES = 1.5 * 1024 * 1024;
 
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+const userId = () => document.querySelector('meta[name="melai-user"]')?.content || 'guest';
+const mb = (bytes) => (bytes / 1024 / 1024).toFixed(bytes < 1024 * 1024 ? 1 : 0).replace(/\.0$/, '');
 let seq = 0;
+
+// ---- "Allow" choice, per signed-in user, in this browser -----------------------------------------
+const accessKey = () => `melai.photo-access.${userId()}`;
+export function readPhotoAccess() {
+    try {
+        const v = JSON.parse(localStorage.getItem(accessKey()) || 'null');
+        return v && v.allowed === true && typeof v.at === 'string' ? v : null;
+    } catch (e) { return null; }   // storage blocked (private mode): ask every time
+}
+export function savePhotoAccess() {
+    const v = { allowed: true, at: new Date().toISOString() };
+    try { localStorage.setItem(accessKey(), JSON.stringify(v)); } catch (e) { /* blocked: still allowed for this visit */ }
+    return v;
+}
+export function clearPhotoAccess() {
+    try { localStorage.removeItem(accessKey()); } catch (e) { /* blocked */ }
+}
 
 function loadImage(file) {
     if (window.createImageBitmap) {
@@ -39,51 +62,77 @@ function loadWithElement(file) {
 const toBlob = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 
 /** The file to upload: the original when it is already small, otherwise a resized WEBP (or JPEG / PNG). */
-async function prepare(file) {
+export function checkFile(file) {
     const typeOk = TYPES.includes(file.type) || (!file.type && EXT.test(file.name));
     if (!typeOk) {
-        throw new Error(/\.hei[cf]$/i.test(file.name)
+        return /\.hei[cf]$/i.test(file.name)
             ? `"${file.name}" is an HEIC photo. Save it as JPG first (on iPhone: Settings > Camera > Formats > Most Compatible).`
-            : `"${file.name}" is not a JPG, PNG or WEBP photo.`);
+            : `"${file.name}" is not a JPG, PNG or WEBP photo. Choose a .jpg, .png or .webp file.`;
     }
-    if (file.size > MAX_RAW_BYTES) throw new Error(`"${file.name}" is too large to open (more than 40 MB).`);
+    if (file.size > MAX_BYTES) return `"${file.name}" is ${mb(file.size)} MB. Photos can be up to 5 MB: choose a smaller photo.`;
+    if (file.size === 0) return `"${file.name}" is empty.`;
+    return null;
+}
+
+async function prepare(file, limit = MAX_BYTES) {
+    const problem = checkFile(file);
+    if (problem) throw new Error(problem);
 
     let image;
     try { image = await loadImage(file); } catch (e) { throw new Error(`"${file.name}" could not be opened as a photo. It may be damaged.`); }
     const w = image.width, h = image.height;
     if (!w || !h) throw new Error(`"${file.name}" could not be opened as a photo.`);
 
-    const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
-    if (scale === 1 && file.size <= KEEP_AS_IS_BYTES) return file;
+    if (Math.max(w, h) <= MAX_EDGE && file.size <= Math.min(KEEP_AS_IS_BYTES, limit)) return file;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(w * scale));
-    canvas.height = Math.max(1, Math.round(h * scale));
-    const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    // Smaller sizes / lower quality only when the server's limit needs it.
+    let blob = null;
+    for (const [edge, quality] of [[MAX_EDGE, 0.86], [MAX_EDGE, 0.72], [1280, 0.72], [1024, 0.68]]) {
+        const scale = Math.min(1, edge / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        // WEBP keeps PNG transparency and is small; browsers that cannot write it give back a PNG blob.
+        blob = await toBlob(canvas, 'image/webp', quality);
+        if (!blob || blob.type !== 'image/webp') blob = await toBlob(canvas, file.type === 'image/png' ? 'image/png' : 'image/jpeg', quality);
+        if (!blob || blob.size <= limit) break;
+    }
     image.close?.();
 
-    // WEBP keeps PNG transparency and is small; browsers that cannot write it give back a PNG blob.
-    let blob = await toBlob(canvas, 'image/webp', 0.86);
-    if (!blob || blob.type !== 'image/webp') blob = await toBlob(canvas, file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.86);
     if (!blob) {
-        if (file.size <= MAX_BYTES) return file;
-        throw new Error(`"${file.name}" is larger than 5 MB and could not be resized here. Choose a smaller photo.`);
+        if (file.size <= limit) return file;
+        throw new Error(`"${file.name}" could not be resized in this browser and is larger than this website accepts (${mb(limit)} MB). Choose a smaller photo.`);
     }
-    if (blob.size >= file.size && file.size <= MAX_BYTES) return file;   // resizing did not help: keep the original
-    if (blob.size > MAX_BYTES) throw new Error(`"${file.name}" is still larger than 5 MB after resizing. Choose a smaller photo.`);
+    if (blob.size >= file.size && file.size <= limit) return file;   // resizing did not help: keep the original
+    if (blob.size > limit) {
+        throw new Error(limit < MAX_BYTES
+            ? `"${file.name}" is still larger than this website accepts (${mb(limit)} MB) after resizing. Choose a smaller photo, or raise upload_max_filesize and post_max_size in php.ini to 6M.`
+            : `"${file.name}" is still larger than 5 MB after resizing. Choose a smaller photo.`);
+    }
 
     const ext = { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg' }[blob.type];
     return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.' + ext, { type: blob.type });
 }
 
-export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, max, canEdit }, { api, changed }) {
+export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, max, canEdit, maxBytes = MAX_BYTES, blocker = null }, { api, changed }) {
     return {
-        rows, max, canEdit,
+        rows, max, canEdit, blocker,
+        limit: Math.min(MAX_BYTES, maxBytes || MAX_BYTES),
         currentId: null, pending: [], busy: false, error: null, confirmKey: null, dropOn: null, replacing: null,
+        access: readPhotoAccess(), consentOpen: false, consentFor: null, consentReturn: null,
 
         get current() { return this.currentId ? this.rows[this.currentId] : null; },
+        get isFull() { return (this.current?.images.length || 0) + this.pending.filter(p => !p.replaces).length >= this.max; },
+        get photoCountLabel() { return `${this.current?.images.length || 0} of ${this.max} photos`; },
+        get accessAllowed() { return !!this.access; },
+        get accessLabel() {
+            if (!this.access) return 'not allowed yet. You will be asked before the file picker opens.';
+            const d = new Date(this.access.at);
+            return `allowed${Number.isNaN(d.getTime()) ? '' : ' on ' + d.toLocaleDateString()}. Only the photos you choose are read.`;
+        },
         photosOf(id) { return this.rows[id]?.images || []; },
         get ready() { return this.pending.filter(p => p.file && !p.error && !p.uploading); },
         get pendingCount() { return this.ready.length; },
@@ -113,12 +162,45 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
         },
         closePhotos() {
             if (this.busy) return;
+            this.consentOpen = false; this.consentFor = null;
             this.clearPending();
             window.dispatchEvent(new CustomEvent('close-modal', { detail: 'product-photos' }));
         },
         clearPending() {
             this.pending.forEach(p => p.src && URL.revokeObjectURL(p.src));
             this.pending = [];
+        },
+
+        /** "Upload photo" / "Replace": asks the "Allow" question first, the first time only. */
+        choose(slot = null) {
+            if (this.busy) return;
+            if (this.blocker) { this.error = this.blocker; return; }
+            if (!this.access) { this.askAccess({ slot }); return; }
+            this.pick(slot);
+        },
+        askAccess(what) {
+            this.consentFor = what;
+            this.consentReturn = document.activeElement;
+            this.consentOpen = true;
+            // After the focus trap starts (15 ms), like the shared confirm dialog in ui.js.
+            this.$nextTick(() => setTimeout(() => this.$refs.allow?.focus(), 30));
+        },
+        /** Runs inside the click, so the browser still lets the file picker open. */
+        allowAccess() {
+            this.access = savePhotoAccess();
+            const what = this.consentFor;
+            this.consentOpen = false; this.consentFor = null;
+            if (what?.files) this.addFiles(what.files);
+            else this.pick(what?.slot || null);
+        },
+        notNow() {
+            this.consentOpen = false; this.consentFor = null;
+            const back = this.consentReturn; this.consentReturn = null;
+            this.$nextTick(() => back?.focus?.());
+        },
+        resetAccess() {
+            clearPhotoAccess();
+            this.access = null;
         },
 
         pick(slot = null) {
@@ -134,8 +216,12 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
         picked(e) { this.addFiles([...(e.target.files || [])]); e.target.value = ''; },
         dropped(e) {
             if (this.busy) return;
+            if (this.blocker) { this.error = this.blocker; return; }
             this.replacing = null;
-            this.addFiles([...(e.dataTransfer?.files || [])]);
+            const files = [...(e.dataTransfer?.files || [])];
+            if (!files.length) return;
+            if (!this.access) { this.askAccess({ files }); return; }
+            this.addFiles(files);
         },
 
         addFiles(files) {
@@ -149,16 +235,18 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
                 return;
             }
             const room = this.max - (this.current?.images.length || 0) - this.pending.filter(p => !p.replaces).length;
-            if (room <= 0) { this.error = `This product already has ${this.max} photos. Replace or remove one first.`; return; }
+            if (room <= 0) { this.error = `This product already has ${this.max} photos (the most it can have). Replace or remove one first.`; return; }
             if (files.length > room) this.error = `Only ${room} more photo${room === 1 ? '' : 's'} can be added (${this.max} at most). The first ${room === 1 ? 'one was' : room + ' were'} added.`;
             files.slice(0, room).forEach(f => this.queue(f, null));
         },
 
         queue(file, replaces) {
-            this.pending.push({ key: 'new-' + (++seq), file: null, src: URL.createObjectURL(file), name: file.name,
-                replaces, uploading: false, progress: 0, error: null });
+            const problem = checkFile(file);   // wrong type / over 5 MB: no preview, just the reason
+            this.pending.push({ key: 'new-' + (++seq), file: null, src: problem ? '' : URL.createObjectURL(file), name: file.name,
+                replaces, uploading: false, progress: 0, error: problem });
+            if (problem) return;
             const item = this.pending[this.pending.length - 1];   // the reactive copy
-            prepare(file).then(f => { item.file = f; }).catch(err => { item.error = err.message; });
+            prepare(file, this.limit).then(f => { item.file = f; }).catch(err => { item.error = err.message; });
         },
 
         discard(slot) {

@@ -7,76 +7,86 @@
 @if (request()->query('lang') === 'fil')
 <article class="card" lang="fil" style="max-width:760px;line-height:1.6">
     <h1>Patakaran sa Privacy</h1>
-    <p class="muted">Bersyon {{ config('melai.legal.terms_version') }} · <a class="link" href="{{ route('legal.privacy', ['lang' => 'en']) }}">English</a></p>
-    <section>
+    <p class="muted">Bersyon {{ config('melai.legal.privacy_version') }} · <a class="link" href="{{ route('legal.privacy', ['lang' => 'en']) }}">English</a></p>
+    <section id="privacy-1">
         <h2>1. Sino ang may pananagutan sa iyong datos</h2>
         <p>Ang Melai Nuts Retailing ang personal information controller ng datos sa app na ito, ayon sa Data Privacy Act of 2012 ng Pilipinas (Republic Act No. 10173). Ang aming Data Protection Officer ay ang may-ari ng Melai Nuts Retailing, at maaabot sa melaioraya5&#64;gmail.com.</p>
     </section>
-    <section>
+    <section id="privacy-2">
         <h2>2. Datos na kinokolekta namin</h2>
         <ul><li>Ang iyong pangalan, email address at mobile number.</li><li>Ang iyong mga order, bayad, refund at loyalty points.</li><li>Ang lokasyon ng iyong telepono, ginagamit sa telepono mo para piliin ang pinakamalapit na bukas na branch. Ang branch lang ang iniingatan namin, hindi ang iyong lokasyon.</li><li>Isang notification token para makapagpadala kami ng update ng order sa teleponong ito.</li><li>Mga crash report, na may account ID pero walang pangalan, email o numero mo.</li></ul>
     </section>
-    <section>
+    <section id="privacy-3">
         <h2>3. Paano namin ito ginagamit</h2>
         <p>Para gawin ang iyong account, ihanda at i-deliver ang iyong order, tumanggap ng bayad, asikasuhin ang refund, ingatan ang iyong loyalty points, ipadala ang mga update na pinili mo, panatilihing ligtas ang app, at ayusin ang mga problema. Hindi namin ibinebenta ang iyong datos.</p>
     </section>
-    <section>
+    <section id="privacy-4">
         <h2>4. Saan ito nakatago at sino ang makakakita</h2>
         <p>Ang pag-sign in ay hawak ng Firebase (Google). Ang datos ng negosyo ay nakatago sa aming Supabase database. Ang online na bayad ay hawak ng HitPay. Ang natatanggap lang namin ay ang status at halaga ng bayad, hindi ang detalye ng iyong card o GCash. May kopya ng mga bagong datos sa iyong telepono para gumana ang app kahit offline; binubura ito kapag nag-sign out ka. Nakikita lang ng staff ang kailangan ng kanilang branch.</p>
     </section>
-    <section>
+    <section id="privacy-5">
         <h2>5. Gaano katagal namin ito iniingatan</h2>
         <p>Ang mga order, bayad at refund ay iniingatan nang 5 taon para sa rekord ng buwis at accounting. Ang mga detalye ng iyong account ay iniingatan habang aktibo ito at binubura sa loob ng 30 araw mula sa kahilingang burahin, maliban sa mga rekord na kailangang itago ayon sa batas.</p>
     </section>
-    <section>
+    <section id="privacy-6">
         <h2>6. Ang iyong mga karapatan (RA 10173)</h2>
         <p>May karapatan kang malaman, makita ang iyong datos, tumutol, ipaayos ito, ipabura o i-block ito, sa data portability, humingi ng danyos, at magsampa ng reklamo sa National Privacy Commission (privacy.gov.ph).</p>
     </section>
-    <section>
+    <section id="privacy-7">
         <h2>7. Pagbura ng iyong datos</h2>
         <p>Para humingi ng kopya ng iyong datos, ipabura ang iyong account, o magtanong tungkol sa privacy, mag-email sa melaioraya5&#64;gmail.com. Binubura ang mga detalye ng account sa loob ng 30 araw mula sa kahilingan. Ang mga rekord na kailangang itago ayon sa batas (halimbawa, resibo) ay iniingatan pero hindi na iuugnay sa iyong profile kung maaari.</p>
     </section>
-    <section>
+    <section id="privacy-8">
         <h2>8. Mga pahintulot sa iyong telepono</h2>
         <p>Hinihingi lang ng app ang camera (pag-scan ng barcode), lokasyon (paghanap ng pinakamalapit na branch) at notifications (update ng order) kapag ginagamit mo ang feature na iyon. Mababago mo ang mga ito anumang oras sa Settings &gt; Permissions.</p>
+    </section>
+    <section id="privacy-9">
+        <h2>9. Mga larawan ng produkto at access sa mga file</h2>
+        <ul><li>Ang kinokolekta: ang mga larawan ng produkto na pinipili ng may-ari ng Melai Nuts sa admin website, kasama ang uri ng file, laki at oras ng pag-upload ng bawat larawan, ang produktong kinabibilangan nito, at ang account ng may-ari na nag-upload. Ang may-ari lang ang nag-a-upload ng larawan ng produkto; hindi ang mga customer.</li><li>Bakit: para maipakita ang mga produkto sa mga customer sa Melai Nuts app at sa web shop.</li><li>Access sa file: binabasa lang ng website ang mga larawang pinili ng may-ari sa file picker ng browser (o hinila papunta sa page). Hindi nito sinusuri o binabasa ang ibang file o folder sa device. Nagtatanong muna ang website bago unang buksan ang file picker.</li><li>Saan nakatago: sa Supabase Storage, sa pampublikong folder na &quot;product-images&quot;. Makikita ito ng sinumang may link ng larawan, kaya huwag mag-upload ng pribado o personal na larawan.</li><li>Pinaliliit sa browser ang malalaking larawan bago i-upload.</li><li>Maaaring alisin o palitan ng may-ari ang mga larawan anumang oras. Binubura sa storage ang mga inalis at pinalitang larawan.</li><li>Mga tanong tungkol sa larawan ng produkto: mag-email sa melaioraya5&#64;gmail.com.</li></ul>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Bumalik</a> · <a class="link" href="{{ route('legal.terms', ['lang' => 'fil']) }}">Mga Tuntunin at Kundisyon</a></p>
 </article>
 @else
 <article class="card" lang="en" style="max-width:760px;line-height:1.6">
     <h1>Privacy Policy</h1>
-    <p class="muted">Version {{ config('melai.legal.terms_version') }} · <a class="link" href="{{ route('legal.privacy', ['lang' => 'fil']) }}">Filipino</a></p>
-    <section>
+    <p class="muted">Version {{ config('melai.legal.privacy_version') }} · <a class="link" href="{{ route('legal.privacy', ['lang' => 'fil']) }}">Filipino</a></p>
+    <section id="privacy-1">
         <h2>1. Who is responsible for your data</h2>
         <p>Melai Nuts Retailing is the personal information controller for the data in this app, as defined by the Philippine Data Privacy Act of 2012 (Republic Act No. 10173). Our Data Protection Officer is the owner of Melai Nuts Retailing, reachable at melaioraya5&#64;gmail.com.</p>
     </section>
-    <section>
+    <section id="privacy-2">
         <h2>2. Data we collect</h2>
         <ul><li>Your name, email address and mobile number.</li><li>Your orders, payments, refunds and loyalty points.</li><li>Your phone&#x27;s location, used on your phone to choose the nearest open branch. We save only the branch, not your location.</li><li>A notification token so we can send order updates to this phone.</li><li>Crash reports, which carry an account ID but not your name, email or phone.</li></ul>
     </section>
-    <section>
+    <section id="privacy-3">
         <h2>3. How we use it</h2>
         <p>To create your account, prepare and deliver your orders, take payment, handle refunds, keep your loyalty points, send the updates you chose, keep the app secure, and fix problems. We do not sell your data.</p>
     </section>
-    <section>
+    <section id="privacy-4">
         <h2>4. Where it is stored and who can see it</h2>
         <p>Sign-in is handled by Firebase (Google). Business data is stored in our Supabase database. Online payments are handled by HitPay. We receive the payment status and amount, not your card or GCash details. A copy of recent data is kept on your phone so the app works offline; it is erased when you sign out. Staff see only what their branch needs.</p>
     </section>
-    <section>
+    <section id="privacy-5">
         <h2>5. How long we keep it</h2>
         <p>Orders, payments and refunds are kept for 5 years for tax and accounting records. Account details are kept while your account is active and are deleted within 30 days of a deletion request, except records we must keep by law.</p>
     </section>
-    <section>
+    <section id="privacy-6">
         <h2>6. Your rights (RA 10173)</h2>
         <p>You have the right to be informed, to access your data, to object, to have it corrected, to have it erased or blocked, to data portability, to claim damages, and to file a complaint with the National Privacy Commission (privacy.gov.ph).</p>
     </section>
-    <section>
+    <section id="privacy-7">
         <h2>7. Deleting your data</h2>
         <p>To ask for a copy of your data, to have your account deleted, or with any other privacy question, email melaioraya5&#64;gmail.com. Account details are deleted within 30 days of the request. Records the law requires us to keep (for example, receipts) are kept but no longer linked to your profile where possible.</p>
     </section>
-    <section>
+    <section id="privacy-8">
         <h2>8. Permissions on your phone</h2>
         <p>The app asks for the camera (scan barcodes), location (find your nearest branch) and notifications (order updates) only when you use that feature. You can change them any time in Settings &gt; Permissions.</p>
+    </section>
+    <section id="privacy-9">
+        <h2>9. Product photos and file access</h2>
+        <ul><li>What we collect: the product photos the Melai Nuts owner chooses on the admin website, with each photo&#x27;s file type, size and upload time, the product it belongs to, and the owner account that uploaded it. Only the owner uploads product photos; customers do not.</li><li>Why: to show the products to customers in the Melai Nuts app and the web shop.</li><li>File access: the website reads only the photo files the owner picks in the browser&#x27;s file picker (or drags onto the page). It does not scan or read any other files or folders on the device. The website asks before the file picker opens for the first time.</li><li>Where they are stored: in Supabase Storage, in the public &quot;product-images&quot; folder. Anyone with a photo&#x27;s link can view it, so private or personal photos must not be uploaded.</li><li>Large photos are resized in the browser before they are uploaded.</li><li>The owner can remove or replace photos at any time. Removed and replaced photos are deleted from storage.</li><li>Questions about product photos: email melaioraya5&#64;gmail.com.</li></ul>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Go back</a> · <a class="link" href="{{ route('legal.terms', ['lang' => 'en']) }}">Terms and Conditions</a></p>
 </article>

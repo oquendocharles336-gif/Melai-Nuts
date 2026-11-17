@@ -8,15 +8,16 @@
 /// (`terms_version`, `terms_accepted_at`).
 ///
 /// Sections listed in [ownerReviewSections] are drafts still waiting for the
-/// owner and show a "draft" note. Every section was approved by the owner on
-/// 2026-11-07 (docs/owner-approval.md), so the set is empty.
+/// owner and show a "draft" note. Every section up to Privacy 8 was approved
+/// by the owner on 2026-11-07 (docs/owner-approval.md). Privacy 9 (product
+/// photos and file access, 2026-11-17) is new and waits for the owner.
 class LegalConfig {
   LegalConfig._();
 
   static const String termsVersion = '2026-11-07';
-  static const String privacyVersion = '2026-11-07';
+  static const String privacyVersion = '2026-11-17';
 
   /// Section numbers whose wording still needs the owner's confirmation.
   /// They show a small "draft" note until this set is emptied.
-  static const Set<String> ownerReviewSections = {};
+  static const Set<String> ownerReviewSections = {'privacy.9'};
 }

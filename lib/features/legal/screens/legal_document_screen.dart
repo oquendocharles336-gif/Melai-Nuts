@@ -126,6 +126,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
         LegalSection('privacy.6', t.privacyS6Title, t.privacyS6Body),
         LegalSection('privacy.7', t.privacyS7Title, t.privacyS7Body),
         LegalSection('privacy.8', t.privacyS8Title, t.privacyS8Body),
+        LegalSection('privacy.9', t.privacyS9Title, t.privacyS9Body),
       ];
 
   @override

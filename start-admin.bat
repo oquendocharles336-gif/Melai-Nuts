@@ -27,13 +27,17 @@ if not exist .env (
 )
 if not exist database\database.sqlite type nul > database\database.sqlite
 call php artisan migrate --seed --force || (echo [!] Set ADMIN_EMAIL and ADMIN_PASSWORD in admin\.env first. & pause & exit /b 1)
-REM Rebuild the page scripts/styles when they are missing OR older than resources\js / resources\css.
-powershell -NoProfile -Command "$m=Get-Item public\build\manifest.json -ErrorAction SilentlyContinue; $n=(Get-ChildItem resources\js,resources\css -Recurse -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime; if(-not $m -or $n -gt $m.LastWriteTime){exit 1}"
-if errorlevel 1 (
+REM Rebuild the page scripts/styles when they are missing OR were built from other sources. Compared by
+REM CONTENT (scripts\build-stamp.mjs), not by file date: unzipping a newer copy keeps the archive's old
+REM dates, so a date check kept serving an old build (e.g. Products page: "Add photo" did nothing).
+set "MELAI_REBUILD="
+where node >nul 2>nul && (node scripts\build-stamp.mjs --check >nul || set "MELAI_REBUILD=1")
+where node >nul 2>nul || (if not exist public\build\manifest.json set "MELAI_REBUILD=1")
+if defined MELAI_REBUILD (
   where npm >nul 2>nul || (echo [!] Node.js not found. Install it from https://nodejs.org & pause & exit /b 1)
-  echo [setup] building the page styles ...
+  echo [setup] building the page scripts and styles ...
   if not exist node_modules call npm install
-  call npm run build
+  call npm run build || (echo [!] npm run build failed. See the messages above. & pause & exit /b 1)
 )
 
 REM SPEED: cache config, routes, views and events (saves work on EVERY page load). Runs on every

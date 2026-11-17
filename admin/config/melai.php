@@ -18,7 +18,7 @@ return [
     // Same versions as the app (lib/core/config/legal_config.dart); bump both together.
     'legal' => [
         'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-07'),
-        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-07'),
+        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-17'),
     ],
 
     /*

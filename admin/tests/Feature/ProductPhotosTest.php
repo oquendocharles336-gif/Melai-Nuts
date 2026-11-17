@@ -174,6 +174,64 @@ class ProductPhotosTest extends TestCase
         $this->assertSame([], $this->storage);
     }
 
+    public function test_the_upload_card_and_the_allow_step_are_on_the_page(): void
+    {
+        $this->signedIn($this->owner())->get('/s/products')->assertOk()
+            ->assertSee('Upload photo')
+            ->assertSee('Drag a photo here or click to choose')
+            ->assertSee('JPG, PNG or WEBP · up to 5 MB ·', false)
+            ->assertSee('Allow Melai Nuts to access your photos?')
+            ->assertSee('Allow and choose photos')
+            ->assertSee('Not now')
+            ->assertSee('Photo access:', false)
+            ->assertSee(route('legal.privacy').'#privacy-9', false)
+            ->assertSee('aria-label="Add a photo to Chili Garlic Peanuts"', false)   // the empty holder opens the modal
+            ->assertSee('blocker: null', false);                                       // nothing to fix for this owner
+    }
+
+    public function test_the_page_says_up_front_when_the_owner_has_no_app_sign_in(): void
+    {
+        // Website session without the app (Firebase) sign-in: told before choosing a photo, not after.
+        $this->actingAs($this->owner())->get('/s/products')->assertOk()
+            ->assertSee('Uploading photos needs your Melai Nuts app sign-in.', false);
+    }
+
+    public function test_the_page_says_up_front_when_the_supabase_keys_are_missing(): void
+    {
+        config(['melai.shop.supabase_url' => '', 'melai.shop.anon_key' => '']);
+        $this->signedIn($this->owner())->get('/s/products')->assertOk()
+            ->assertSee('add SUPABASE_URL and SUPABASE_ANON_KEY', false);
+    }
+
+    public function test_the_upload_limit_follows_php_ini_and_never_passes_5_mb(): void
+    {
+        $limit = \App\Services\Supabase\ProductPhotoStorage::uploadLimitBytes();
+        $this->assertGreaterThan(0, $limit);
+        $this->assertLessThanOrEqual(5 * 1024 * 1024, $limit);
+        $this->signedIn($this->owner())->get('/s/products')->assertSee('maxBytes: '.$limit, false);
+    }
+
+    public function test_a_staff_account_cannot_upload(): void
+    {
+        // Staff use the app only: the website refuses the session before any upload code runs.
+        $staff = $this->linkedLogin('uid-cal');
+        $this->assertStaffKeptOut($this->signedIn($staff)->post(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()]));
+        $this->assertSame([], $this->storage);
+        $this->assertSame([], $this->images());
+    }
+
+    public function test_the_privacy_policy_has_the_product_photos_section_in_both_languages(): void
+    {
+        $this->get('/privacy')->assertOk()
+            ->assertSee('id="privacy-9"', false)
+            ->assertSee('9. Product photos and file access')
+            ->assertSee('reads only the photo files the owner picks')
+            ->assertSee('public &quot;product-images&quot; folder', false)
+            ->assertSee('Version '.config('melai.legal.privacy_version'), false);
+        $this->get('/privacy?lang=fil')->assertOk()->assertSee('9. Mga larawan ng produkto at access sa mga file');
+        $this->assertSame('2026-11-17', config('melai.legal.privacy_version'));
+    }
+
     public function test_bad_product_ids_are_404(): void
     {
         $this->signedIn($this->owner())->postJson('/products/not-a-uuid/photos', ['photo' => $this->photo()])->assertNotFound();

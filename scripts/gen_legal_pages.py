@@ -60,7 +60,8 @@ def sections(arb: dict, prefix: str) -> list:
 
 def language_block(name: str, lang: str, arb: dict, review: set) -> str:
     prefix, title_key, other_route, other_title_key = DOCS[name]
-    version = esc(arb["legalVersion"]).replace("&#123;version}", "{{ config('melai.legal.terms_version') }}")
+    # Each page shows its OWN version (the date it was last updated): terms_version / privacy_version.
+    version = esc(arb["legalVersion"]).replace("&#123;version}", f"{{{{ config('melai.legal.{name}_version') }}}}")
     parts = [
         f'<article class="card" lang="{lang}" style="max-width:760px;line-height:1.6">',
         f"    <h1>{esc(arb[title_key])}</h1>",
@@ -69,7 +70,7 @@ def language_block(name: str, lang: str, arb: dict, review: set) -> str:
         f"{UI[lang]['switch']}</a></p>",
     ]
     for n, title, body in sections(arb, prefix):
-        parts.append("    <section>")
+        parts.append(f'    <section id="{name}-{n}">')   # e.g. /privacy#privacy-9
         parts.append(f"        <h2>{esc(title)}</h2>")
         parts.append(f"        {body_html(body)}")
         if f"{name}.{n}" in review:
