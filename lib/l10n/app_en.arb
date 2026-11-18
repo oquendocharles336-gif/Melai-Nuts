@@ -396,7 +396,7 @@
   "screenErrorMessage": "Go back and try again. Your data is safe.",
   "sortRelevance": "Best match",
   "branchFinding": "Finding your nearest branch…",
-  "branchLocationNeeded": "Location is off, so we couldn't find your nearest branch. Turn it on in your phone's settings, or choose a branch yourself.",
+  "branchLocationNeeded": "Turn on location so we can use your nearest branch.",
   "branchTurnOnLocation": "Turn on location",
   "branchUseMyLocation": "Use my location",
   "branchChooseManually": "Choose a branch",

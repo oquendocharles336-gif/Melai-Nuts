@@ -236,7 +236,7 @@
   "screenErrorMessage": "Bumalik at subukang muli. Ligtas ang iyong datos.",
   "sortRelevance": "Pinakatugma",
   "branchFinding": "Hinahanap ang pinakamalapit na branch…",
-  "branchLocationNeeded": "Naka-off ang lokasyon kaya hindi namin nahanap ang pinakamalapit na branch. I-on ito sa settings ng iyong telepono, o pumili ka ng branch.",
+  "branchLocationNeeded": "I-on ang lokasyon para magamit namin ang pinakamalapit na branch sa iyo.",
   "branchTurnOnLocation": "I-on ang lokasyon",
   "branchUseMyLocation": "Gamitin ang aking lokasyon",
   "branchChooseManually": "Pumili ng branch",
