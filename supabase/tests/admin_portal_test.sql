@@ -88,7 +88,7 @@ union all select 'ap-off', 'Former owner', 'ap-off@test.local', 'owner', null, '
 
 insert into public.customer_profiles (firebase_uid, full_name, email, phone, rfid_card_number)
 values ('ap-c1', 'AP Customer', 'ap-c1@test.local', '09180000001', 'AP-CARD-1');
--- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- Returning customers (migration 20261118015010): this suite tests the normal checkout,
 -- not the first-order prepayment (first_order_prepayment_test.sql covers that).
 update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)

@@ -81,7 +81,7 @@ values ('h-sa', 'Refunds A', 'h-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 
        ('h-sb', 'Refunds B', 'h-sb@test.local', 'staff', pg_temp.f('bb')::uuid, 'active', true),
        ('h-own', 'Owner', 'h-own@test.local', 'owner', null, 'active', false);
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('h-c', 'HR Cust', 'h-c@test.local', '09181112222');
--- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- Returning customers (migration 20261118015010): this suite tests the normal checkout,
 -- not the first-order prepayment (first_order_prepayment_test.sql covers that).
 update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point)

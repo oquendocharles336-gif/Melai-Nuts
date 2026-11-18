@@ -136,6 +136,7 @@ async function send(deps: Deps, req: Request, user: FirebaseUser, body: Record<s
       logoUrl: deps.env("EMAIL_LOGO_URL"),
       businessAddress: deps.env("EMAIL_FOOTER_ADDRESS"),
       supportContact: deps.env("EMAIL_SUPPORT_CONTACT"),
+      siteUrl: deps.env("PUBLIC_SITE_URL"),
     }));
   } catch (e) {
     console.error("email-verification: e-mail failed", e instanceof Error ? e.message : e);

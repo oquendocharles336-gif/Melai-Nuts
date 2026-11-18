@@ -184,16 +184,54 @@ class ProductPhotosTest extends TestCase
         $this->actingAs($owner)->postJson(route('ops.products.photos.session'), ['current_password' => 'wrong'])
             ->assertStatus(422)->assertJsonValidationErrors('current_password');
         $this->actingAs($owner)->postJson(route('ops.products.photos.session'), ['current_password' => 'uid-owner#Pass1'])
-            ->assertOk()->assertJsonPath('message', fn ($m) => str_contains($m, 'App sign-in confirmed'));
+            ->assertOk()->assertJsonPath('message', fn ($m) => str_contains($m, 'App password confirmed'));
         $this->assertAuthenticatedAs($owner);
         $this->actingAs($owner)->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])->assertOk();
         $this->assertCount(1, $this->images());
     }
 
-    public function test_a_login_without_an_app_account_is_told_to_use_the_app_account(): void
+    public function test_a_website_password_login_links_its_app_account_in_place_without_signing_out(): void
+    {
+        // The owner signed in with the website password (no app account linked yet): the page no longer
+        // blocks or says "sign out"; the app password typed in the dialog links the account right there.
+        $u = \App\Models\User::factory()->create(['role' => 'admin', 'has_access' => true, 'email' => $this->db->staff['uid-owner']['email']]);
+        $this->actingAs($u)->get('/s/products')->assertOk()->assertSee('blocker: null', false)->assertSee('reauth: true', false);
+        $this->actingAs($u)->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])
+            ->assertStatus(409)->assertJsonPath('reauth', true);
+        $this->actingAs($u)->postJson(route('ops.products.photos.session'), ['current_password' => 'uid-owner#Pass1'])->assertOk();
+        $this->assertSame('uid-owner', $u->fresh()->firebase_uid);
+        $this->assertAuthenticatedAs($u);
+        $this->actingAs($u->fresh())->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])->assertOk();
+        $this->assertCount(1, $this->images());
+    }
+
+    public function test_a_login_whose_email_has_no_app_account_gets_a_clear_password_error(): void
     {
         $u = \App\Models\User::factory()->create(['role' => 'admin', 'has_access' => true]);
-        $this->actingAs($u)->postJson(route('ops.products.photos.session'), ['current_password' => 'x'])->assertForbidden();
+        $this->actingAs($u)->postJson(route('ops.products.photos.session'), ['current_password' => 'x'])
+            ->assertStatus(422)->assertJsonValidationErrors('current_password');
+        $this->assertAuthenticatedAs($u);
+    }
+
+    public function test_allow_photo_access_is_recorded_per_owner_with_the_time_and_can_be_reset(): void
+    {
+        $owner = $this->owner();
+        // Visible even while the app sign-in still has to be confirmed (no app sign-in in this session).
+        $this->actingAs($owner)->get('/s/products')->assertOk()
+            ->assertSee('Allow photo access')->assertSee('accessAt: null', false)->assertSee('photos\\/access', false);
+        $this->actingAs($owner)->postJson(route('ops.products.photos.access'))->assertOk()->assertJsonPath('message', 'Photo access allowed.');
+        $at = $owner->fresh()->photo_access_allowed_at;
+        $this->assertNotNull($at);
+        $this->actingAs($owner->fresh())->get('/s/products')->assertSee($at->toIso8601String(), false)->assertDontSee('accessAt: null', false);
+        $this->assertNull($this->secondOwner()->photo_access_allowed_at, 'per owner, not per website');
+        $this->actingAs($owner)->deleteJson(route('ops.products.photos.access'))->assertOk()->assertJsonPath('allowed_at', null);
+        $this->assertNull($owner->fresh()->photo_access_allowed_at);
+    }
+
+    public function test_the_page_never_tells_the_owner_to_sign_out(): void
+    {
+        $this->actingAs($this->owner())->get('/s/products')->assertOk()
+            ->assertDontSee('Sign out, then', false)->assertDontSee('then sign in again', false);
     }
 
     public function test_the_upload_card_and_the_allow_step_are_on_the_page(): void
@@ -219,7 +257,8 @@ class ProductPhotosTest extends TestCase
         // Website session without the app (Firebase) sign-in: asked in place, before choosing a photo.
         $this->actingAs($this->owner())->get('/s/products')->assertOk()
             ->assertSee('reauth: true', false)
-            ->assertSee('Confirm your Melai Nuts app password to upload or change photos. You stay signed in', false)
+            ->assertSee('Confirm your app password')
+            ->assertSee('You stay signed in, and the photos you picked are kept.', false)
             ->assertSee('photos\\/app-session', false);
     }
 

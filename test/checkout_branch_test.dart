@@ -159,6 +159,18 @@ void main() {
       expect(saved.reason, BranchChoiceReason.savedBranch);
     });
 
+    test('location off: the branch picked from the list wins over the last order', () {
+      final picked = chooseBranch(branches: all, lastOrderBranch: 'far', savedBranch: 'far', pickedBranch: 'near')!;
+      expect(picked.branch.id, 'near');
+      // A later successful location still picks the nearest branch.
+      expect(
+        chooseBranch(branches: all, latitude: 14.21, longitude: 121.15, pickedBranch: 'far')!.reason,
+        BranchChoiceReason.nearest,
+      );
+      // A picked branch that closed is not used.
+      expect(chooseBranch(branches: all, pickedBranch: 'gone', lastOrderBranch: 'far')!.reason, BranchChoiceReason.lastOrder);
+    });
+
     test('nothing to go on: no branch at all, so location is needed', () {
       expect(chooseBranch(branches: all), isNull);
       expect(chooseBranch(branches: all, lastOrderBranch: 'gone', savedBranch: 'gone'), isNull);

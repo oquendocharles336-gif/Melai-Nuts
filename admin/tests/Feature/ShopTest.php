@@ -41,6 +41,26 @@ class ShopTest extends TestCase
         $this->post('/login', ['email' => 'ana@example.com', 'password' => 'Kasoy#Roast9'])->assertRedirect(route('shop.home'));
     }
 
+    public function test_a_customer_changes_email_only_with_the_password_and_a_confirmation(): void
+    {
+        $this->signIn();
+        $this->get('/shop/account')->assertOk()->assertSee('Change email')->assertSee('action="'.route('shop.account.email').'"', false);
+        $this->post('/shop/account/email', ['new_email' => 'ana.new@example.com', 'current_password' => 'nope'])
+            ->assertSessionHasErrors('current_password');
+        $this->post('/shop/account/email', ['new_email' => 'ana.new@example.com', 'current_password' => 'Kasoy#Roast9'])
+            ->assertRedirect(route('shop.account'))->assertSessionHas('shop_status', fn ($m) => str_contains($m, 'ana.new@example.com'));
+        $this->assertSame([['cust-1', 'ana.new@example.com']], $this->fb->emailChangeRequests);
+    }
+
+    public function test_the_pickup_branch_can_be_picked_by_hand_when_location_is_off(): void
+    {
+        $this->get('/')->assertOk()->assertSee('data-loc-fallback', false)->assertSee('Finding your nearest branch', false);
+        $branch = $this->shop->branches[0]['id'];
+        $this->post('/shop/branch', ['branch_id' => $branch])->assertRedirect()->assertSessionHas('shop_status');
+        $this->postJson('/shop/branch', ['branch_id' => 'no-such-branch'])->assertStatus(422);
+        $this->postJson('/shop/branch', [])->assertStatus(422)->assertJsonValidationErrors(['branch_id', 'latitude']);
+    }
+
     // ---- Browsing ------------------------------------------------------------------------------
 
     public function test_the_shop_is_the_home_page_and_shows_real_products(): void

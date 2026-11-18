@@ -21,7 +21,7 @@ enum _CaptchaState { loading, ready, solved, expired, error, offline, unavailabl
 /// [onToken] gets the token when the check is solved and `null` whenever it no longer is
 /// (expired, reset, reloaded), so callers always send a fresh one.
 class TurnstileCaptcha extends StatefulWidget {
-  /// sign_in | send_code | verify_email (must match the server's expected action).
+  /// sign_in | send_code | verify_email | reset_password | change_email (must match the server's expected action).
   final String action;
   final ValueChanged<String?> onToken;
 

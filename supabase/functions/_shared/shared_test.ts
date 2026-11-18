@@ -106,7 +106,9 @@ function idToken(claims: Record<string, unknown>, o: { iss?: string; aud?: strin
 
 Deno.test("ID token: a valid token gives uid, e-mail (lower-cased) and the verified flag", async () => {
   const u = await verifyFirebaseIdToken(await idToken({}), "melai-test", keys);
-  assertEquals(u, { uid: "uid-1", email: "ana@example.com", emailVerified: false, signInProvider: "password" });
+  const { authTime, ...rest } = u;
+  assertEquals(rest, { uid: "uid-1", email: "ana@example.com", emailVerified: false, signInProvider: "password" });
+  assert(typeof authTime === "number" || authTime === null, "auth_time passed through for recent-sign-in checks");
 });
 
 Deno.test("ID token: other project, wrong issuer, expired, unsigned -> rejected", async () => {

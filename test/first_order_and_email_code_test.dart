@@ -6,8 +6,8 @@ import 'package:melai_nuts/data/models/order.dart';
 import 'package:melai_nuts/features/customer/widgets/first_order_payment_choice.dart';
 import 'package:melai_nuts/l10n/generated/app_localizations.dart';
 
-// The app's side of migrations 20261118000000 (first order paid online, 50% or 100%) and
-// 20261118010000 (e-mail codes). The rules themselves are enforced and tested on the server:
+// The app's side of migrations 20261118015010 (first order paid online, 50% or 100%) and
+// 20261118015111 (e-mail codes). The rules themselves are enforced and tested on the server:
 // supabase/tests/first_order_prepayment_test.sql, supabase/functions/email-verification.
 void main() {
   group('first-order quote', () {

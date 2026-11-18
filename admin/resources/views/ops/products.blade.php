@@ -8,6 +8,8 @@
     $photoBlocker = $canEditPhotos ? app(\App\Services\Supabase\ProductPhotoStorage::class)->blocker(auth()->user()) : null;
     $photoReauth = $canEditPhotos && $photoBlocker === null && app(\App\Services\Supabase\ProductPhotoStorage::class)->needsAppSignIn(auth()->user());
     $photoMaxBytes = \App\Services\Supabase\ProductPhotoStorage::uploadLimitBytes();
+    // The owner's "Allow photo access" choice (server-side, per owner, with the time); null = not yet.
+    $photoAccessAt = $canEditPhotos ? auth()->user()?->photo_access_allowed_at?->toIso8601String() : null;
     // id => {name, images}: the photos each product has now (products.images, main photo first).
     $photoRows = collect($products)->mapWithKeys(fn ($p) => [$p['id'] => [
         'name' => $p['name'],
@@ -26,6 +28,7 @@
         max: {{ $photoMax }}, canEdit: @js($canEditPhotos),
         maxBytes: {{ $photoMaxBytes }}, blocker: @js($photoBlocker), reauth: @js($photoReauth),
         sessionUrl: @js(route('ops.products.photos.session')),
+        accessUrl: @js(route('ops.products.photos.access')), accessAt: @js($photoAccessAt),
      })">
 @if ($canEditPhotos)
     {{-- Shown only when the page's photo script did not start (an old public/build): then nothing on this
@@ -107,17 +110,19 @@
         <div class="modal-body pp-body" x-on:dragover.prevent x-on:drop.prevent>
             <p class="form-hint">The first photo is the main photo on the product's card in the app and the web shop; customers swipe through all of them on the product page. Large photos are resized in your browser before uploading.</p>
 
-            {{-- Something must be fixed first (no app sign-in, .env keys missing): say what, before any picking. --}}
+            {{-- Only a missing server setting (.env keys) blocks uploads; the app sign-in is confirmed in place below. --}}
             <div class="pp-blocked" role="alert" x-show="blocker">
                 <x-icon name="shield" :size="16" />
                 <p x-text="blocker"></p>
             </div>
 
-            {{-- The app sign-in for uploads is missing or ended: confirm the app password here. Nothing is lost, no sign-out. --}}
-            <form class="pp-blocked" role="alert" x-show="reauth" x-cloak x-on:submit.prevent="renewSession()">
+            {{-- Step 2, only when needed: the app sign-in could not be renewed silently. Confirm the app
+                 password here; nothing is lost and nobody is signed out. Shown after photo access is allowed. --}}
+            <form class="pp-reauth" role="region" aria-labelledby="pp-reauth-title" x-show="reauth && accessAllowed" x-cloak x-on:submit.prevent="renewSession()">
                 <x-icon name="shield" :size="16" />
                 <div style="flex:1">
-                    <p>Confirm your Melai Nuts app password to upload or change photos. You stay signed in, and photos you picked are kept.</p>
+                    <p id="pp-reauth-title"><strong>Confirm your app password</strong></p>
+                    <p>Enter the password you use in the Melai Nuts app to save photos. You stay signed in, and the photos you picked are kept.</p>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
                         <input type="password" x-ref="reauthInput" x-model="reauthPassword" autocomplete="current-password" maxlength="128" aria-label="Melai Nuts app password" class="input" style="max-width:260px">
                         <button type="submit" class="btn sm" :disabled="reauthBusy" x-text="reauthBusy ? 'Checking…' : 'Confirm'">Confirm</button>
@@ -190,10 +195,12 @@
             <p class="pp-full" x-show="isFull && !error" x-text="'This product has ' + max + ' photos, the most it can have. Replace or remove one to add another.'"></p>
             <p class="form-error" x-show="error" x-text="error" role="alert"></p>
 
-            {{-- The owner's "Allow" choice, reviewable here; Reset asks again next time. --}}
-            <p class="pp-access">
+            {{-- Step 1: the owner's "Allow" choice, always reachable here (never hidden by the sign-in step).
+                 Recorded per owner with the time; Reset asks again next time. --}}
+            <p class="pp-access" aria-live="polite">
                 <x-icon name="image" :size="14" />
                 <span><strong>Photo access:</strong> <span x-text="accessLabel"></span></span>
+                <button type="button" class="btn sm primary pp-allow" x-show="!accessAllowed" x-on:click="allowFromRow()" :disabled="accessBusy">Allow photo access</button>
                 <button type="button" class="pp-linkbtn" x-show="accessAllowed" x-on:click="resetAccess()">Reset</button>
                 <a class="pp-linkbtn" href="{{ route('legal.privacy') }}#privacy-9" target="_blank" rel="noopener">Privacy Policy</a>
             </p>

@@ -66,7 +66,7 @@
                         <div><x-icon name="store" :size="16" /><span>Pickup at <b>{{ $cart['branch']['name'] }}</b></span></div>
                     </div>
                 @else
-                    <div class="s-flash note"><x-icon name="map-pin" :size="18" /><span>Choose your pickup branch to check out. <button type="button" class="s-link-btn" data-locate>Use my location</button></span></div>
+                    <div class="s-flash note"><x-icon name="map-pin" :size="18" /><span>Choose your pickup branch to check out. <span data-loc-status hidden>Finding your nearest branch…</span><span data-loc-fallback hidden>Use the branch list at the top of the page, or <button type="button" class="s-link-btn" data-locate>Use my location</button></span></span></div>
                 @endif
 
                 @if ($cart['guest'])

@@ -53,19 +53,20 @@ class ProductPhotoStorage
         if (! $this->configured()) {
             return 'Photo uploads are not set up yet: add SUPABASE_URL and SUPABASE_ANON_KEY (the same values as the app\'s env/supabase.json) to the website\'s .env file, then restart the website.';
         }
-        if (! $user || ! $user->usesFirebase()) {
-            return 'Uploading photos needs your Melai Nuts app account: sign in to this website with the email and password you use in the app.';
-        }
 
-        // An app account whose app sign-in is missing or ended is NOT blocked: the page asks for the
-        // app password in place (needsAppSignIn) and carries on, without signing out.
+        // A missing or ended app sign-in is NOT a blocker: the page asks for the app password in
+        // place (needsAppSignIn) and carries on. The owner is never signed out for it.
         return null;
     }
 
-    /** $user is an app account, but this browser session holds no app sign-in for it right now. */
+    /**
+     * This browser session holds no live app sign-in for $user right now: a login that signed in with
+     * the website password (no app account linked yet), or whose app sign-in ended. Checked without a
+     * network call; a sign-in that is only expired is refreshed silently on upload, not asked for.
+     */
     public function needsAppSignIn(?User $user): bool
     {
-        return $user !== null && $user->usesFirebase() && ! $this->firebase->isFor($user);
+        return $user !== null && (! $user->usesFirebase() || ! $this->firebase->isFor($user));
     }
 
     /**
@@ -184,15 +185,13 @@ class ProductPhotoStorage
     private function idToken(): string
     {
         $user = Auth::user();
-        $uid = $this->identity->uid($user);   // the linked app account; throws when the link is gone
-        if (! $user || ! $user->usesFirebase() || $user->firebase_uid !== $uid) {
-            // Signed in with the website's own password: there is no app account to act with, and
-            // Storage only accepts the app account's own token.
-            throw new BackendActionException('Uploading photos needs your Melai Nuts app account: sign in to this website with the email and password you use in the app.');
+        if (! $user || ! $user->usesFirebase() || ! $this->firebase->isFor($user)) {
+            // No live app sign-in in this session (website password, or it ended): the page asks for the
+            // app password in place (409 reauth, bootstrap/app.php) and links / renews it. No sign-out.
+            throw new FirebaseSessionRequiredException(\App\Services\Auth\LinkState::NOT_AUTHENTICATED, 'Confirm your Melai Nuts app password to keep changing photos.');
         }
-        if (! $this->firebase->isFor($user)) {
-            // App account without a current app sign-in: the page asks for the app password in
-            // place (409 reauth, bootstrap/app.php), the owner stays signed in.
+        $uid = $this->identity->uid($user);   // the linked app account; throws when the link is gone
+        if ($user->firebase_uid !== $uid) {
             throw new FirebaseSessionRequiredException(\App\Services\Auth\LinkState::NOT_AUTHENTICATED, 'Confirm your Melai Nuts app password to keep changing photos.');
         }
         try {

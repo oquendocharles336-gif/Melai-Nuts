@@ -86,7 +86,7 @@ values ('rw-sa', 'Staff A', 'rw-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 
        ('rw-own', 'Owner', 'rw-own@test.local', 'owner', null, 'active', false);
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('rw-c1', 'Cust One', 'rw-c1@test.local', '09170000021');
--- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- Returning customers (migration 20261118015010): this suite tests the normal checkout,
 -- not the first-order prepayment (first_order_prepayment_test.sql covers that).
 update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 

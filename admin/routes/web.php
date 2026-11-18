@@ -23,6 +23,7 @@ use App\Http\Controllers\Shop\CartController as ShopCartController;
 use App\Http\Controllers\Shop\CheckoutController as ShopCheckoutController;
 use App\Http\Controllers\Shop\PhoneVerificationController as ShopPhoneVerificationController;
 use App\Http\Controllers\Auth\AccountActionController;
+use App\Http\Controllers\Auth\EmailChangeController;
 use App\Http\Controllers\Shop\CustomerAuthController;
 use App\Http\Controllers\Shop\OrderController as ShopOrderController;
 use App\Http\Controllers\Shop\StorefrontController;
@@ -84,6 +85,7 @@ Route::name('shop.')->group(function () {
             Route::get('/payment/return', [ShopOrderController::class, 'paymentReturn'])->name('payment.return');
             Route::get('/points', [ShopOrderController::class, 'points'])->name('points');
             Route::get('/account', [CustomerAuthController::class, 'account'])->name('account');
+            Route::post('/account/email', [EmailChangeController::class, 'customer'])->name('account.email')->middleware('throttle:5,10');
             Route::get('/terms-update', [CustomerAuthController::class, 'showTerms'])->name('terms');
             Route::post('/terms-update', [CustomerAuthController::class, 'acceptTerms']);
         });
@@ -91,11 +93,12 @@ Route::name('shop.')->group(function () {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Links in Firebase's account e-mails (password reset, ...), for app and website accounts alike.
-// Firebase console > Authentication > Templates > Customize action URL = <APP_URL>/auth/action.
+// Links in our account e-mails (password reset, e-mail change), for app and website accounts alike.
 // ---------------------------------------------------------------------------------------------
 Route::get('/auth/action', [AccountActionController::class, 'show'])->name('account-action')->middleware('throttle:30,1');
 Route::post('/auth/action/reset', [AccountActionController::class, 'reset'])->name('account-action.reset')->middleware('throttle:10,1');
+Route::post('/auth/action/confirm-email', [AccountActionController::class, 'confirmEmail'])->name('account-action.confirm-email')->middleware('throttle:10,1');
+Route::post('/auth/action/cancel-email', [AccountActionController::class, 'cancelEmail'])->name('account-action.cancel-email')->middleware('throttle:10,1');
 // Android App Link verification for /auth/action (the app's reset screen), from admin/.env.
 Route::get('/.well-known/assetlinks.json', function () {
     $fingerprints = array_values(array_filter(array_map('trim', explode(',', (string) config('melai.android.app_link_sha256')))));
@@ -185,6 +188,8 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
         Route::delete('/products/{product}/photos', [ProductPhotoController::class, 'destroy'])->name('ops.products.photos.destroy')->middleware('throttle:30,1');
         Route::put('/products/{product}/photos/order', [ProductPhotoController::class, 'order'])->name('ops.products.photos.order')->middleware('throttle:30,1');
         // The app sign-in for photo uploads, renewed in place (app password), without signing out.
+        Route::post('/products/photos/access', [ProductPhotoController::class, 'allowAccess'])->name('ops.products.photos.access')->middleware('throttle:20,1');
+        Route::delete('/products/photos/access', [ProductPhotoController::class, 'resetAccess'])->name('ops.products.photos.access.reset')->middleware('throttle:20,1');
         Route::post('/products/photos/app-session', [ProductPhotoController::class, 'renewAppSession'])->name('ops.products.photos.session')->middleware('throttle:10,1');
     });
 
@@ -214,8 +219,10 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
         Route::post('/stock/receive', [StockController::class, 'receive'])->name('stock.receive')->middleware('throttle:20,1');
 
         Route::view('/settings', 'settings')->name('settings');
-        // Settings > "Send me a reset email": a Firebase reset link to the signed-in person's own email.
+        // Settings > "Send me a reset email": a reset link (our own e-mail) to the signed-in person's own email.
         Route::post('/settings/password-reset', [LoginController::class, 'sendMyReset'])->name('settings.password-reset')->middleware('throttle:3,10');
+        // Settings > Change email: confirmation to the new address, "was this you?" to the old one.
+        Route::post('/settings/email', [EmailChangeController::class, 'staff'])->name('settings.email')->middleware('throttle:5,10');
         Route::view('/help', 'help')->name('help');
         Route::get('/loyalty', [LoyaltyController::class, 'index'])->name('loyalty.index');
         Route::get('/loyalty/{member}', [LoyaltyController::class, 'show'])->name('loyalty.show');

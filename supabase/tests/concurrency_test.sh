@@ -103,7 +103,7 @@ insert into public.branch_inventory (branch_id, product_id, variant_id, quantity
   where b.name like 'CONC-%' and v.product_id=(select id from public.products where name='CONC-Nut');
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
   select 'conc_'||n, 'C'||n, 'conc_'||n||'@conc.local', '0917000000'||n from generate_series(1,4) n;
-update public.customer_profiles set first_paid_order_at = now() where firebase_uid like 'conc\_%';  -- returning customers (20261118000000)
+update public.customer_profiles set first_paid_order_at = now() where firebase_uid like 'conc\_%';  -- returning customers (20261118015010)
 insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
   on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 EOF

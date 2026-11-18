@@ -1,5 +1,6 @@
-// Firebase Admin: marks an account's e-mail as verified (the REST form of the Admin SDK's
-// updateUser(uid, { emailVerified: true })). Same least-privilege service account and
+// Firebase Admin, server-side only (the REST form of the Admin SDK): marks an e-mail verified,
+// finds an account by e-mail, and changes an account's password / e-mail and ends its other
+// sessions (password reset and e-mail change without Firebase's own e-mails). Same least-privilege service account and
 // secrets as grant-role-claim: FIREBASE_SERVICE_ACCOUNT (JSON) and FIREBASE_PROJECT_ID.
 import { importPKCS8, SignJWT } from "npm:jose@5.9.6";
 
@@ -53,4 +54,61 @@ export async function markEmailVerified(
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`accounts:update ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
+/** The account's uid for an e-mail address, or null when there is no such account. */
+export async function lookupUidByEmail(
+  email: string,
+  projectId: string,
+  serviceAccountJson: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<string | null> {
+  const sa = parseServiceAccount(serviceAccountJson);
+  const token = await accessToken(sa, fetchFn);
+  const res = await fetchFn(`https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:lookup`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ email: [email] }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`accounts:lookup ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const user = Array.isArray(data?.users) ? data.users[0] : null;
+  if (!user?.localId || user.disabled === true) return null;
+  return String(user.localId);
+}
+
+export type AccountChange = { password?: string; email?: string; emailVerified?: boolean; endSessions?: boolean };
+
+/**
+ * Changes the account. endSessions sets validSince to now: every refresh token issued before
+ * stops working, so the app and the website ask for the password again within the hour.
+ */
+export async function updateAccount(
+  uid: string,
+  change: AccountChange,
+  projectId: string,
+  serviceAccountJson: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<void> {
+  const sa = parseServiceAccount(serviceAccountJson);
+  const token = await accessToken(sa, fetchFn);
+  const body: Record<string, unknown> = { localId: uid };
+  if (change.password !== undefined) body.password = change.password;
+  if (change.email !== undefined) body.email = change.email;
+  if (change.emailVerified !== undefined) body.emailVerified = change.emailVerified;
+  if (change.endSessions) body.validSince = String(Math.floor(Date.now() / 1000));
+  const res = await fetchFn(`https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:update`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 200);
+    const err = new Error(`accounts:update ${res.status}: ${text}`);
+    (err as Error & { firebaseCode?: string }).firebaseCode = /EMAIL_EXISTS/.test(text) ? "EMAIL_EXISTS"
+      : /WEAK_PASSWORD/.test(text) ? "WEAK_PASSWORD" : undefined;
+    throw err;
+  }
 }

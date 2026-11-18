@@ -218,10 +218,10 @@ class CustomerAccounts
     public function sendPasswordReset(string $email): void
     {
         try {
-            $this->firebase->sendPasswordReset(trim($email));
-        } catch (FirebaseAuthException $e) {
-            if ($e->reason === FirebaseAuthException::NETWORK || $e->isTemporary()) {
-                throw new ShopException('We couldn\'t send the email right now. Please try again in a moment.', 'offline');
+            app(\App\Services\Auth\AccountEmails::class)->requestPasswordReset(trim($email), request()?->ip());
+        } catch (\App\Services\Auth\AccountEmailException $e) {
+            if ($e->reason !== 'cooldown') {   // a repeat within a minute: the first email is on its way
+                throw new ShopException($e->getMessage(), $e->reason === 'offline' ? 'offline' : 'refused');
             }
         }
     }

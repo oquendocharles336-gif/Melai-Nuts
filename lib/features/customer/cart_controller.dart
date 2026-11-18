@@ -19,6 +19,7 @@ import '../../data/repositories/cart_repository.dart';
 import '../../data/repositories/icon_registry.dart';
 import '../../data/repositories/products_repository.dart';
 import 'screens/cart_screen.dart';
+import 'widgets/branch_stock_notice.dart' show showBranchPicker;
 import '../../core/utils/app_error.dart';
 import '../../core/utils/format_utils.dart';
 
@@ -1385,6 +1386,10 @@ Future<bool> ensureBranchSelected(BuildContext context) async {
   if (BranchController.instance.selectedBranch != null) return true;
   if (!context.mounted) return false;
   await turnOnLocationForBranch(context);
+  if (BranchController.instance.selectedBranch != null) return true;
+  // Location still off or denied: let the customer choose the branch instead.
+  if (!context.mounted) return false;
+  await showBranchPicker(context);
   return BranchController.instance.selectedBranch != null;
 }
 

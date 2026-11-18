@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
  * Checkout, orders, payment and points for the signed-in customer, through the same database
  * functions and tables as the app: place_order (store pickup only), cod_downpayment_quote (the
  * downpayment rule decided by the server), first_order_quote (a first order pays 50% or 100%
- * online first, migration 20261118000000), hitpay-create-payment (HitPay checkout), orders,
+ * online first, migration 20261118015010), hitpay-create-payment (HitPay checkout), orders,
  * loyalty_accounts and loyalty_transactions. Orders land in the same tables as app orders, so
  * staff and owners see them like any other order.
  */

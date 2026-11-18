@@ -64,6 +64,12 @@ class FirebaseLogin
 
         $user = DB::transaction(function () use ($claims, $email, $expected) {
             $user = User::where('firebase_uid', $claims['sub'])->lockForUpdate()->first();
+            // The app account's e-mail was changed (confirmed from the new address): follow it.
+            if ($user && mb_strtolower((string) $user->email) !== $email && ! User::where('email', $email)->whereKeyNot($user->getKey())->exists()) {
+                $old = $user->email;
+                $user->forceFill(['email' => $email])->save();
+                ActivityLogger::log('account.email_followed', "Website login e-mail updated to the app account's new e-mail", $user, ['old' => $old, 'new' => $email]);
+            }
             if (! $user && ($byEmail = User::where('email', $email)->lockForUpdate()->first())) {
                 if (filled($byEmail->firebase_uid)) {
                     throw new AccountLinkException(LinkState::EMAIL_MISMATCH, 'This website login already signs in with a different app account. Ask an admin to check it on the Users page.');

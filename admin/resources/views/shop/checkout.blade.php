@@ -135,7 +135,8 @@
                     <div><span>Pay 100% now</span><span>{{ \App\Support\Format::peso($first['full_amount']) }}</span></div>
                 @endif
             </div>
-            <button type="submit" class="s-btn primary block" form="checkout" @disabled($first === null || $firstBlocked)>{{ $isFirst || $quote || old('payment') === 'online' ? 'Place order & pay' : 'Place order' }}</button>
+            {{-- On phones the button stays at the bottom of the screen (shop.css .s-sticky-cta). --}}
+            <div class="s-sticky-cta"><button type="submit" class="s-btn primary block" form="checkout" @disabled($first === null || $firstBlocked)>{{ $isFirst || $quote || old('payment') === 'online' ? 'Place order & pay' : 'Place order' }}</button></div>
             <p class="s-note">By placing your order you agree to our <a href="{{ route('legal.terms') }}" target="_blank" rel="noopener">Terms</a>. Online payments are processed by HitPay.</p>
         </aside>
     </form>

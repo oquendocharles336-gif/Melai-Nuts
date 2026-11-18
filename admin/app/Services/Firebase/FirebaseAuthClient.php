@@ -65,17 +65,8 @@ class FirebaseAuthClient
     // The 6-digit code comes from the Supabase Edge Function email-verification
     // (App\Services\Auth\EmailCodes).
 
-    /** Emails a password-reset link. Unknown emails are not reported (no account enumeration). */
-    public function sendPasswordReset(string $email): void
-    {
-        try {
-            $this->identity('accounts:sendOobCode', ['requestType' => 'PASSWORD_RESET', 'email' => $email]);
-        } catch (FirebaseAuthException $e) {
-            if ($e->reason !== FirebaseAuthException::ACCOUNT_NOT_FOUND) {
-                throw $e;
-            }
-        }
-    }
+    // No password-reset / e-mail-change e-mails here either: our own links and template come from
+    // the Supabase Edge Function account-email (App\Services\Auth\AccountEmails).
 
     // --- Verifying a mobile number for the signed-in account (SMS one-time code) ---------------
     // The same Identity Toolkit calls the Firebase Web SDK makes for linkWithPhoneNumber. Firebase
@@ -128,33 +119,6 @@ class FirebaseAuthClient
         }
 
         return $out;
-    }
-
-    // --- The links in Firebase's e-mails (custom action URL https://<website>/auth/action) ------
-
-    /** Checks a password-reset code WITHOUT using it. @return string the account's e-mail */
-    public function verifyPasswordResetCode(string $oobCode): string
-    {
-        $r = $this->identity('accounts:resetPassword', ['oobCode' => $oobCode]);
-        if (strtoupper((string) $r->json('requestType', 'PASSWORD_RESET')) !== 'PASSWORD_RESET') {
-            throw new FirebaseAuthException(FirebaseAuthException::LINK_INVALID, 'This link is not a password-reset link.');
-        }
-
-        return mb_strtolower(trim((string) $r->json('email', '')));
-    }
-
-    /** Sets the new password. Firebase accepts each code once and ends the account's other sign-ins. */
-    public function confirmPasswordReset(string $oobCode, string $newPassword): void
-    {
-        $this->identity('accounts:resetPassword', ['oobCode' => $oobCode, 'newPassword' => $newPassword]);
-    }
-
-    /** Applies an e-mail verification / e-mail recovery code. @return string the request type */
-    public function applyActionCode(string $oobCode): string
-    {
-        $r = $this->identity('accounts:update', ['oobCode' => $oobCode]);
-
-        return (string) $r->json('requestType', '');
     }
 
     /** Deletes the account the ID token belongs to (rollback of a half-finished registration). */

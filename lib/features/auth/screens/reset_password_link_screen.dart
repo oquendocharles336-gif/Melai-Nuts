@@ -1,7 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/routes.dart';
+import '../../../core/services/account_email_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -11,22 +11,23 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 
-enum _LinkState { checking, form, saving, done, invalid }
+enum _LinkState { checking, form, saving, done, invalid, emailConfirm, emailCancel, emailDone }
 
 /// The landing page of the password-reset e-mail inside the app.
 ///
-/// Firebase's reset e-mail links to `https://<website>/auth/action?mode=resetPassword&oobCode=…`
-/// (Firebase console > Authentication > Templates > Password reset > Customize action URL). On a
-/// phone with the app installed, Android opens that link here (App Link, see
-/// android/app/build.gradle.kts `melaiWebHost`); anywhere else the website shows the same form.
+/// Our account e-mails (Supabase function `account-email`) link to
+/// `https://<website>/auth/action?mode=resetPassword|confirmEmail|cancelEmailChange&token=…`.
+/// On a phone with the app installed, Android opens that link here (App Link, see
+/// android/app/build.gradle.kts `melaiWebHost`); anywhere else the website shows the same page.
 ///
-/// The code is checked with Firebase first, the new password must pass the app's password rules,
-/// and Firebase accepts each code only once: after the change the link no longer works, and the
-/// account's other sign-ins end (Firebase revokes them on a password change).
+/// Reset: the link is checked first (not used up), the new password must pass the app's rules,
+/// and the link works once; afterwards the account's other sign-ins end. E-mail change: one tap
+/// confirms (from the new address) or stops it (from the old one). Old Firebase links
+/// (`oobCode=…`) are answered with "ask for a new link".
 class ResetPasswordLinkScreen extends StatefulWidget {
   const ResetPasswordLinkScreen({super.key, required this.link});
 
-  /// The route name the link arrived as, e.g. `/auth/action?mode=resetPassword&oobCode=…`.
+  /// The route name the link arrived as, e.g. `/auth/action?mode=resetPassword&token=…`.
   final String link;
 
   @override
@@ -42,6 +43,8 @@ class _ResetPasswordLinkScreenState extends State<ResetPasswordLinkScreen> {
   String? _email;
   String? _error;
   bool _obscure = true;
+  bool _busy = false;
+  String _doneText = '';
 
   @override
   void initState() {
@@ -59,27 +62,40 @@ class _ResetPasswordLinkScreenState extends State<ResetPasswordLinkScreen> {
   Future<void> _check() async {
     final uri = Uri.tryParse(widget.link);
     final mode = uri?.queryParameters['mode'];
-    final code = uri?.queryParameters['oobCode'];
-    if (mode != 'resetPassword' || code == null || code.isEmpty) {
+    final token = uri?.queryParameters['token'];
+    if (token == null || token.isEmpty) {
       setState(() {
         _state = _LinkState.invalid;
-        _error = 'This link is not a password-reset link. Open the link from the most recent Melai Nuts e-mail.';
+        _error = uri?.queryParameters['oobCode'] != null
+            ? 'This link is from an older email and no longer works. Request a new one from "Forgot password?".'
+            : 'This link is not complete. Open the link from the most recent Melai Nuts email.';
+      });
+      return;
+    }
+    _code = token;
+    if (mode == 'confirmEmail' || mode == 'cancelEmailChange') {
+      setState(() => _state = mode == 'confirmEmail' ? _LinkState.emailConfirm : _LinkState.emailCancel);
+      return;
+    }
+    if (mode != 'resetPassword') {
+      setState(() {
+        _state = _LinkState.invalid;
+        _error = 'This link is not one of ours. Open the link from the most recent Melai Nuts email.';
       });
       return;
     }
     try {
-      final email = await FirebaseAuth.instance.verifyPasswordResetCode(code);
+      final email = await AccountEmailService.instance.checkPasswordReset(token);
       if (!mounted) return;
       setState(() {
-        _code = code;
         _email = email;
         _state = _LinkState.form;
       });
-    } on FirebaseAuthException catch (e) {
+    } on AccountEmailException catch (e) {
       if (!mounted) return;
       setState(() {
         _state = _LinkState.invalid;
-        _error = _messageFor(e);
+        _error = e.message;
       });
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'reset_password_link:check');
@@ -100,15 +116,14 @@ class _ResetPasswordLinkScreenState extends State<ResetPasswordLinkScreen> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.confirmPasswordReset(code: code, newPassword: _password.text);
+      await AccountEmailService.instance.confirmPasswordReset(code, _password.text);
       if (!mounted) return;
       setState(() => _state = _LinkState.done);
-    } on FirebaseAuthException catch (e) {
+    } on AccountEmailException catch (e) {
       if (!mounted) return;
-      final expired = e.code == 'expired-action-code' || e.code == 'invalid-action-code';
       setState(() {
-        _state = expired ? _LinkState.invalid : _LinkState.form;
-        _error = _messageFor(e);
+        _state = e.isLinkProblem ? _LinkState.invalid : _LinkState.form;
+        _error = e.message;
       });
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'reset_password_link:save');
@@ -120,24 +135,42 @@ class _ResetPasswordLinkScreenState extends State<ResetPasswordLinkScreen> {
     }
   }
 
-  String _messageFor(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'expired-action-code':
-        return 'This reset link has expired. Request a new one from "Forgot password?".';
-      case 'invalid-action-code':
-        return 'This reset link was already used or is not valid anymore. Request a new one from "Forgot password?".';
-      case 'user-disabled':
-        return 'This account has been disabled. Please contact Melai Nuts.';
-      case 'user-not-found':
-        return 'This account no longer exists.';
-      case 'weak-password':
-        return 'That password is too weak. Please choose a stronger one.';
-      case 'network-request-failed':
-        return 'Network error. Please check your connection and try again.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please wait a moment and try again.';
-      default:
-        return 'Something went wrong. Please try again.';
+  /// Confirm (new address) or stop (old address) an e-mail change: one tap, the link works once.
+  Future<void> _emailAction() async {
+    final code = _code;
+    final confirming = _state == _LinkState.emailConfirm;
+    if (code == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      if (confirming) {
+        final email = await AccountEmailService.instance.confirmEmailChange(code);
+        _doneText = 'Your Melai Nuts account now uses $email. Sign in again with this address.';
+      } else {
+        await AccountEmailService.instance.cancelEmailChange(code);
+        _doneText = 'The email change was stopped; your account keeps its current email. If you did not ask for it, change your password now.';
+      }
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _state = _LinkState.emailDone;
+      });
+    } on AccountEmailException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _state = e.isLinkProblem ? _LinkState.invalid : _state;
+        _error = e.message;
+      });
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'reset_password_link:email');
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'Please check your connection and try again.';
+      });
     }
   }
 
@@ -149,7 +182,7 @@ class _ResetPasswordLinkScreenState extends State<ResetPasswordLinkScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: const MelaiAppBar(title: 'Reset Password'),
+      appBar: const MelaiAppBar(title: 'Your account'),
       body: SafeArea(child: ListView(padding: const EdgeInsets.all(AppSpacing.lg), children: _body())),
     );
   }
@@ -183,6 +216,44 @@ class _ResetPasswordLinkScreenState extends State<ResetPasswordLinkScreen> {
             textAlign: TextAlign.center,
             style: AppTextStyles.bodyMd,
           ),
+          const SizedBox(height: AppSpacing.lg),
+          PrimaryButton(label: 'Sign in', icon: Icons.login_rounded, onPressed: _toSignIn),
+        ];
+      case _LinkState.emailConfirm:
+      case _LinkState.emailCancel:
+        final confirming = _state == _LinkState.emailConfirm;
+        return [
+          Icon(confirming ? Icons.mark_email_read_rounded : Icons.shield_rounded, size: 56, color: AppColors.primary),
+          const SizedBox(height: AppSpacing.md),
+          Text(confirming ? 'Confirm your new email' : 'Stop the email change?',
+              textAlign: TextAlign.center, style: AppTextStyles.headlineMd),
+          const SizedBox(height: 8),
+          Text(
+            confirming
+                ? "Your Melai Nuts account will use this address from now on. You'll sign in again on your devices."
+                : "Your account keeps its current email. If you didn't ask for this change, change your password afterwards.",
+            textAlign: TextAlign.center,
+            style: AppTextStyles.bodyMd,
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, textAlign: TextAlign.center, style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          PrimaryButton(
+            label: confirming ? 'Confirm new email' : 'Stop this change',
+            icon: confirming ? Icons.check_rounded : Icons.block_rounded,
+            loading: _busy,
+            onPressed: _emailAction,
+          ),
+        ];
+      case _LinkState.emailDone:
+        return [
+          const Icon(Icons.check_circle_rounded, size: 56, color: AppColors.success),
+          const SizedBox(height: AppSpacing.md),
+          Text('Done', textAlign: TextAlign.center, style: AppTextStyles.headlineMd),
+          const SizedBox(height: 8),
+          Text(_doneText, textAlign: TextAlign.center, style: AppTextStyles.bodyMd),
           const SizedBox(height: AppSpacing.lg),
           PrimaryButton(label: 'Sign in', icon: Icons.login_rounded, onPressed: _toSignIn),
         ];

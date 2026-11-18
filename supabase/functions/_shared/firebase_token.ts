@@ -7,6 +7,8 @@ export type FirebaseUser = {
   email: string | null;
   emailVerified: boolean;
   signInProvider: string | null;
+  /** When the person last entered their password (seconds since 1970), for "recent sign-in" checks. */
+  authTime?: number | null;
 };
 
 const ID_TOKEN_JWKS_URL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
@@ -38,6 +40,7 @@ export async function verifyFirebaseIdToken(
     email: typeof payload.email === "string" ? payload.email.trim().toLowerCase() : null,
     emailVerified: payload.email_verified === true,
     signInProvider: typeof firebase.sign_in_provider === "string" ? firebase.sign_in_provider : null,
+    authTime: typeof payload.auth_time === "number" ? payload.auth_time : null,
   };
 }
 

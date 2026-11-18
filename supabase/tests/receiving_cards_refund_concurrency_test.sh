@@ -72,7 +72,7 @@ insert into public.branch_inventory (branch_id, product_id, variant_id, quantity
 insert into public.staff_members (firebase_uid, full_name, email, role, branch_id, account_status, can_manage_inventory, can_review_refunds)
   select 'cr-staff', 'CR Staff', 'cr-staff@test.local', 'staff', id, 'active', true, true from public.branches where name = 'CR-A';
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('cr-cust', 'CR Cust', 'cr-cust@test.local', '0918');
-update public.customer_profiles set first_paid_order_at = now() where firebase_uid = 'cr-cust';  -- returning customer (20261118000000)
+update public.customer_profiles set first_paid_order_at = now() where firebase_uid = 'cr-cust';  -- returning customer (20261118015010)
 insert into public.suppliers (name, created_by) values ('CR-Supplier', 'cr-staff');
 insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
   on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:melai_nuts/core/widgets/motion.dart';
 import 'package:melai_nuts/core/widgets/state_views.dart';
 import 'package:melai_nuts/data/repositories/business_settings_repository.dart';
 import 'package:melai_nuts/features/customer/widgets/online_payment_unavailable_notice.dart';
@@ -53,6 +54,15 @@ void main() {
     expect(retry, findsWidgets);
     await tester.tap(retry.first);
     expect(retried, isTrue);
+  });
+
+  testWidgets('the first load shows card skeletons, not a spinner', (tester) async {
+    await tester.pumpWidget(_app(DataStateView(
+      isLoading: true, error: null, isEmpty: true, emptyTitle: 'No orders yet', builder: (_) => const Text('LIST'),
+    )));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(ListSkeleton), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('data is shown when there is some', (tester) async {

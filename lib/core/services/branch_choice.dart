@@ -52,8 +52,9 @@ String? lastOrderBranchId(Iterable<Order> orders) {
   return newest?.branchId;
 }
 
-/// Decides the branch: the nearest open one, then (without a location) the only
-/// open one, the last order's, or the saved one. Null means nothing can be set
+/// Decides the branch: the nearest open one, then (without a location) the one
+/// the customer picked by hand, the only open one, the last order's, or the
+/// saved one. Null means nothing can be set
 /// until the customer turns location on. Only open branches are ever chosen.
 ///
 /// [currentBranch] is where the customer is now: it is kept unless the nearest
@@ -65,6 +66,7 @@ BranchChoice? chooseBranch({
   String? lastOrderBranch,
   String? savedBranch,
   String? currentBranch,
+  String? pickedBranch,
 }) {
   Branch? openById(String? id) {
     for (final branch in branches) {
@@ -85,6 +87,9 @@ BranchChoice? chooseBranch({
       return BranchChoice(nearest, BranchChoiceReason.nearest, distanceKm: nearestKm);
     }
   }
+  // Location off and the customer chose a branch from the list: keep it.
+  final picked = openById(pickedBranch);
+  if (picked != null) return BranchChoice(picked, BranchChoiceReason.savedBranch);
   final open = branches.where((b) => b.isOpenForPickup).toList();
   if (open.length == 1) return BranchChoice(open.single, BranchChoiceReason.onlyBranch);
   final fromLastOrder = openById(lastOrderBranch);

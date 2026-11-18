@@ -96,44 +96,81 @@ document.addEventListener('change', (e) => {
     if (input) input.form.requestSubmit();
 });
 
-// ---- Pickup branch from the browser's location (only after the customer agrees) ---------------
+// ---- Pickup branch from the browser's location ---------------------------------------------
+// On the first page of a visit the location is asked for automatically (quietly: a "no" shows the
+// fallback, never a toast). Coordinates go to the server ONCE to pick the nearest branch and are not
+// kept, here or there; only "located: ok / off" is remembered for this visit (sessionStorage), so the
+// button does not flash back on reload. After success no location button is shown ("Nearest · x km");
+// when location is blocked, unavailable or slow, "Use my location" + a hint + a branch list appear.
+const LOC_KEY = 'melai.shop.located';
+const locState = () => { try { return sessionStorage.getItem(LOC_KEY); } catch { return null; } };
+const setLocState = (v) => { try { sessionStorage.setItem(LOC_KEY, v); } catch { /* storage blocked */ } };
+
+function showLoc(mode, hint = null) {
+    document.querySelectorAll('[data-loc-status]').forEach((el) => { el.hidden = mode !== 'finding'; });
+    document.querySelectorAll('[data-loc-fallback]').forEach((el) => { el.hidden = mode !== 'off'; });
+    if (hint) document.querySelectorAll('[data-loc-hint]').forEach((el) => { el.textContent = hint; });
+}
+
+const LOC_HINTS = {
+    1: 'Location is blocked for this site. Allow it from the icon next to the address bar, or choose a branch:',
+    2: 'Your device could not find your location. Turn on location (GPS / Wi-Fi), or choose a branch:',
+    3: 'Finding your location took too long. Try again, or choose a branch:',
+    0: 'This browser can\'t share your location. Choose a branch:',
+};
+
 function locate(button, { quiet = false } = {}) {
     if (!('geolocation' in navigator)) {
+        setLocState('off'); showLoc('off', LOC_HINTS[0]);
         if (!quiet) toast('This browser can\'t share your location.', { tone: 'bad' });
         return;
     }
     if (button) { button.disabled = true; button.textContent = 'Finding your branch…'; }
+    showLoc('finding');
+    const failed = (code, message) => {
+        setLocState('off'); showLoc('off', LOC_HINTS[code] || LOC_HINTS[2]);
+        if (!quiet) toast(message || LOC_HINTS[code] || LOC_HINTS[2], { tone: 'bad' });
+        if (button) { button.disabled = false; button.textContent = 'Use my location'; }
+    };
     navigator.geolocation.getCurrentPosition(async (pos) => {
         try {
             const data = await postJson('/shop/branch', { latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+            setLocState('ok');
             if (data.note) sessionStorage.setItem('melai.shop.note', data.note);
-            if (data.changed || !quiet) window.location.reload();
+            const nameEl = document.querySelector('[data-branch-name]');
+            const whyEl = document.querySelector('[data-branch-why]');
+            if (data.changed || !nameEl) { window.location.reload(); return; }
+            // Same branch: show "Nearest · x km" in place and drop the location button (no reload).
+            if (whyEl && data.branch) {
+                whyEl.textContent = 'Nearest' + (data.branch.distance_km != null ? ` · ${Number(data.branch.distance_km).toFixed(1)} km` : '');
+                whyEl.hidden = false;
+            }
+            showLoc('ok');
+            document.querySelector('[data-branch-auto]')?.setAttribute('data-located', '1');
         } catch (err) {
-            if (!quiet) toast(err.message, { tone: 'bad' });
-            if (button) { button.disabled = false; button.textContent = 'Use my location'; }
+            failed(2, err.message);
         }
-    }, (err) => {
-        const msg = err && err.code === 1
-            ? 'Location is blocked for this site. Click the icon next to the address bar, allow Location, then try again.'
-            : err && err.code === 3
-                ? 'Finding your location took too long. Please try again.'
-                : 'Your device could not find your location. Turn on location (GPS / Wi-Fi) and try again.';
-        if (!quiet) toast(msg, { tone: 'bad' });
-        if (button) { button.disabled = false; button.textContent = 'Use my location'; }
-    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    }, (err) => failed(err?.code ?? 2), { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
 }
 document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-locate]');
     if (b) { e.preventDefault(); locate(b); }
 });
-// Already allowed before: refresh the branch quietly once per visit, like the app does when it opens.
+// First page of the visit: ask automatically (once per session, quietly). Later pages keep the result.
 (() => {
-    if (!document.querySelector('[data-branch-auto]') || !navigator.permissions?.query) return;
-    try {
-        if (sessionStorage.getItem('melai.shop.located')) return;
-        sessionStorage.setItem('melai.shop.located', '1');
-    } catch { return; }
-    navigator.permissions.query({ name: 'geolocation' }).then((p) => { if (p.state === 'granted') locate(null, { quiet: true }); }).catch(() => {});
+    const banner = document.querySelector('[data-branch-auto]');
+    if (!banner) return;
+    if (banner.dataset.located === '1') { setLocState('ok'); return; }   // the server already has the nearest branch
+    const state = locState();
+    if (state === 'off') { showLoc('off'); return; }
+    if (state === 'ok') return;   // located before in this visit: nothing to show ('asking' = never answered: ask again)
+    setLocState('asking');
+    if (!('geolocation' in navigator)) { setLocState('off'); showLoc('off', LOC_HINTS[0]); return; }
+    const go = () => locate(null, { quiet: true });
+    if (!navigator.permissions?.query) { go(); return; }
+    navigator.permissions.query({ name: 'geolocation' })
+        .then((p) => { if (p.state === 'denied') { setLocState('off'); showLoc('off', LOC_HINTS[1]); } else go(); })
+        .catch(go);
 })();
 try {
     const note = sessionStorage.getItem('melai.shop.note');

@@ -31,6 +31,12 @@ class FakeFirebase
     public array $profiles = [];
     public array $verificationEmails = [];
     public array $resetEmails = [];
+    /** account-email function (our own e-mails): link token => [kind, email, new_email, used] */
+    public array $actionLinks = [];
+    /** [uid, new_email] of every e-mail change asked for */
+    public array $emailChangeRequests = [];
+    /** Addresses that got the "second sign-in step added" notice */
+    public array $mfaNotices = [];
     public bool $offline = false;
     public bool $firestoreDenied = false;
     public bool $enumerationProtection = true;
@@ -98,7 +104,10 @@ class FakeFirebase
                 : Http::response(['projectId' => $this->keyProject ?? self::PROJECT]),
             'www.googleapis.com/robot/*' => fn () => Http::response([self::KID => self::keys()['cert']], 200, ['Cache-Control' => 'public, max-age=3600']),
             'firestore.googleapis.com/*' => fn (Request $r) => $this->firestore($r),
+            // The Supabase Edge Function account-email (password reset, e-mail change, MFA notice).
+            '*/functions/v1/account-email/*' => fn (Request $r) => $this->accountEmail($r),
         ]);
+
 
         return $this;
     }
@@ -257,6 +266,99 @@ class FakeFirebase
         }
 
         return Http::response(['kind' => 'identitytoolkit#GetOobConfirmationCodeResponse']);
+    }
+
+    /**
+     * Points the website at a Supabase project so the account-email function is reachable (the
+     * fake above answers it). Not done by install(): a configured project turns the shop on too.
+     */
+    public function withAccountEmails(): self
+    {
+        if (blank(config('melai.shop.supabase_url'))) {
+            config(['melai.shop.supabase_url' => 'https://account-email.test', 'melai.shop.anon_key' => config('melai.shop.anon_key') ?: 'test-anon-key']);
+        }
+
+        return $this;
+    }
+
+    /** A link token of the fake account-email function (the real one hashes and stores it). */
+    public function issueLink(string $kind, string $email, ?string $newEmail = null): string
+    {
+        $token = 'link-'.$kind.'-'.count($this->actionLinks).str_repeat('x', 30);
+        $this->actionLinks[$token] = ['kind' => $kind, 'email' => mb_strtolower($email), 'new_email' => $newEmail, 'used' => false];
+
+        return $token;
+    }
+
+    /** Same answers as supabase/functions/account-email (tested on its own with Deno). */
+    private function accountEmail(Request $r)
+    {
+        $path = (string) parse_url($r->url(), PHP_URL_PATH);
+        $route = substr($path, strpos($path, 'account-email/') + strlen('account-email/'));
+        $link = function (string $kind) use ($r) {
+            $l = $this->actionLinks[(string) $r['token']] ?? null;
+            if (! $l || $l['kind'] !== $kind) {
+                return [null, Http::response(['code' => 'link_invalid', 'error' => 'invalid'], 400)];
+            }
+
+            return $l['used'] ? [null, Http::response(['code' => 'link_used', 'error' => 'used'], 400)] : [$l, null];
+        };
+
+        switch ($route) {
+            case 'password-reset/request':
+                $email = mb_strtolower(trim((string) $r['email']));
+                $this->resetEmails[] = $email;
+                if (isset($this->accounts[$email])) {
+                    $this->issueLink('password_reset', $email);
+                }
+
+                return Http::response(['sent' => true]);
+            case 'password-reset/check':
+                [$l, $err] = $link('password_reset');
+
+                return $err ?? Http::response(['valid' => true, 'email' => $l['email'], 'email_masked' => substr($l['email'], 0, 1).'•••']);
+            case 'password-reset/confirm':
+                [$l, $err] = $link('password_reset');
+                if ($err) {
+                    return $err;
+                }
+                if (strlen((string) $r['password']) < 8) {
+                    return Http::response(['code' => 'weak_password', 'error' => 'Password must be at least 8 characters long.'], 422);
+                }
+                $this->actionLinks[(string) $r['token']]['used'] = true;
+                $this->accounts[$l['email']]['password'] = (string) $r['password'];
+                $this->accounts[$l['email']]['revoked'] = true;   // validSince: other sign-ins end
+
+                return Http::response(['reset' => true, 'email' => $l['email']]);
+            case 'email-change/request':
+                $uid = $this->uidFromToken(substr((string) ($r->header('Authorization')[0] ?? ''), 7));
+                $this->emailChangeRequests[] = [$uid, mb_strtolower((string) $r['new_email'])];
+
+                return Http::response(['sent' => true, 'message' => 'We sent a confirmation link to '.mb_strtolower((string) $r['new_email']).'. Your email changes after you open it.']);
+            case 'email-change/confirm':
+            case 'email-change/cancel':
+                $kind = $route === 'email-change/confirm' ? 'email_change' : 'email_change_cancel';
+                [$l, $err] = $link($kind);
+                if ($err) {
+                    return $err;
+                }
+                $this->actionLinks[(string) $r['token']]['used'] = true;
+                if ($kind === 'email_change') {
+                    $acc = $this->accounts[$l['email']];
+                    unset($this->accounts[$l['email']]);
+                    $this->accounts[(string) $l['new_email']] = $acc;
+
+                    return Http::response(['changed' => true, 'email' => $l['new_email']]);
+                }
+
+                return Http::response(['cancelled' => true]);
+            case 'security-notice/mfa-enrolled':
+                $this->mfaNotices[] = mb_strtolower((string) $r['email']);
+
+                return Http::response(['sent' => true]);
+        }
+
+        return Http::response(['error' => 'Not found.'], 404);
     }
 
     private function delete(Request $r)

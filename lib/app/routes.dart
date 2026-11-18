@@ -470,7 +470,7 @@ class AppRoutes {
   /// Dynamic route generator for screens that require complex objects as
   /// arguments (e.g. Product, Order). Wrapped with the same access policy;
   /// invalid/mismatched arguments show a safe screen instead of crashing.
-  /// The password-reset e-mail's link (`/auth/action?mode=…&oobCode=…`), opened in the app
+  /// Our account e-mails' links (`/auth/action?mode=…&token=…`), opened in the app
   /// through an Android App Link. Public: the person is signed out.
   static bool isAccountActionLink(String? name) =>
       name != null && (name == accountAction || name.startsWith('$accountAction?'));

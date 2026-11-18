@@ -36,7 +36,7 @@ final class LinkState
             self::PROFILE_MISSING => ['App profile missing', 'low',
                 'You are signed in with a real Melai Nuts app account, but it is not registered as staff or owner in the app\'s staff registry. An owner must approve this login on the website\'s Users page or register you in the app\'s User Management.'],
             self::EMAIL_MISMATCH => ['Email does not match', 'low',
-                'The app account you signed in with does not belong to this website login (different email or already linked to another app account). Sign out and sign in with the matching account, or ask an admin to unlink the old link on the Users page.'],
+                'The app account you signed in with does not belong to this website login (different email or already linked to another app account). Use the app account that has this login\'s email, or ask an admin to unlink the old link on the Users page.'],
             self::ROLE_NOT_AUTHORIZED => ['Role not authorized', 'low',
                 'The app account is not allowed to use this login: admin logins need an active owner account, staff logins an active staff account. Ask the owner to fix the account in the app\'s User Management.'],
             self::BRANCH_MISSING => ['No branch assigned', 'low',

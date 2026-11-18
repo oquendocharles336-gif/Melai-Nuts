@@ -80,7 +80,7 @@ insert into public.staff_members (firebase_uid, full_name, email, role, branch_i
   ('bs-sa', 'Staff A', 'bs-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 'active');
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('bs-c1', 'BS Customer', 'bs-c1@test.local', '09170000031');
--- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- Returning customers (migration 20261118015010): this suite tests the normal checkout,
 -- not the first-order prepayment (first_order_prepayment_test.sql covers that).
 update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 

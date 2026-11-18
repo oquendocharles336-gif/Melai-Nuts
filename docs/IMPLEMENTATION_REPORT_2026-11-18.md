@@ -12,8 +12,8 @@ Setup steps (Turnstile, DNS, secrets, deploy): `docs/EMAIL_CODES_AND_CAPTCHA_SET
 ### New
 | File | What |
 |---|---|
-| `supabase/migrations/20261118000000_first_order_prepayment.sql` | `customer_profiles.first_paid_order_at`, backfill, `is_first_order`, `first_order_quote`, first-order rule in `place_order`, webhook sets the column |
-| `supabase/migrations/20261118010000_auth_email_codes_and_sign_in_guard.sql` | code table, send log, sign-in attempts, captcha redemptions, their functions (service role only) |
+| `supabase/migrations/20261118015010_first_order_prepayment.sql` | `customer_profiles.first_paid_order_at`, backfill, `is_first_order`, `first_order_quote`, first-order rule in `place_order`, webhook sets the column |
+| `supabase/migrations/20261118015111_auth_email_codes_and_sign_in_guard.sql` | code table, send log, sign-in attempts, captcha redemptions, their functions (service role only) |
 | `supabase/functions/_shared/{security,http,captcha,firebase_token,firebase_admin,mailer,email-template}.ts` | shared helpers; the e-mail template is one file |
 | `supabase/functions/_shared/shared_test.ts` | codes, hashing, constant-time compare, captcha answers, ID-token / App Check rules (local keys), template |
 | `supabase/functions/email-verification/{index,handler,handler_test}.ts` | `/send-code`, `/verify-code` |
@@ -60,7 +60,7 @@ and `cod_downpayment_concurrency, concurrency, pos_driver_concurrency, receiving
 
 ## 2. Database changes
 
-**20261118000000_first_order_prepayment**
+**20261118015010_first_order_prepayment**
 - `customer_profiles.first_paid_order_at timestamptz` (customers can't write it: column grants only, explicit revoke).
 - `order_downpayments.kind` (`cod` | `first_order`) and `choice` (`half` | `full`), with a check constraint.
 - Backfill: every customer with a paid or completed **online** (non-POS) order gets `first_paid_order_at` = their first such order.
@@ -72,7 +72,7 @@ and `cod_downpayment_concurrency, concurrency, pos_driver_concurrency, receiving
 - `first_order_quote(cart_id, is_delivery)`: checkout preview (amounts from the server's cart pricing, pending first order, switch state).
 - `_cod_downpayment_apply` / `expire_unpaid_cod_downpayments`: first-order wording ("fully paid", "remaining ₱X in cash", "online payment was not paid in time").
 
-**20261118010000_auth_email_codes_and_sign_in_guard**
+**20261118015111_auth_email_codes_and_sign_in_guard**
 - Tables `auth_email_codes`, `auth_email_code_sends`, `auth_sign_in_attempts`, `auth_captcha_redemptions`: RLS on, no policies, all privileges revoked from `anon` / `authenticated`.
 - Functions (service role only): `auth_email_code_issue / _discard / _begin_verify / _consume`, `auth_captcha_redeem`, `auth_sign_in_attempt`, `auth_sign_in_succeeded`, `_auth_limits()` (10 min, 5 tries, 60 s, 5/h per account, 5/h per e-mail, 20/h per IP, 15 attempts / 30 min).
 

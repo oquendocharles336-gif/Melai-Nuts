@@ -320,6 +320,9 @@ class FakeShopSupabase
 
     private function function(string $name, array $body, ?string $uid)
     {
+        if (str_starts_with($name, 'account-email/')) {   // our account e-mails (FakeFirebase records them in detail)
+            return Http::response(['sent' => true, 'message' => 'We sent a confirmation link. Your email changes after you open it.']);
+        }
         if ($uid === null) {
             return Http::response(['error' => 'Please sign in again.'], 401);
         }

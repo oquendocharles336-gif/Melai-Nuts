@@ -18,6 +18,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/services/pending_writes_service.dart';
 import '../../../data/models/customer_profile.dart';
+import '../../settings/widgets/change_email_sheet.dart';
 import 'saved_addresses_screen.dart';
 
 /// Edits the customer's real profile (`customer_profiles` in Supabase).
@@ -204,12 +205,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     const Icon(Icons.email_outlined, size: 18, color: AppColors.textSecondary),
                     const SizedBox(width: 10),
                     Expanded(child: Text(_email.isEmpty ? 'Not set' : _email, style: AppTextStyles.bodyLg)),
+                    if (_email.isNotEmpty)
+                      TextButton(
+                        onPressed: () => showChangeEmailSheet(context),
+                        child: const Text('Change'),
+                      ),
                   ],
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text('Managed in Login & Security.', style: AppTextStyles.bodySm),
+                child: Text('Changes after you confirm the link we email to the new address.', style: AppTextStyles.bodySm),
               ),
               const SizedBox(height: 14),
               AppTextField(

@@ -3,78 +3,83 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Client\Request;
-use Illuminate\Support\Facades\Http;
 use Tests\Support\FakeFirebase;
 use Tests\TestCase;
 
 /**
- * The landing page of Firebase's password-reset e-mail (custom action URL <APP_URL>/auth/action):
- * a real code is checked with Firebase, the new password follows the app's rules, the code works once.
+ * The landing page of our account e-mails (<APP_URL>/auth/action, links from the account-email
+ * function): password reset with our own single-use token, e-mail change confirm / cancel.
+ * Firebase's oobCode links are gone.
  */
 class AccountActionTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** @var array<string, string> oobCode => e-mail, removed once used */
-    private array $codes = ['good-code' => 'ana@example.com'];
-
-    private array $passwords = [];
+    private FakeFirebase $fb;
+    private string $token;
 
     protected function setUp(): void
     {
         parent::setUp();
-        Http::fake([
-            'identitytoolkit.googleapis.com/v1/accounts:resetPassword*' => function (Request $r) {
-                $code = (string) $r['oobCode'];
-                if (! isset($this->codes[$code])) {
-                    return Http::response(['error' => ['message' => 'INVALID_OOB_CODE']], 400);
-                }
-                $email = $this->codes[$code];
-                if (isset($r['newPassword'])) {
-                    $this->passwords[$email] = (string) $r['newPassword'];
-                    unset($this->codes[$code]);   // single use, like Firebase
-                }
-
-                return Http::response(['email' => $email, 'requestType' => 'PASSWORD_RESET']);
-            },
-        ]);
-        (new FakeFirebase)->install();
+        $this->fb = (new FakeFirebase)->install()->withAccountEmails()->addAccount('ana@example.com', 'uid-ana', 'Old#Pass2026', true);
+        $this->token = $this->fb->issueLink('password_reset', 'ana@example.com');
     }
 
     public function test_a_valid_link_shows_the_form_for_that_account(): void
     {
-        $this->get('/auth/action?mode=resetPassword&oobCode=good-code')->assertOk()
+        $this->get('/auth/action?mode=resetPassword&token='.$this->token)->assertOk()
             ->assertSee('Choose a new password')->assertSee('ana@example.com')
+            ->assertSee('name="token"', false)->assertDontSee('oobCode')
             ->assertHeader('Referrer-Policy', 'no-referrer');
     }
 
     public function test_the_app_password_rules_apply(): void
     {
-        $this->post('/auth/action/reset', ['oobCode' => 'good-code', 'password' => 'short', 'password_confirmation' => 'short'])
+        $this->post('/auth/action/reset', ['token' => $this->token, 'password' => 'short', 'password_confirmation' => 'short'])
             ->assertSessionHasErrors('password');
-        $this->post('/auth/action/reset', ['oobCode' => 'good-code', 'password' => 'Ana#example1', 'password_confirmation' => 'Ana#example1'])
+        $this->post('/auth/action/reset', ['token' => $this->token, 'password' => 'Ana#example1', 'password_confirmation' => 'Ana#example1'])
             ->assertSessionHasErrors('password');   // contains the e-mail name
-        $this->assertSame([], $this->passwords);
+        $this->assertSame('Old#Pass2026', $this->fb->accounts['ana@example.com']['password']);
     }
 
-    public function test_the_password_is_changed_once_and_the_link_then_stops_working(): void
+    public function test_the_password_is_changed_once_other_sign_ins_end_and_the_link_then_stops_working(): void
     {
-        $this->post('/auth/action/reset', ['oobCode' => 'good-code', 'password' => 'Kasoy#Roast10', 'password_confirmation' => 'Kasoy#Roast10'])
+        $this->post('/auth/action/reset', ['token' => $this->token, 'password' => 'Kasoy#Roast10', 'password_confirmation' => 'Kasoy#Roast10'])
             ->assertOk()->assertSee('Password changed');
-        $this->assertSame(['ana@example.com' => 'Kasoy#Roast10'], $this->passwords);
+        $this->assertSame('Kasoy#Roast10', $this->fb->accounts['ana@example.com']['password']);
+        $this->assertTrue($this->fb->accounts['ana@example.com']['revoked'], 'old sessions end');
 
-        $this->get('/auth/action?mode=resetPassword&oobCode=good-code')->assertOk()
+        $this->get('/auth/action?mode=resetPassword&token='.$this->token)->assertOk()
             ->assertSee('This link does not work')->assertSee('already used')->assertSee('Request a new reset link');
-        $this->post('/auth/action/reset', ['oobCode' => 'good-code', 'password' => 'Kasoy#Roast11', 'password_confirmation' => 'Kasoy#Roast11'])
+        $this->post('/auth/action/reset', ['token' => $this->token, 'password' => 'Kasoy#Roast11', 'password_confirmation' => 'Kasoy#Roast11'])
             ->assertSee('This link does not work');
-        $this->assertSame('Kasoy#Roast10', $this->passwords['ana@example.com']);
+        $this->assertSame('Kasoy#Roast10', $this->fb->accounts['ana@example.com']['password']);
     }
 
-    public function test_an_incomplete_or_foreign_link_is_refused_without_calling_firebase(): void
+    public function test_an_incomplete_old_or_foreign_link_is_refused(): void
     {
         $this->get('/auth/action?mode=resetPassword')->assertOk()->assertSee('not complete');
-        $this->get('/auth/action?mode=somethingElse&oobCode=x')->assertOk()->assertSee('not one of ours');
+        $this->get('/auth/action?mode=resetPassword&oobCode=x')->assertOk()->assertSee('older email');
+        $this->get('/auth/action?mode=somethingElse&token='.$this->token)->assertOk()->assertSee('not one of ours');
+    }
+
+    public function test_an_email_change_applies_only_after_the_new_address_confirms(): void
+    {
+        $confirm = $this->fb->issueLink('email_change', 'ana@example.com', 'ana.new@example.com');
+        // Opening the link only shows a button (link scanners must not use it up).
+        $this->get('/auth/action?mode=confirmEmail&token='.$confirm)->assertOk()->assertSee('Confirm your new email');
+        $this->assertArrayHasKey('ana@example.com', $this->fb->accounts);
+        $this->post('/auth/action/confirm-email', ['token' => $confirm])->assertOk()->assertSee('ana.new@example.com');
+        $this->assertArrayHasKey('ana.new@example.com', $this->fb->accounts);
+        $this->post('/auth/action/confirm-email', ['token' => $confirm])->assertSee('already used');
+    }
+
+    public function test_the_old_address_can_stop_a_change(): void
+    {
+        $cancel = $this->fb->issueLink('email_change_cancel', 'ana@example.com', 'ana.new@example.com');
+        $this->get('/auth/action?mode=cancelEmailChange&token='.$cancel)->assertOk()->assertSee('Stop the email change?');
+        $this->post('/auth/action/cancel-email', ['token' => $cancel])->assertOk()->assertSee('Change stopped');
+        $this->assertArrayHasKey('ana@example.com', $this->fb->accounts);
     }
 
     public function test_assetlinks_is_served_only_when_configured(): void

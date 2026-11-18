@@ -11,9 +11,11 @@ import 'customer_data_store.dart';
 import 'device_location.dart';
 import '../utils/app_error.dart';
 
-/// The customer's branch, app-wide. Customers never pick it: [refreshBranch]
-/// sets it from the phone's location, and with no location from their last
-/// order. Setting it saves it to `customer_profiles.default_branch_id` and
+/// The customer's branch, app-wide. [refreshBranch] sets it from the phone's
+/// location (asked for automatically when the app opens and at checkout); with
+/// no location the customer can pick one from a list ([chooseManually]), and
+/// otherwise their last order's branch is used. Checkout never waits on
+/// location. Setting it saves it to `customer_profiles.default_branch_id` and
 /// re-scopes the shared product catalog (`kProducts`) to that branch's stock.
 class BranchController extends ChangeNotifier {
   BranchController._();
@@ -65,6 +67,9 @@ class BranchController extends ChangeNotifier {
   // The system prompt shows once per launch, not on every return to the app.
   // The position stays in memory only.
   bool _askedForLocation = false;
+  // Branch the customer chose from the list while location was off (this run
+  // of the app only). A later successful location still picks the nearest.
+  String? _pickedBranchId;
   BranchCartLink? _cartLink;
   Future<void>? _refreshing;
   bool _refreshAgain = false;
@@ -119,6 +124,7 @@ class BranchController extends ChangeNotifier {
         lastOrderBranch: lastOrderBranchId(store.orders),
         savedBranch: store.profile?.defaultBranchId,
         currentBranch: cart?.branchId() ?? _selectedBranch?.id,
+        pickedBranch: _pickedBranchId,
       );
       if (choice == null) {
         _choice = null;
@@ -146,6 +152,36 @@ class BranchController extends ChangeNotifier {
       AppErrors.report(caughtError, caughtStack, 'branch_controller:refresh');
     } finally {
       _locating = false;
+      notifyListeners();
+    }
+  }
+
+  /// The customer chose [branch] from the list (location off, denied or slow).
+  /// Moves the cart like an automatic choice; checkout can go ahead right away.
+  Future<void> chooseManually(Branch branch) async {
+    if (!branch.isOpenForPickup) return;
+    _pickedBranchId = branch.id;
+    try {
+      final cart = _cartLink;
+      if (cart != null) {
+        final move = await cart.move(branch.id);
+        if (!move.isMoved) {
+          await _stayOnCartBranch(cart);
+          return;
+        }
+        if (move.cartChanged) {
+          _moveNotice = CartMoveNotice(
+            branchName: branch.name,
+            shortfalls: move.shortfalls,
+            droppedDiscounts: move.droppedDiscounts,
+          );
+        }
+      }
+      _choice = BranchChoice(branch, BranchChoiceReason.savedBranch);
+      if (branch.id != _selectedBranch?.id) await selectBranch(branch);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'branch_controller:chooseManually');
+    } finally {
       notifyListeners();
     }
   }
@@ -228,6 +264,7 @@ class BranchController extends ChangeNotifier {
     _choice = null;
     _locationOff = false;
     _askedForLocation = false;
+    _pickedBranchId = null;
     _moveNotice = null;
     _refreshAgain = false;
     pauseRefresh = false;

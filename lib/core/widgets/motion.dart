@@ -147,6 +147,19 @@ class _SkeletonBoxState extends State<SkeletonBox> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    // "Reduce motion" on: a calm, still placeholder instead of the shimmer.
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      if (_controller.isAnimating) _controller.stop();
+      return Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(widget.radius),
+        ),
+      );
+    }
+    if (!_controller.isAnimating) _controller.repeat();
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
@@ -168,6 +181,48 @@ class _SkeletonBoxState extends State<SkeletonBox> with SingleTickerProviderStat
           ),
         );
       },
+    );
+  }
+}
+
+/// Rows of card-shaped placeholders: the default first-load state of every
+/// list screen (DataStateView), instead of a spinner.
+class ListSkeleton extends StatelessWidget {
+  final int rows;
+
+  const ListSkeleton({super.key, this.rows = 5});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      itemCount: rows,
+      separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.sm),
+      itemBuilder: (context, i) => Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            const SkeletonBox(width: 48, height: 48, radius: 12),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FractionallySizedBox(widthFactor: i.isEven ? 0.7 : 0.55, child: const SkeletonBox(height: 14, radius: 6)),
+                  const SizedBox(height: AppSpacing.xs),
+                  const FractionallySizedBox(widthFactor: 0.4, child: SkeletonBox(height: 12, radius: 6)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

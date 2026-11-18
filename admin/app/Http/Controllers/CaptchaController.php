@@ -5,14 +5,14 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 
 /**
- * GET /captcha?action=sign_in|send_code|verify_email — the page the Melai Nuts app shows in a
+ * GET /captcha?action=sign_in|send_code|verify_email|reset_password|change_email — the page the Melai Nuts app shows in a
  * WebView for Cloudflare Turnstile (CAPTCHA_PAGE_URL in the app's dart-defines). Public, no
  * session needed; it only renders the widget with the public site key. Tokens are verified by
  * the Supabase Edge Functions, never here.
  */
 class CaptchaController extends Controller
 {
-    private const ACTIONS = ['sign_in', 'send_code', 'verify_email'];
+    private const ACTIONS = ['sign_in', 'send_code', 'verify_email', 'reset_password', 'change_email'];
 
     public function show(Request $request)
     {

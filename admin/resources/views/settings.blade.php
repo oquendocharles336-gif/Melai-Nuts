@@ -30,7 +30,7 @@
 
     {{-- Profile (read-only: the account lives in the Melai Nuts app / Firebase) --}}
     <div x-show="tab === 'profile'" x-cloak role="tabpanel">
-        <x-card title="Profile" subtitle="Your name, e-mail and password are managed in the Melai Nuts app">
+        <x-card title="Profile" subtitle="Your Melai Nuts app account: the same sign-in in the app and on this website">
             <div class="setting-row"><div><b>Name</b><span>{{ $user->name }}</span></div></div>
             <div class="setting-row"><div><b>E-mail</b><span>{{ $user->email }}</span></div></div>
             <div class="setting-row"><div><b>Role on this website</b><span>{{ $user->isAdmin() ? 'Admin: full access, including All users, Payments and Refunds' : 'Staff: branch operations' }}</span></div>
@@ -44,7 +44,7 @@
             @endunless
             <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
                 @if ($user->usesFirebase())
-                    {{-- Sends a Firebase reset link to this account's own email; the new password works in the app too. --}}
+                    {{-- Sends a reset link (our own e-mail) to this account's own email; the new password works in the app too. --}}
                     <form method="POST" action="{{ route('settings.password-reset') }}" data-hard style="margin:0">
                         @csrf
                         <button type="submit" class="btn sm" title="We'll email a reset link to {{ $user->email }}">Send me a reset email</button>
@@ -55,6 +55,21 @@
                 @endunless</div>
             @if ($user->usesFirebase())
                 <p class="muted" style="margin:8px 0 0;font-size:12.5px">The link goes to {{ $user->email }}. Your new password works in the Melai Nuts app and on this website.</p>
+                {{-- Change email: confirmed from the NEW address; the old one gets a "was this you?" notice. --}}
+                <details class="setting-more" @if ($errors->has('new_email') || $errors->has('current_password')) open @endif style="margin-top:14px">
+                    <summary class="btn sm">Change email</summary>
+                    <form method="POST" action="{{ route('settings.email') }}" data-hard style="margin-top:12px;display:grid;gap:10px;max-width:420px">
+                        @csrf
+                        <label class="field"><span>New email</span>
+                            <input class="input" type="email" name="new_email" value="{{ old('new_email') }}" autocomplete="email" required maxlength="254"></label>
+                        @error('new_email')<p class="form-error">{{ $message }}</p>@enderror
+                        <label class="field"><span>Current password</span>
+                            <input class="input" type="password" name="current_password" autocomplete="current-password" required maxlength="128"></label>
+                        @error('current_password')<p class="form-error">{{ $message }}</p>@enderror
+                        <p class="muted" style="margin:0;font-size:12.5px">We'll send a confirmation link to the new address. Your email changes only after you open it, and {{ $user->email }} gets a notice.</p>
+                        <div><button type="submit" class="btn sm primary">Send confirmation link</button></div>
+                    </form>
+                </details>
             @endif
         </x-card>
     </div>

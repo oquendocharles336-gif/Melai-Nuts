@@ -10,9 +10,11 @@
 // the app light on mobile data. A small photo is uploaded as it is. When this server's PHP accepts less
 // than 5 MB (upload_max_filesize / post_max_size), photos are shrunk further to fit under that limit.
 //
-// "Allow" step: the first time an owner chooses photos, a small dialog explains in plain words what the
-// website can read (only the files they pick) and where the photos go, before the browser's file picker
-// opens. The choice is remembered per signed-in user in this browser (localStorage) and can be reset.
+// "Allow" step: the "Allow photo access" button in the dialog's Photo access row (or the first upload
+// click) records the owner's consent ON THE SERVER (users.photo_access_allowed_at, with the time), so it
+// follows the owner to any browser. It never depends on the app sign-in: that is a separate, later step
+// (confirm the app password in place, only when the server could not renew the sign-in silently).
+// The browser copy (localStorage) is kept only as a fallback for this visit if the server call fails.
 
 const TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const EXT = /\.(jpe?g|png|webp)$/i;
@@ -135,14 +137,14 @@ async function prepare(file, limit = MAX_BYTES, info = {}) {
     return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.' + ext, { type: blob.type });
 }
 
-export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, sessionUrl = null, max, canEdit, maxBytes = MAX_BYTES, blocker = null, reauth = false }, { api, changed }) {
+export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, sessionUrl = null, accessUrl = null, accessAt = null, max, canEdit, maxBytes = MAX_BYTES, blocker = null, reauth = false }, { api, changed }) {
     return {
         rows, max, canEdit, blocker,
         // The app sign-in for uploads is missing or ended: asked for in place (app password), never a sign-out.
         reauth: !!reauth, reauthPassword: '', reauthBusy: false, reauthError: null,
         limit: Math.min(MAX_BYTES, maxBytes || MAX_BYTES),
         currentId: null, pending: [], busy: false, error: null, confirmKey: null, dropOn: null, replacing: null,
-        access: readPhotoAccess(), consentOpen: false, consentFor: null, consentReturn: null,
+        access: accessAt ? { allowed: true, at: accessAt } : (accessUrl ? null : readPhotoAccess()), accessBusy: false, consentOpen: false, consentFor: null, consentReturn: null,
         saveConfirmOpen: false, confirmReturn: null,
 
         get current() { return this.currentId ? this.rows[this.currentId] : null; },
@@ -150,9 +152,9 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, s
         get photoCountLabel() { return `${this.current?.images.length || 0} of ${this.max} photos`; },
         get accessAllowed() { return !!this.access; },
         get accessLabel() {
-            if (!this.access) return 'not allowed yet. You will be asked before the file picker opens.';
+            if (!this.access) return 'not allowed yet. Allow it to choose photos from this device; only the photos you pick are read.';
             const d = new Date(this.access.at);
-            return `allowed${Number.isNaN(d.getTime()) ? '' : ' on ' + d.toLocaleDateString()}. Only the photos you choose are read.`;
+            return `Allowed ✓${Number.isNaN(d.getTime()) ? '' : ' on ' + d.toLocaleDateString()}. Only the photos you choose are read.`;
         },
         photosOf(id) { return this.rows[id]?.images || []; },
         get ready() { return this.pending.filter(p => p.file && !p.error && !p.uploading); },
@@ -195,7 +197,7 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, s
         /** "Upload photo" / "Replace": asks the "Allow" question first, the first time only. */
         choose(slot = null) {
             if (this.busy) return;
-            if (this.blocker) { this.error = this.blocker; return; }
+            if (this.blocker) { this.error = this.blocker; return; }   // only a missing server setting
             if (!this.access) { this.askAccess({ slot }); return; }
             this.pick(slot);
         },
@@ -208,20 +210,43 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, s
         },
         /** Runs inside the click, so the browser still lets the file picker open. */
         allowAccess() {
-            this.access = savePhotoAccess();
             const what = this.consentFor;
             this.consentOpen = false; this.consentFor = null;
+            this.recordAccess();
             if (what?.files) this.addFiles(what.files);
             else this.pick(what?.slot || null);
+        },
+        /** "Allow photo access" button in the Photo access row: records the consent, enables the upload box. */
+        allowFromRow() {
+            if (this.accessBusy) return;
+            this.recordAccess(true);
+        },
+        /** Allowed at once for this visit (the file picker must open inside the click); saved on the server. */
+        async recordAccess(announce = false) {
+            this.access = savePhotoAccess();
+            if (!accessUrl) return;
+            this.accessBusy = true;
+            try {
+                const res = await api(accessUrl, { method: 'POST' });
+                if (res?.allowed_at) this.access = { allowed: true, at: res.allowed_at };
+                if (announce) window.Alpine?.store('ui')?.toast(res?.message || 'Photo access allowed.', 'ok', true);
+            } catch (err) {
+                // Still allowed for this visit; the server is asked again next time.
+                if (announce) this.error = `Photo access is allowed for now, but it could not be saved (${err.message}).`;
+            } finally {
+                this.accessBusy = false;
+            }
         },
         notNow() {
             this.consentOpen = false; this.consentFor = null;
             const back = this.consentReturn; this.consentReturn = null;
             this.$nextTick(() => back?.focus?.());
         },
-        resetAccess() {
+        async resetAccess() {
             clearPhotoAccess();
             this.access = null;
+            if (!accessUrl) return;
+            try { await api(accessUrl, { method: 'DELETE' }); } catch (err) { this.error = err.message; }
         },
 
         pick(slot = null) {
@@ -366,6 +391,17 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, s
             }
         },
 
+        /** One upload; a 409 "reauth" is retried once (the server renews the app sign-in silently when it can). */
+        async uploadWithRetry(p) {
+            try {
+                return await this.upload(p);
+            } catch (err) {
+                if (!err.reauth || p.retried) throw err;
+                p.retried = true; p.progress = 2;
+                return await this.upload(p);
+            }
+        },
+
         async save() {
             if (this.busy || !this.ready.length) return;
             if (this.reauth) { this.error = 'Confirm your app password above first. Your photos are kept.'; return; }
@@ -376,7 +412,7 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, s
             for (const p of [...this.ready]) {
                 p.uploading = true; p.progress = 2; p.error = null;
                 try {
-                    const res = await this.upload(p);
+                    const res = await this.uploadWithRetry(p);
                     if (Array.isArray(res.images)) this.rows[id].images = res.images;
                     if (p.src) URL.revokeObjectURL(p.src);
                     this.pending = this.pending.filter(x => x.key !== p.key);
@@ -385,8 +421,8 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, s
                     p.uploading = false; p.progress = 0; failed++;
                     if (err.reauth) {
                         // Not this photo's fault: keep it waiting, ask for the app password, stop here.
-                        p.error = null; this.reauth = true; this.busy = false;
-                        this.error = err.message;
+                        p.error = null; p.retried = false; this.reauth = true; this.busy = false;
+                        this.error = null;   // the inline password form says what to do
                         this.$nextTick(() => this.$refs.reauthInput?.focus());
                         return;
                     }

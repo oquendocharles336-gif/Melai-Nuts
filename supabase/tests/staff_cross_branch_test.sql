@@ -107,7 +107,7 @@ union all select 'x-own', 'Owner',    'x-own@test.local', 'owner', null, 'active
 
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('x-c1', 'Cust One', 'x-c1@test.local', '09180000001');
--- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- Returning customers (migration 20261118015010): this suite tests the normal checkout,
 -- not the first-order prepayment (first_order_prepayment_test.sql covers that).
 update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city)

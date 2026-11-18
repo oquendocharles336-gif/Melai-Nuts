@@ -48,7 +48,7 @@ class OrdersRepository {
         'p_customer_notes': customerNotes,
         'p_idempotency_key': idempotencyKey,
         // A first order's 50% / 100% choice ('half' | 'full'); validated by the server.
-        // Only sent when set, so a database without migration 20261118000000 still works.
+        // Only sent when set, so a database without migration 20261118015010 still works.
         'p_first_order_payment': ?firstOrderPayment,
       }).timeout(AppErrors.rpcTimeout);
       orderId = result as String;

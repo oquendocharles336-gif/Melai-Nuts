@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
+import 'app_spacing.dart';
 
 /// Material 3 ThemeData for the whole app.
 ///
 /// Bright and warm: cream canvas, white cards, an orange app bar and main
-/// buttons, and bold rounded headings.
+/// buttons, and bold rounded headings. Flat and calm: hairline borders instead
+/// of shadows, one radius per element kind (AppSpacing), 52 px buttons and
+/// 48 px tap targets, and disabled colours that still read at 4.5:1.
 class AppTheme {
   AppTheme._();
 
@@ -35,6 +38,10 @@ class AppTheme {
       letterSpacing: 0.1,
     );
     final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
+    const buttonSize = Size(64, 52);
+    // Disabled buttons: muted but still legible (text 4.5:1 on the fill).
+    const disabledFill = AppColors.surfaceContainerHigh;
+    const disabledText = AppColors.textSecondary;
     OutlineInputBorder inputBorder([BorderSide side = BorderSide.none]) =>
         OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: side);
 
@@ -59,10 +66,34 @@ class AppTheme {
         color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
           side: const BorderSide(color: AppColors.border, width: 1),
         ),
         margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+      ),
+      listTileTheme: const ListTileThemeData(
+        minVerticalPadding: AppSpacing.sm,
+        minTileHeight: 56,
+        contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        iconColor: AppColors.secondaryBrown,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        dragHandleColor: AppColors.outlineVariant,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.radiusLg)),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusLg)),
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: AppColors.primary,
+        linearTrackColor: AppColors.surfaceContainerHigh,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -80,7 +111,9 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size(64, 54),
+          disabledBackgroundColor: disabledFill,
+          disabledForegroundColor: disabledText,
+          minimumSize: buttonSize,
           elevation: 0,
           textStyle: buttonText,
           shape: buttonShape,
@@ -90,7 +123,9 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size(64, 54),
+          disabledBackgroundColor: disabledFill,
+          disabledForegroundColor: disabledText,
+          minimumSize: buttonSize,
           textStyle: buttonText,
           shape: buttonShape,
         ),
@@ -98,7 +133,8 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.ink,
-          minimumSize: const Size(64, 54),
+          minimumSize: buttonSize,
+          disabledForegroundColor: disabledText,
           side: const BorderSide(color: AppColors.outlineButton, width: 1.2),
           textStyle: buttonText,
           shape: buttonShape,
@@ -126,8 +162,10 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
         elevation: 0,
+        height: 68,
         surfaceTintColor: Colors.transparent,
         indicatorColor: AppColors.primaryContainer,
+        indicatorShape: const StadiumBorder(),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return GoogleFonts.plusJakartaSans(

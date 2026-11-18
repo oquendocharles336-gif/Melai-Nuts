@@ -8,14 +8,17 @@ import '../../../core/utils/form_utils.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/services/account_email_service.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/widgets/turnstile_captcha.dart';
 import '../../../core/utils/app_error.dart';
 
 /// "Account Security Recovery" — request a password reset link.
 ///
-/// Sends a real Firebase Auth password-reset email. Firebase's hosted page
-/// (not this app) handles entering the new password once the person taps
-/// the link, so this screen's job ends once the email is sent.
+/// Sends our own password-reset email (single-use link, Supabase function
+/// `account-email`). The link opens ResetPasswordLinkScreen in the app (or the
+/// website's page), so this screen's job ends once the email is sent. Without
+/// App Check the server asks for the security check first, shown here.
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
 
@@ -27,6 +30,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   bool _sending = false;
+  bool _needsCaptcha = false;
 
   @override
   void dispose() {
@@ -34,12 +38,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     super.dispose();
   }
 
-  Future<void> _sendResetCode() async {
+  Future<void> _sendResetCode({String? captchaToken}) async {
     if (!FormUtils.validateAndFocus(_formKey)) return;
 
     setState(() => _sending = true);
     try {
-      await AuthService.instance.sendPasswordResetEmail(_emailController.text);
+      await AuthService.instance.sendPasswordResetEmail(_emailController.text, captchaToken: captchaToken);
       if (!mounted) return;
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -48,6 +52,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         ),
       );
       Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.login);
+    } on AccountEmailException catch (e) {
+      // The server wants the security check (no App Check on this device): show it.
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _needsCaptcha = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _sending = false);
@@ -107,7 +119,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Enter your registered employee or customer email to receive a secure recovery code.',
+                      'Enter the email of your Melai Nuts account and we\'ll send you a link to choose a new password.',
                       textAlign: TextAlign.center,
                       style: AppTextStyles.bodyMd,
                     ),
@@ -136,7 +148,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'A verification code will be sent to this email.',
+                        'The link works once and expires in 30 minutes.',
                         style: AppTextStyles.bodySm,
                       ),
                     ),
@@ -146,11 +158,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       'We will email you a link to reset your password.',
                     ),
                     const SizedBox(height: 20),
+                    if (_needsCaptcha) ...[
+                      TurnstileCaptcha(
+                        action: 'reset_password',
+                        onToken: (token) {
+                          if (token != null) _sendResetCode(captchaToken: token);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     PrimaryButton(
-                      label: 'Send Reset Code / Link',
+                      label: 'Send reset link',
                       icon: Icons.send_rounded,
                       loading: _sending,
-                      onPressed: _sendResetCode,
+                      onPressed: _needsCaptcha ? null : _sendResetCode,
                     ),
                     const SizedBox(height: 10),
                     TextButton(

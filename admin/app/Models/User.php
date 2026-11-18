@@ -30,6 +30,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
             'staff_linked_at' => 'datetime',
+            'photo_access_allowed_at' => 'datetime',
             'password' => 'hashed', // bcrypt (config/hashing.php)
             'is_active' => 'boolean',
             'has_access' => 'boolean',

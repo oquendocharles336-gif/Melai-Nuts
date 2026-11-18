@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Http\Controllers\Shop\CustomerAuthController;
 use App\Services\Auth\AccountKind;
+use App\Services\Auth\AccountEmailException;
+use App\Services\Auth\AccountEmails;
 use App\Services\Auth\AutoLinker;
 use App\Services\Auth\FirebaseLogin;
 use App\Services\Auth\SignInGuard;
@@ -238,48 +240,39 @@ class LoginController extends Controller
     }
 
     /**
-     * Settings > "Send me a reset email": the signed-in person's own app account gets a Firebase
-     * password-reset link. Only ever their own email (never one from the request).
+     * Settings > "Send me a reset email": the signed-in person's own app account gets a password-reset
+     * link (our own e-mail and single-use link, account-email function). Only ever their own email.
      */
-    public function sendMyReset(Request $request, FirebaseConfig $config, FirebaseAuthClient $client)
+    public function sendMyReset(Request $request, AccountEmails $emails)
     {
         $user = $request->user();
         $back = redirect()->route('settings');
         if (! $user->usesFirebase()) {
             return $back->with('error', 'This login uses a website password, not a Melai Nuts app account, so there is no reset email. Ask an administrator to reset it.');
         }
-        if (! $config->ready()) {
-            return $back->with('error', $config->missingMessage());
-        }
         try {
-            $client->sendPasswordReset($user->email);
-        } catch (FirebaseAuthException $e) {
-            if ($e->reason === FirebaseAuthException::CONFIG || $e->isTemporary() || $e->reason === FirebaseAuthException::NETWORK) {
-                return $back->with('error', 'We couldn\'t send the email right now. Please try again in a moment.');
-            }
-            // Any other answer is not shown: the same note either way, like the sign-in panel's reset.
+            $emails->requestPasswordReset((string) $user->email, $request->ip());
+        } catch (AccountEmailException $e) {
+            return $back->with('error', $e->reason === 'cooldown' || $e->reason === 'hourly_limit' ? $e->getMessage() : 'We couldn\'t send the email right now. Please try again in a moment.');
         }
         ActivityLogger::log('auth.password_reset_requested', 'Asked for a password-reset email from Settings', $user);
 
         return $back->with('status', "We've sent a password-reset link to {$user->email}. The new password works in the app and on this website.");
     }
 
-    /** Password reset for app accounts: Firebase emails the reset link. Never says whether the email exists. */
-    public function forgot(Request $request, FirebaseConfig $config, FirebaseAuthClient $client)
+    /** Password reset for app accounts: we email the reset link. Never says whether the email exists. */
+    public function forgot(Request $request, AccountEmails $emails)
     {
         $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
         $panel = redirect()->to(AuthPanel::url(AuthPanel::RESET_PASSWORD));
-        if (! $config->ready()) {
-            return $panel->with('error', $config->missingMessage());
-        }
         try {
-            $client->sendPasswordReset(Str::lower(trim($data['email'])));
-        } catch (FirebaseAuthException $e) {
-            if ($e->reason === FirebaseAuthException::CONFIG || $e->isTemporary()) {
+            $emails->requestPasswordReset(Str::lower(trim($data['email'])), $request->ip());
+        } catch (AccountEmailException $e) {
+            if ($e->reason !== 'cooldown') {   // a repeat within a minute gets the same note (the first email is on its way)
                 return $panel->withInput()->with('error', $e->getMessage());
             }
         }
 
-        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If a Melai Nuts app account uses that email, Firebase has sent it a password-reset link. The new password works in the app and on this website.');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If a Melai Nuts account uses that email, we\'ve sent it a password-reset link. The new password works in the app and on this website.');
     }
 }

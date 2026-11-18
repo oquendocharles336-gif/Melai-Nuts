@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Melai Nuts — races for the first-order prepayment (migration 20261118000000)
+# Melai Nuts — races for the first-order prepayment (migration 20261118015010)
 # =============================================================================
 #   1. N first orders at once from ONE brand-new account (one cart per branch)
 #        -> exactly one order is created (awaitingDownpayment), all others are refused

@@ -72,6 +72,21 @@ class ShopBranch
         return [$oldId, $this->current()];
     }
 
+    /**
+     * The customer picked a branch by hand (location blocked or unavailable). Only an open branch is
+     * accepted. Returns [old id, new branch], or [old id, null] for an unknown / closed branch.
+     */
+    public function choose(string $id): array
+    {
+        $oldId = $this->currentId();
+        if ($this->safeBranch($id) === null) {
+            return [$oldId, null];
+        }
+        $this->remember($id, 'picked');
+
+        return [$oldId, $this->current()];
+    }
+
     /** Straight-line distance in km, or null when the branch has no map pin. */
     public static function distanceKm(float $lat, float $lng, array $branch): ?float
     {

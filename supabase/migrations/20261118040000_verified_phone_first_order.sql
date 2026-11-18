@@ -599,7 +599,7 @@ begin
   v_total := greatest(0, v_subtotal - v_discount + v_delivery_fee);
 
   -- A customer who never had a paid online order pays 50% or 100% online first
-  -- (migration 20261118000000). Nothing to pay (a fully discounted order) = no rule.
+  -- (migration 20261118015010). Nothing to pay (a fully discounted order) = no rule.
   v_first := v_total > 0 and public._is_first_order(v_uid);
   if v_first then
     select o.id into v_pending

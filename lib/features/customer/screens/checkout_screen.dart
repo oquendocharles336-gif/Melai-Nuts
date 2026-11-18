@@ -115,7 +115,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   CodDownpaymentQuote? _codQuote;
   double? _codQuoteTotal;
 
-  /// First order (migration 20261118000000): the server's answer for the cart on screen.
+  /// First order (migration 20261118015010): the server's answer for the cart on screen.
   /// Null while loading or after an error ([_firstQuoteFailed]). Place Order waits for it,
   /// because a first order has its own payment step; `place_order` decides either way.
   FirstOrderQuote? _firstQuote;

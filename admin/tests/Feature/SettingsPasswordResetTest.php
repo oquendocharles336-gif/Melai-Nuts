@@ -17,6 +17,7 @@ class SettingsPasswordResetTest extends TestCase
     {
         parent::setUp();
         $this->useFakeSupabase();
+        $this->fb->withAccountEmails();
     }
 
     public function test_settings_shows_the_button_and_it_emails_only_the_signed_in_account(): void
@@ -51,5 +52,23 @@ class SettingsPasswordResetTest extends TestCase
         $this->withSession(['shop_customer' => ['uid' => 'cust-1', 'email' => 'ana@example.com']])
             ->post('/settings/password-reset')->assertForbidden();   // customers never reach admin actions
         $this->assertSame([], $this->fb->resetEmails);
+    }
+
+    public function test_change_email_needs_the_current_password_and_only_sends_a_confirmation(): void
+    {
+        $owner = $this->linkedLogin('uid-owner');
+        $this->signedIn($owner)->get('/settings')->assertOk()->assertSee('Change email')->assertSee('action="'.route('settings.email').'"', false);
+
+        $this->signedIn($owner)->post('/settings/email', ['new_email' => 'owner.new@example.com', 'current_password' => 'wrong'])
+            ->assertSessionHasErrors('current_password');
+        $this->assertSame([], $this->fb->emailChangeRequests);
+
+        $this->signedIn($owner)->post('/settings/email', ['new_email' => $owner->email, 'current_password' => 'uid-owner#Pass1'])
+            ->assertSessionHasErrors('new_email');
+
+        $this->signedIn($owner)->post('/settings/email', ['new_email' => 'Owner.New@example.com', 'current_password' => 'uid-owner#Pass1'])
+            ->assertRedirect(route('settings'))->assertSessionHas('status', fn ($m) => str_contains($m, 'owner.new@example.com'));
+        $this->assertSame([['uid-owner', 'owner.new@example.com']], $this->fb->emailChangeRequests);
+        $this->assertSame($owner->email, $owner->fresh()->email, 'nothing changes before the new address confirms');
     }
 }

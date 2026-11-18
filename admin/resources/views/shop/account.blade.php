@@ -13,7 +13,26 @@
                 <div><span>Email</span><span>{{ $email }}</span></div>
                 <div><span>Mobile</span><span>{{ $phone !== '' ? $phone : 'Not set' }}</span></div>
             </div>
-            <p class="s-note">This is your Melai Nuts app account: the same sign-in, cart, orders and points work in the app. To change your details, use Account in the app.</p>
+            <p class="s-note">This is your Melai Nuts app account: the same sign-in, cart, orders and points work in the app. To change your name or mobile number, use Account in the app.</p>
+
+            {{-- Change email: a confirmation link goes to the NEW address; the current one gets a notice. --}}
+            <details class="s-details" @if ($errors->has('new_email') || $errors->has('current_password')) open @endif>
+                <summary class="s-link-btn">Change email</summary>
+                <form method="POST" action="{{ route('shop.account.email') }}" class="s-form" novalidate data-busy="Sending…">@csrf
+                    <div @class(['s-field', 'has-err' => $errors->has('new_email')])>
+                        <label for="ce-email">New email</label>
+                        <input id="ce-email" type="email" name="new_email" value="{{ old('new_email') }}" autocomplete="email" required maxlength="254">
+                        @error('new_email')<span class="err">{{ $message }}</span>@enderror
+                    </div>
+                    <div @class(['s-field', 'has-err' => $errors->has('current_password')])>
+                        <label for="ce-password">Current password</label>
+                        <input id="ce-password" type="password" name="current_password" autocomplete="current-password" required maxlength="128">
+                        @error('current_password')<span class="err">{{ $message }}</span>@enderror
+                    </div>
+                    <small class="s-note">We'll send a confirmation link to the new address. Your email changes only after you open it.</small>
+                    <button class="s-btn primary">Send confirmation link</button>
+                </form>
+            </details>
         </section>
 
         <aside class="s-panel">

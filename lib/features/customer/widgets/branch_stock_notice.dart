@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/services/branch_choice.dart';
+import '../../../core/services/branch_controller.dart';
+import '../../../data/catalog_store.dart';
+import '../../../data/models/branch.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -52,7 +55,8 @@ class CartMoveNoticeCard extends StatelessWidget {
   }
 }
 
-/// Location is off or denied: asks the customer to turn it on.
+/// Location is off, denied or slow: "Use my location" (turn it on) and a list
+/// to choose the branch by hand, so checkout never depends on location.
 class LocationNeededNotice extends StatelessWidget {
   const LocationNeededNotice({super.key});
 
@@ -62,14 +66,81 @@ class LocationNeededNotice extends StatelessWidget {
     return _NoticeBox(
       children: [
         Text(t.branchLocationNeeded, style: AppTextStyles.bodySm),
-        const SizedBox(height: 8),
-        FilledButton(
-          onPressed: () => turnOnLocationForBranch(context),
-          child: Text(t.branchTurnOnLocation),
+        const SizedBox(height: AppSpacing.xs),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          children: [
+            FilledButton.icon(
+              onPressed: () => turnOnLocationForBranch(context),
+              icon: const Icon(Icons.my_location_rounded, size: 18),
+              label: Text(t.branchUseMyLocation),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => showBranchPicker(context),
+              icon: const Icon(Icons.storefront_rounded, size: 18),
+              label: Text(t.branchChooseManually),
+            ),
+          ],
         ),
       ],
     );
   }
+}
+
+/// Bottom sheet listing the open pickup branches; the choice moves the cart.
+Future<void> showBranchPicker(BuildContext context) async {
+  final t = AppLocalizations.of(context);
+  final open = kBranches.where((b) => b.isOpenForPickup).toList()
+    ..sort((a, b) => a.name.compareTo(b.name));
+  final current = BranchController.instance.selectedBranch?.id;
+  final picked = await showModalBottomSheet<Branch>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.7),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, AppSpacing.xs),
+              child: Semantics(header: true, child: Text(t.branchPickerTitle, style: AppTextStyles.titleMd)),
+            ),
+            if (open.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Text(t.branchPickerEmpty, style: AppTextStyles.bodySm),
+              )
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final branch in open)
+                      ListTile(
+                        minVerticalPadding: AppSpacing.sm,
+                        leading: Icon(
+                          branch.id == current ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                          color: AppColors.primary,
+                        ),
+                        title: Text(branch.name, style: AppTextStyles.labelLg),
+                        subtitle: branch.address.isEmpty ? null : Text(branch.address, style: AppTextStyles.bodySm),
+                        selected: branch.id == current,
+                        onTap: () => Navigator.of(sheetContext).pop(branch),
+                      ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (picked != null) await BranchController.instance.chooseManually(picked);
 }
 
 class _NoticeBox extends StatelessWidget {

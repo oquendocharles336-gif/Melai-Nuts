@@ -6,10 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Services\ActivityLogger;
 use App\Services\Shop\ShopCatalog;
 use App\Exceptions\BackendUnavailableException;
-use App\Services\Firebase\FirebaseAuthClient;
+use App\Exceptions\AccountLinkException;
+use App\Services\Auth\AutoLinker;
+use App\Services\Auth\FirebaseLogin;
 use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseSession;
-use App\Services\Firebase\FirebaseTokenVerifier;
 use App\Services\Supabase\ProductPhotoStorage;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Http\JsonResponse;
@@ -102,39 +103,67 @@ class ProductPhotoController extends Controller
     }
 
     /**
-     * The owner's app sign-in for photo uploads, renewed in place: the app password is checked by
-     * Firebase for THIS login's app account (same UID) and the new tokens go into this browser
-     * session. The owner is never signed out of the website for it. The password is not stored.
+     * "Allow photo access" in the Photos dialog: records (per owner, with the time) that this owner lets
+     * the website read the photo files they choose. Separate from, and never hidden by, the app sign-in.
      */
-    public function renewAppSession(Request $request, FirebaseAuthClient $client, FirebaseTokenVerifier $verifier, FirebaseSession $session): JsonResponse
+    public function allowAccess(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user && $user->isAdmin(), 403);
+        $user->forceFill(['photo_access_allowed_at' => now()])->save();
+        ActivityLogger::log('product.photo_access_allowed', 'Allowed photo access for product photos', $user);
+
+        return response()->json(['message' => 'Photo access allowed.', 'allowed_at' => $user->photo_access_allowed_at->toIso8601String()]);
+    }
+
+    /** "Reset": the owner is asked to allow photo access again before the next upload. */
+    public function resetAccess(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user && $user->isAdmin(), 403);
+        $user->forceFill(['photo_access_allowed_at' => null])->save();
+        ActivityLogger::log('product.photo_access_reset', 'Reset photo access for product photos', $user);
+
+        return response()->json(['message' => 'Photo access reset. You will be asked again before choosing photos.', 'allowed_at' => null]);
+    }
+
+    /**
+     * The owner's app sign-in for photo uploads, confirmed in place: the app password is checked by
+     * Firebase for THIS login's email, the app account is linked to this login when it was signed in
+     * with the website password (same rules as the sign-in page: FirebaseLogin + AutoLinker), and the
+     * new tokens go into this browser session. The owner is never signed out. The password is not stored.
+     */
+    public function renewAppSession(Request $request, FirebaseLogin $login, AutoLinker $linker, FirebaseSession $session): JsonResponse
     {
         $v = $request->validate(['current_password' => ['required', 'string', 'max:128']],
             ['current_password.required' => 'Enter your Melai Nuts app password.']);
         $user = $request->user();
-        abort_unless($user && $user->usesFirebase(), 403, 'This login has no Melai Nuts app account.');
+        abort_unless($user && $user->isAdmin(), 403);
         $key = 'photo-app-session:'.$user->getAuthIdentifier();
         if (RateLimiter::tooManyAttempts($key, 5)) {
             throw ValidationException::withMessages(['current_password' => 'Too many wrong passwords. Try again in '.RateLimiter::availableIn($key).' seconds.']);
         }
         try {
-            $tokens = $client->signIn((string) $user->email, $v['current_password']);
-            $claims = $verifier->verify($tokens['id_token']);
+            [$linked, $tokens, $claims] = $login->attempt((string) $user->email, $v['current_password'], $user);
+            $linker->linkAtLogin($linked, $claims);
         } catch (FirebaseAuthException $e) {
             if ($e->isTemporary() || $e->reason === FirebaseAuthException::NETWORK || $e->reason === FirebaseAuthException::CONFIG) {
                 throw new BackendUnavailableException($e->getMessage());
             }
             RateLimiter::hit($key, 300);
-            ActivityLogger::log('auth.password_confirm_failed', 'Wrong app password when renewing the photo sign-in', $user);
+            ActivityLogger::log('auth.password_confirm_failed', 'Wrong app password when confirming the photo sign-in', $user);
             throw ValidationException::withMessages(['current_password' => $e->isCredentialError() ? 'That password is not correct.' : $e->getMessage()]);
+        } catch (AccountLinkException $e) {
+            throw ValidationException::withMessages(['current_password' => $e->getMessage()]);
         }
-        if (! hash_equals((string) $user->firebase_uid, (string) ($claims['sub'] ?? ''))) {
+        if (! hash_equals((string) $linked->firebase_uid, (string) ($claims['sub'] ?? ''))) {
             throw ValidationException::withMessages(['current_password' => 'That sign-in belongs to another app account.']);
         }
         RateLimiter::clear($key);
         $session->store($tokens, $claims);
-        ActivityLogger::log('auth.app_session_renewed', 'Renewed the app sign-in for product photos', $user);
+        ActivityLogger::log('auth.app_session_renewed', 'Confirmed the app sign-in for product photos', $linked);
 
-        return response()->json(['message' => 'App sign-in confirmed. You can save your photos now.']);
+        return response()->json(['message' => 'App password confirmed. You can save your photos now.']);
     }
 
     // ------------------------------------------------------------------------------------------

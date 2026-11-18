@@ -83,10 +83,23 @@ class FirebaseSession
         }
 
         try {
+            $refreshed = false;
             if ($forceRefresh || (int) $s['expires_at'] <= time() + self::REFRESH_BEFORE) {
                 $s = $this->refresh($s);
+                $refreshed = true;
             }
-            $claims = $this->verifier->verify($s['id_token']);
+            try {
+                $claims = $this->verifier->verify($s['id_token']);
+            } catch (FirebaseAuthException $e) {
+                // The stored ID token had already EXPIRED (the server clock ran ahead of expires_at)
+                // but the session still holds a refresh token: mint a new one silently and check it
+                // once more. Any other refusal (forged, another account, wrong project) is final.
+                if ($refreshed || $e->firebaseCode !== 'expired') {
+                    throw $e;
+                }
+                $s = $this->refresh($s);
+                $claims = $this->verifier->verify($s['id_token']);
+            }
         } catch (FirebaseAuthException $e) {
             if ($e->isTemporary() || $e->reason === FirebaseAuthException::NETWORK) {
                 throw new BackendUnavailableException($e->getMessage());

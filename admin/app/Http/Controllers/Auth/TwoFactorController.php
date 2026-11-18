@@ -59,6 +59,9 @@ class TwoFactorController extends Controller
         $user->forceFill(['two_factor_confirmed_at' => now(), 'two_factor_recovery_codes' => $hashed])->save();
         $request->session()->put(EnsureTwoFactorPassed::SESSION_KEY, $user->getAuthIdentifier());
         ActivityLogger::log('auth.two_factor_enabled', 'Turned on two-step sign-in', $user);
+        // Security notice to the account's e-mail ("A second sign-in step was added"), our own
+        // template through the account-email function. Best effort: never blocks turning it on.
+        app(\App\Services\Auth\AccountEmails::class)->notifyMfaEnrolled((string) $user->email, $request->userAgent());
 
         return redirect()->route('two-factor.show')->with('recovery_codes', $plain)
             ->with('status', 'Two-step sign-in is on. Save the recovery codes below now: they are shown only once.');

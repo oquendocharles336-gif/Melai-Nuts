@@ -30,7 +30,7 @@ class CodDownpaymentQuote {
       );
 }
 
-/// The checkout preview of a FIRST order (`first_order_quote`, migration 20261118000000):
+/// The checkout preview of a FIRST order (`first_order_quote`, migration 20261118015010):
 /// a customer with no paid online order yet pays 50% or 100% online first. The amounts come
 /// from the server; `place_order` works them out again for itself.
 class FirstOrderQuote {

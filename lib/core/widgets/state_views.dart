@@ -316,6 +316,14 @@ class DataStateView extends StatelessWidget {
             child: skeleton(context),
           );
         }
+        if (!compact) {
+          // First load: card-shaped placeholders instead of a spinner.
+          return Semantics(
+            label: loadingMessage ?? 'Loading',
+            liveRegion: true,
+            child: const ListSkeleton(),
+          );
+        }
         return StateLoadingView(message: loadingMessage, compact: compact);
       }
       if (error != null) {

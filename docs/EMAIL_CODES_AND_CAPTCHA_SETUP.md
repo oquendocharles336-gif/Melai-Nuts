@@ -64,7 +64,7 @@ remove `SMTP_USER`/`SMTP_PASSWORD` and the functions switch to Resend by themsel
 
 ```bash
 supabase link --project-ref <project-ref>
-supabase db push            # applies 20261118000000 and 20261118010000
+supabase db push            # applies 20261118015010 and 20261118015111
 
 # The pepper keys every stored hash (codes, e-mails, IPs, devices). 32+ characters.
 # Changing it later invalidates open codes and resets the sign-in counters (nothing else).

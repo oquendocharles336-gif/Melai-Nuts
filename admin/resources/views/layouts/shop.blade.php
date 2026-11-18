@@ -59,19 +59,41 @@
         </nav>
     </div>
 
-    <div class="s-branch" data-branch-auto>
+    {{-- Pickup branch. The location is asked for automatically once per visit (resources/js/shop.js);
+         after it worked the branch shows "Nearest · x km" and no location button. Only when location is
+         blocked, unavailable or slow does "Use my location" appear, with a hint and a branch list, so
+         checkout never depends on location. data-located: the server already holds a nearest branch. --}}
+    @php($located = ($shopBranch['reason'] ?? null) === 'nearest')
+    <div class="s-branch" data-branch-auto data-located="{{ $located ? '1' : '0' }}">
         <div class="s-wrap">
             <x-icon name="map-pin" :size="16" />
             @if ($shopBranch)
-                <span>Pickup at <b>{{ $shopBranch['name'] }}</b></span>
-                @if (($shopBranch['reason'] ?? null) === 'nearest')
-                    <span class="s-why">Nearest{{ isset($shopBranch['distance_km']) ? ' · '.number_format($shopBranch['distance_km'], 1).' km' : '' }}</span>
-                @endif
-                <button type="button" class="s-link-btn" data-locate>Update with my location</button>
+                <span>Pickup at <b data-branch-name>{{ $shopBranch['name'] }}</b></span>
+                <span class="s-why" data-branch-why @if (! $located) hidden @endif>@if ($located)Nearest{{ isset($shopBranch['distance_km']) ? ' · '.number_format($shopBranch['distance_km'], 1).' km' : '' }}@endif</span>
             @else
-                <span>Allow location and we'll pick your nearest branch for pickup.</span>
-                <button type="button" class="s-link-btn" data-locate>Use my location</button>
+                <span data-branch-empty>Pickup branch: not chosen yet.</span>
             @endif
+            @unless ($located)
+                <span class="s-locating" data-loc-status role="status" hidden><span class="s-spinner" aria-hidden="true"></span>Finding your nearest branch…</span>
+                <span class="s-loc-fallback" data-loc-fallback hidden>
+                    <button type="button" class="s-link-btn" data-locate>Use my location</button>
+                    <span class="s-loc-hint" data-loc-hint>Location is off. Allow it from the icon next to the address bar, or choose a branch:</span>
+                    @if (! empty($shopBranches))
+                        <form method="POST" action="{{ route('shop.branch') }}" class="s-branch-pick" data-branch-pick>
+                            @csrf
+                            <label class="sr-only" for="s-branch-select">Pickup branch</label>
+                            <select id="s-branch-select" name="branch_id" class="s-select" required>
+                                <option value="" disabled @selected(! $shopBranch)>Choose a branch</option>
+                                @foreach ($shopBranches as $b)
+                                    <option value="{{ $b['id'] }}" @selected(($shopBranch['id'] ?? null) === $b['id'])>{{ $b['name'] }}</option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="s-btn sm">Use this branch</button>
+                        </form>
+                    @endif
+                </span>
+                <noscript><style>.s-branch [data-loc-fallback]{display:inline-flex!important}</style></noscript>
+            @endunless
         </div>
     </div>
 </header>

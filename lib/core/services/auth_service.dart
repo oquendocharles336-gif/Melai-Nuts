@@ -14,6 +14,7 @@ import 'branch_controller.dart';
 import 'customer_data_store.dart';
 import 'customer_session_binder.dart';
 import 'data_sync_service.dart';
+import 'account_email_service.dart';
 import 'email_verification_service.dart';
 import 'sign_in_guard_service.dart';
 import 'staff_session_store.dart';
@@ -867,23 +868,44 @@ class AuthService {
         .map((snap) => snap.docs.map(AppUser.fromFirestore).toList());
   }
 
-  /// Sends a password-reset email. To avoid revealing which emails have
-  /// accounts, an unknown address behaves exactly like a known one.
-  Future<void> sendPasswordResetEmail(String email) async {
+  /// Sends a password-reset email (our own e-mail and single-use link, Supabase function
+  /// `account-email`; no Firebase e-mail). An unknown address behaves exactly like a known
+  /// one. Throws [AccountEmailException] when the server wants a captcha ([needsCaptcha]).
+  Future<void> sendPasswordResetEmail(String email, {String? captchaToken}) async {
     final key = email.trim().toLowerCase();
     final last = _lastResetRequest[key];
-    if (last != null && DateTime.now().difference(last) < _resetCooldown) {
+    if (captchaToken == null && last != null && DateTime.now().difference(last) < _resetCooldown) {
       throw const AuthException(
         'A reset link was just requested. Please wait a minute before trying again.',
       );
     }
     _lastResetRequest[key] = DateTime.now();
     try {
-      await _auth.sendPasswordResetEmail(email: email.trim());
+      await AccountEmailService.instance.requestPasswordReset(email, captchaToken: captchaToken);
+    } on AccountEmailException catch (e) {
+      _lastResetRequest.remove(key); // not sent; allow a retry
+      if (e.needsCaptcha) rethrow;
+      throw AuthException(e.message);
+    }
+  }
+
+  /// Moves the signed-in account to [newEmail] after the person re-enters [currentPassword]:
+  /// a confirmation link goes to the new address and a "was this you?" notice to the current
+  /// one. Nothing changes until the link is opened (then every sign-in ends).
+  Future<void> requestEmailChange({required String newEmail, required String currentPassword, String? captchaToken}) async {
+    final user = _auth.currentUser;
+    final email = user?.email;
+    if (user == null || email == null) throw const AuthException('Please sign in again.');
+    try {
+      await user.reauthenticateWithCredential(EmailAuthProvider.credential(email: email, password: currentPassword));
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found') return; // do not reveal account existence
-      _lastResetRequest.remove(key); // request failed; allow a retry
       throw AuthException(_messageFor(e));
+    }
+    try {
+      await AccountEmailService.instance.requestEmailChange(user, newEmail, captchaToken: captchaToken);
+    } on AccountEmailException catch (e) {
+      if (e.needsCaptcha) rethrow;
+      throw AuthException(e.message);
     }
   }
 
