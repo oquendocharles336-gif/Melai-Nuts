@@ -100,6 +100,7 @@ class TermsAndConditionsScreen extends StatelessWidget {
         LegalSection('terms.7', t.termsS7Title, t.termsS7Body),
         LegalSection('terms.8', t.termsS8Title, t.termsS8Body),
         LegalSection('terms.9', t.termsS9Title, t.termsS9Body),
+        LegalSection('terms.10', t.termsS10Title, t.termsS10Body),
       ];
 
   @override
@@ -129,6 +130,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
         LegalSection('privacy.9', t.privacyS9Title, t.privacyS9Body),
         LegalSection('privacy.10', t.privacyS10Title, t.privacyS10Body),
         LegalSection('privacy.11', t.privacyS11Title, t.privacyS11Body),
+        LegalSection('privacy.12', t.privacyS12Title, t.privacyS12Body),
       ];
 
   @override

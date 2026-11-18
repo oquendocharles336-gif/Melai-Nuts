@@ -17,8 +17,8 @@ return [
     // lib/features/legal). Bump the version when the wording changes; registration records it.
     // Same versions as the app (lib/core/config/legal_config.dart); bump both together.
     'legal' => [
-        'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-18'),
-        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-18'),
+        'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-18.2'),
+        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-18.2'),
     ],
 
     /*

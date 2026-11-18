@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../data/repositories/products_repository.dart';
-import '../../../data/repositories/staff_repository.dart';
+import '../../staff/staff_offline_sync.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -17,8 +17,10 @@ import '../widgets/margin_indicator.dart';
 /// "Add New Product" — matches the prototype's multi-section wizard
 /// (Media, Basic Info, Pricing & Cost, Variants, Branch Availability),
 /// implemented as a single scrollable form. "Save & Publish" creates the
-/// product in Supabase through [StaffRepository.saveProduct] (the database
-/// checks the caller's permission) and then reloads the catalog.
+/// product in Supabase (the database checks the caller's permission) and then
+/// reloads the catalog. Offline the product is saved on this device right away
+/// ("Pending sync", shown in the product and inventory lists) and created on
+/// the server when the connection returns ([StaffOfflineSync.createProduct]).
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({super.key});
 
@@ -64,21 +66,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
     setState(() => _saving = true);
     try {
       final branchIds = _selectedBranchIds.toList();
-      await StaffRepository.instance.saveProduct(
+      final outcome = await StaffOfflineSync.instance.createProduct(
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim(),
         categoryId: _category,
         price: _srp,
+        costPrice: _cogs > 0 ? _cogs : null,
         isActive: _publishImmediately,
-        variants: [
-          {'label': 'Standard', 'price': _srp, 'cost_price': _cogs > 0 ? _cogs : null},
-        ],
         branchIds: branchIds,
       );
-      await ProductsRepository.instance.loadCatalog();
+      final queued = outcome == SaveOutcome.queued;
+      if (!queued) await ProductsRepository.instance.loadCatalog();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('"${_nameController.text.trim()}" saved.')),
+        SnackBar(
+          content: Text(queued
+              ? '"${_nameController.text.trim()}" saved on this device (Pending sync). It is added to the server when the connection returns.'
+              : '"${_nameController.text.trim()}" saved.'),
+        ),
       );
       Navigator.of(context).pop();
     } catch (e, st) {

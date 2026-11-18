@@ -18,7 +18,6 @@ import 'email_verification_screen.dart';
 import 'phone_login_screen.dart';
 import 'register_screen.dart';
 import 'welcome_screen.dart';
-import '../../../data/models/user_role.dart';
 import '../../../core/utils/app_error.dart';
 
 /// Single sign-in screen shared by every account type (customer, staff,
@@ -69,9 +68,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
       setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Signed in as ${user.name} (${user.role.label})')),
-      );
       // Home, or back to the cart when Checkout sent them here.
       PostSignIn.go(Navigator.of(context), user.role);
     } on EmailVerificationRequiredException {

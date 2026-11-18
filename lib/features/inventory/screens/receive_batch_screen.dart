@@ -16,8 +16,9 @@ import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/models/inventory_item.dart';
-import '../../../data/repositories/staff_repository.dart';
+import '../../staff/staff_offline_sync.dart';
 
 /// Receive stock: records a batch (quantity and expiry date) against a product
 /// variant at the branch. With [initialItem] the product is pre-selected (e.g.
@@ -28,6 +29,10 @@ import '../../../data/repositories/staff_repository.dart';
 /// confirmation first. The database validates everything again (permission,
 /// own branch, expiry in the future, unique batch code) and adds the quantity
 /// to branch stock.
+///
+/// Offline the batch is saved on this device as a stock movement ("Pending
+/// sync") and sent with the same request key when the connection returns
+/// ([StaffOfflineSync]), so it is added once.
 class ReceiveBatchScreen extends StatelessWidget {
   final InventoryItem? initialItem;
 
@@ -51,7 +56,16 @@ class ReceiveBatchScreen extends StatelessWidget {
                     ),
                   ),
                 )
-              : _ReceiveForm(store: store, initialItem: initialItem),
+              : DataStateView(
+                  isLoading: store.inventoryState.busy,
+                  error: store.inventoryState.error,
+                  isEmpty: store.inventoryItems.isEmpty,
+                  onRetry: store.refreshInventory,
+                  emptyIcon: Icons.inventory_2_outlined,
+                  emptyTitle: 'No products to receive stock for.',
+                  emptyMessage: 'Add a product under Products first, then come back to Receive Stock.',
+                  builder: (context) => _ReceiveForm(store: store, initialItem: initialItem),
+                ),
         ),
       ),
     );
@@ -153,8 +167,9 @@ class _ReceiveFormState extends State<_ReceiveForm> {
 
     setState(() => _saving = true);
     try {
-      await StaffRepository.instance.receiveBatch(
+      final outcome = await StaffOfflineSync.instance.receiveBatch(
         branchId: branchId,
+        productId: item.productId,
         variantId: _variantId!,
         batchCode: _batchCode,
         quantity: qty,
@@ -164,8 +179,9 @@ class _ReceiveFormState extends State<_ReceiveForm> {
         assignExisting: _assignExisting,
         // One key per distinct request: a retry after a timeout reuses it, so the
         // server returns the batch it already created instead of "code already
-        // exists" (and never adds the stock twice).
-        idempotencyKey: _requestKey.keyFor(
+        // exists" (and never adds the stock twice). Offline it is also the
+        // queued operation's id.
+        requestKey: _requestKey.keyFor(
           jsonEncode([
             branchId,
             _variantId,
@@ -179,8 +195,13 @@ class _ReceiveFormState extends State<_ReceiveForm> {
         ),
       );
       if (!mounted) return;
-      widget.store.refreshLive();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Batch saved to inventory.')));
+      final queued = outcome == SaveOutcome.queued;
+      if (!queued) widget.store.refreshLive();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(queued
+            ? 'Batch saved on this device (Pending sync). It is sent when the connection returns.'
+            : 'Batch saved to inventory.'),
+      ));
       Navigator.of(context).pop();
     } catch (e, st) {
       // The form keeps its values; the same request key makes a retry safe.

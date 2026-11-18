@@ -3,6 +3,7 @@ import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/pending_sync_chip.dart';
 import '../../../core/widgets/primary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
@@ -16,12 +17,16 @@ class InventoryAdjustmentSuccessScreen extends StatelessWidget {
   final int adjustment;
   final int newStock;
 
+  /// Saved on this device while offline; it syncs when the connection returns.
+  final bool pendingSync;
+
   const InventoryAdjustmentSuccessScreen({
     super.key,
     required this.productId,
     required this.batch,
     required this.adjustment,
     required this.newStock,
+    this.pendingSync = false,
   });
 
   @override
@@ -43,13 +48,23 @@ class InventoryAdjustmentSuccessScreen extends StatelessWidget {
                 child: const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 84),
               ),
               const SizedBox(height: AppSpacing.lg),
-              Text('Inventory Updated!', style: AppTextStyles.headlineLg, textAlign: TextAlign.center),
+              Text(pendingSync ? 'Adjustment Saved' : 'Inventory Updated!', style: AppTextStyles.headlineLg, textAlign: TextAlign.center),
               const SizedBox(height: 8),
               Text(
-                '${product.name} • Batch ${batch.batchCode}',
+                '${batch.productName.isNotEmpty ? batch.productName : product.name} • Batch ${batch.batchCode}',
                 style: AppTextStyles.bodyMd,
                 textAlign: TextAlign.center,
               ),
+              if (pendingSync) ...[
+                const SizedBox(height: 10),
+                const PendingSyncChip(),
+                const SizedBox(height: 6),
+                Text(
+                  'Saved on this device and recorded as a stock movement. It is sent to the server automatically when the connection returns.',
+                  style: AppTextStyles.bodySm,
+                  textAlign: TextAlign.center,
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               Container(
                 width: double.infinity,

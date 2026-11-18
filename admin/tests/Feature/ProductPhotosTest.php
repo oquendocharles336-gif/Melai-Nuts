@@ -295,7 +295,22 @@ class ProductPhotosTest extends TestCase
             ->assertSee('public &quot;product-images&quot; folder', false)
             ->assertSee('Version '.config('melai.legal.privacy_version'), false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('9. Mga larawan ng produkto at access sa mga file');
-        $this->assertSame('2026-11-18', config('melai.legal.privacy_version'));
+        $this->assertSame('2026-11-18.2', config('melai.legal.privacy_version'));
+    }
+
+    public function test_the_legal_pages_describe_offline_use(): void
+    {
+        $this->get('/terms')->assertOk()
+            ->assertSee('id="terms-10"', false)
+            ->assertSee('10. Using the app offline')
+            ->assertSee('Pending sync');
+        $this->get('/privacy')->assertOk()
+            ->assertSee('id="privacy-12"', false)
+            ->assertSee('12. Working offline (staff and owners)')
+            ->assertSee('erased when you sign out');
+        $this->get('/terms?lang=fil')->assertOk()->assertSee('10. Paggamit ng app nang offline');
+        $this->get('/privacy?lang=fil')->assertOk()->assertSee('12. Pagtatrabaho nang offline (staff at may-ari)');
+        $this->assertSame('2026-11-18.2', config('melai.legal.terms_version'));
     }
 
     public function test_the_privacy_policy_describes_phone_verification_and_sign_in_protection(): void

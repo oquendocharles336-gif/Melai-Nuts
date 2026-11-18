@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../data/repositories/products_repository.dart';
-import '../../../data/repositories/staff_repository.dart';
+import '../../staff/staff_offline_sync.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -19,7 +19,8 @@ import '../widgets/margin_indicator.dart';
 
 /// "Edit Product" — same section layout as [AddProductScreen], pre-filled
 /// with the selected product's current data. "Save Changes"
-/// writes to Supabase through [StaffRepository.saveProduct].
+/// writes to Supabase (offline: saved on this device and synced later, see
+/// [StaffOfflineSync.saveProduct]).
 class EditProductScreen extends StatefulWidget {
   final String productId;
 
@@ -97,7 +98,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
           : _product.variants
               .map((v) => {'id': v.id, 'label': v.label, 'price': v.price, 'cost_price': v.costPrice, 'sku': v.sku, 'badge': v.badge})
               .toList();
-      await StaffRepository.instance.saveProduct(
+      final outcome = await StaffOfflineSync.instance.saveProduct(
         productId: _product.id,
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim(),
@@ -110,10 +111,15 @@ class _EditProductScreenState extends State<EditProductScreen> {
         variants: variants,
         branchIds: branchIds,
       );
-      await ProductsRepository.instance.loadCatalog();
+      final queued = outcome == SaveOutcome.queued;
+      if (!queued) await ProductsRepository.instance.loadCatalog();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('"${_nameController.text.trim()}" changes saved.')),
+        SnackBar(
+          content: Text(queued
+              ? '"${_nameController.text.trim()}" changes saved on this device (Pending sync). They are sent when the connection returns.'
+              : '"${_nameController.text.trim()}" changes saved.'),
+        ),
       );
       Navigator.of(context).pop();
     } catch (e, st) {

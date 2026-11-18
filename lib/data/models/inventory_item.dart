@@ -30,6 +30,10 @@ class InventoryItem {
   /// makes it carried.
   final bool isCarried;
 
+  /// Created or changed on this device and not yet accepted by the server
+  /// (shown with a "Pending sync" indicator).
+  final bool pendingSync;
+
   const InventoryItem({
     required this.productId,
     required this.variantId,
@@ -45,7 +49,34 @@ class InventoryItem {
     required this.batches,
     this.branch,
     this.isCarried = true,
+    this.pendingSync = false,
   });
+
+  InventoryItem copyWith({
+    int? quantity,
+    int? batchedQuantity,
+    int? restockThreshold,
+    List<InventoryBatch>? batches,
+    bool? isCarried,
+    bool? pendingSync,
+  }) =>
+      InventoryItem(
+        productId: productId,
+        variantId: variantId,
+        productName: productName,
+        variantLabel: variantLabel,
+        sku: sku,
+        categoryId: categoryId,
+        price: price,
+        quantity: quantity ?? this.quantity,
+        restockThreshold: restockThreshold ?? this.restockThreshold,
+        batchedQuantity: batchedQuantity ?? this.batchedQuantity,
+        branch: branch,
+        branchId: branchId,
+        batches: batches ?? this.batches,
+        isCarried: isCarried ?? this.isCarried,
+        pendingSync: pendingSync ?? this.pendingSync,
+      );
 
   String get displayName =>
       variantLabel.isEmpty ? productName : '$productName • $variantLabel';

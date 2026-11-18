@@ -18,6 +18,7 @@ import '../../../data/models/staff_models.dart';
 import '../../../data/repositories/delivery_repository.dart';
 import '../../../data/repositories/staff_repository.dart';
 import '../../delivery/widgets/run_map_card.dart';
+import '../widgets/e_receipt.dart';
 import '../../../l10n/generated/app_localizations.dart';
 
 /// Order / sale details with the actions staff may take.
@@ -267,10 +268,34 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       listenable: store,
       builder: (context, _) {
         final o = _latest(store);
+        // A sale rung up offline: only its locally generated e-receipt
+        // exists until the server accepts it, so no server actions yet.
+        if (o.pendingSync || o.syncError != null) {
+          return Scaffold(
+            backgroundColor: AppColors.canvas,
+            appBar: MelaiAppBar(title: o.id, showBack: true),
+            body: SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                children: [EReceiptView(order: o)],
+              ),
+            ),
+          );
+        }
         final actions = _actions(o);
         return Scaffold(
           backgroundColor: AppColors.canvas,
-          appBar: MelaiAppBar(title: o.id, showBack: true),
+          appBar: MelaiAppBar(
+            title: o.id,
+            showBack: true,
+            actions: [
+              IconButton(
+                tooltip: 'E-receipt',
+                icon: const Icon(Icons.receipt_rounded),
+                onPressed: () => showEReceipt(context, o),
+              ),
+            ],
+          ),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.md),

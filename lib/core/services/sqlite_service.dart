@@ -36,6 +36,13 @@ class SqliteService {
   ///     moved here from shared_preferences;
   ///   * customer_pending_writes — the customer's offline write queue
   ///     (PendingWritesService), moved here from shared_preferences.
+  /// Version 3: the staff side's offline working copy (StaffOfflineStore):
+  ///   * staff_snapshots — last inventory / dashboard answer per branch;
+  ///   * staff_order_receipts — e-receipt data per order (offline sales too);
+  ///   * staff_inventory_movements — stock changes made on this device;
+  ///   * staff_pending_products — products created / edited offline;
+  ///   * staff_expiry_alerts — which expired batches were already announced;
+  ///   * staff_local_notifications — notifications raised on this device.
   @visibleForTesting
   static const List<List<String>> migrations = [
     [
@@ -131,6 +138,115 @@ class SqliteService {
       )
       ''',
       'CREATE INDEX idx_customer_pending_writes_uid ON customer_pending_writes (uid, created_at)',
+    ],
+    // Version 3: the staff side's offline working copy (StaffOfflineStore).
+    // Every table is scoped to one staff Firebase UID. Nothing here is
+    // authoritative: the server re-validates every queued change.
+    [
+      // The last server answer for a branch's inventory / dashboard (the raw
+      // RPC JSON, incl. each batch's expiration_date), read while offline.
+      '''
+      CREATE TABLE staff_snapshots (
+        scope     TEXT NOT NULL,
+        branch_id TEXT NOT NULL,
+        kind      TEXT NOT NULL,
+        json      TEXT NOT NULL,
+        saved_at  INTEGER NOT NULL,
+        PRIMARY KEY (scope, branch_id, kind)
+      )
+      ''',
+      // Full e-receipt data per order (items, quantities, prices, totals,
+      // payment, order number, date, branch). Server orders are 'synced';
+      // sales rung up offline are 'pending' until the server accepts them.
+      '''
+      CREATE TABLE staff_order_receipts (
+        scope              TEXT NOT NULL,
+        order_id           TEXT NOT NULL,
+        branch_id          TEXT NOT NULL,
+        json               TEXT NOT NULL,
+        created_at         INTEGER NOT NULL,
+        sync_status        TEXT NOT NULL DEFAULT 'synced'
+                           CHECK (sync_status IN ('synced', 'pending', 'failed')),
+        local_operation_id TEXT,
+        server_order_id    TEXT,
+        last_error         TEXT,
+        saved_at           INTEGER NOT NULL,
+        PRIMARY KEY (scope, order_id)
+      )
+      ''',
+      'CREATE INDEX idx_staff_receipts_branch ON staff_order_receipts (scope, branch_id, created_at)',
+      'CREATE INDEX idx_staff_receipts_op ON staff_order_receipts (scope, local_operation_id)',
+      // Every stock change made on this device, as a movement (never a bare
+      // "stock = stock + n"). id = the sync operation id = the server's
+      // idempotency key, so the movement and the change sync together, once.
+      '''
+      CREATE TABLE staff_inventory_movements (
+        id              TEXT PRIMARY KEY,
+        scope           TEXT NOT NULL,
+        branch_id       TEXT NOT NULL,
+        product_id      TEXT NOT NULL,
+        variant_id      TEXT NOT NULL,
+        batch_id        TEXT,
+        batch_code      TEXT,
+        movement_type   TEXT NOT NULL CHECK (movement_type IN ('receive', 'adjust')),
+        quantity_change INTEGER NOT NULL,
+        assign_existing INTEGER NOT NULL DEFAULT 0,
+        reason          TEXT,
+        note            TEXT,
+        received_date   TEXT,
+        expiration_date TEXT,
+        restock_threshold INTEGER,
+        staff_uid       TEXT NOT NULL,
+        created_at      INTEGER NOT NULL,
+        sync_status     TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (sync_status IN ('pending', 'synced', 'failed')),
+        last_error      TEXT,
+        synced_at       INTEGER
+      )
+      ''',
+      'CREATE INDEX idx_staff_movements_branch ON staff_inventory_movements (scope, branch_id, sync_status, created_at)',
+      // Products created / edited offline, shown with "Pending sync" until
+      // the server has them. id = the product id (made on the device for a
+      // new product).
+      '''
+      CREATE TABLE staff_pending_products (
+        scope              TEXT NOT NULL,
+        id                 TEXT NOT NULL,
+        operation          TEXT NOT NULL CHECK (operation IN ('create', 'update')),
+        local_operation_id TEXT NOT NULL,
+        json               TEXT NOT NULL,
+        created_at         INTEGER NOT NULL,
+        sync_status        TEXT NOT NULL DEFAULT 'pending' CHECK (sync_status IN ('pending', 'failed')),
+        last_error         TEXT,
+        PRIMARY KEY (scope, id)
+      )
+      ''',
+      // One expired-stock notification per batch, ever.
+      '''
+      CREATE TABLE staff_expiry_alerts (
+        scope            TEXT NOT NULL,
+        batch_id         TEXT NOT NULL,
+        expired_quantity INTEGER NOT NULL,
+        notified_at      INTEGER NOT NULL,
+        PRIMARY KEY (scope, batch_id)
+      )
+      ''',
+      // Notifications raised on this device (connection lost / restored,
+      // changes synced, expired stock). Shown with the server's
+      // staff_notifications in the same list.
+      '''
+      CREATE TABLE staff_local_notifications (
+        scope      TEXT NOT NULL,
+        id         TEXT NOT NULL,
+        category   TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        body       TEXT NOT NULL,
+        reference  TEXT,
+        read       INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (scope, id)
+      )
+      ''',
     ],
   ];
 

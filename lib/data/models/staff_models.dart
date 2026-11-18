@@ -327,6 +327,13 @@ class StaffOrder {
   /// (null on an older server).
   final OrderRefundSummary? refund;
 
+  /// Rung up on this device while offline and not yet accepted by the
+  /// server: its e-receipt is generated locally and marked "Pending sync".
+  final bool pendingSync;
+
+  /// The server refused this offline sale (see the sync queue to retry).
+  final String? syncError;
+
   const StaffOrder({
     required this.id,
     required this.createdAt,
@@ -352,6 +359,8 @@ class StaffOrder {
     this.downpaymentAmount,
     this.downpaymentStatus,
     this.refund,
+    this.pendingSync = false,
+    this.syncError,
   });
 
   String get customerLabel => customerName ?? (isPos ? 'Walk-in customer' : 'Customer');
@@ -387,6 +396,8 @@ class StaffOrder {
         downpaymentAmount: _numOrNull((j['downpayment'] as Map?)?['amount']),
         downpaymentStatus: (j['downpayment'] as Map?)?['status'] as String?,
         refund: OrderRefundSummary.fromJson(j['refund_summary']),
+        pendingSync: (j['_pending_sync'] as bool?) ?? false,
+        syncError: j['_sync_error'] as String?,
       );
 }
 

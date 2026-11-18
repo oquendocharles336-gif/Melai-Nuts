@@ -8,6 +8,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/services/locale_controller.dart';
 import 'app/app.dart';
 import 'core/services/app_check_service.dart';
+import 'core/services/app_notices.dart';
 import 'core/services/audit_service.dart';
 import 'core/services/branch_controller.dart';
 import 'core/services/connectivity_service.dart';
@@ -25,6 +26,7 @@ import 'data/repositories/favorites_repository.dart';
 import 'data/repositories/products_repository.dart';
 import 'features/customer/cart_controller.dart';
 import 'features/staff/pos_sale_queue.dart';
+import 'features/staff/staff_offline_sync.dart';
 import 'firebase_options.dart';
 import 'l10n/generated/app_localizations.dart';
 
@@ -84,6 +86,8 @@ Future<void> _start() async {
   });
   AuditService.instance.registerWithSync();
   PosSaleQueue.instance.register(); // offline POS sales (docs/OFFLINE_POS.md)
+  // Offline products, received stock and stock adjustments (staff).
+  StaffOfflineSync.instance.register();
   SyncService.instance.attach(
     session: StaffSessionStore.instance,
     connectivity: ConnectivityService.instance,
@@ -120,6 +124,9 @@ Future<void> _start() async {
       CartController.instance.refresh(),
     ]);
   });
+  // Connection lost / restored, synced, expired stock: notifications instead
+  // of permanent banners. Listens before connectivity reports its first state.
+  AppNotices.instance.start();
   unawaited(ConnectivityService.instance.start());
 
   await LocaleController.instance.load();

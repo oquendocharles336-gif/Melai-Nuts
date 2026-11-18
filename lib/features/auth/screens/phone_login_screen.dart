@@ -15,7 +15,6 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/utils/form_utils.dart';
 import '../../../data/models/app_user.dart';
-import '../../../data/models/user_role.dart';
 import '../../../core/utils/app_error.dart';
 
 enum _PhoneStep { number, code, name }
@@ -85,9 +84,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   void _goHome(AppUser user) {
     if (!mounted) return;
     setState(() => _busy = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Signed in as ${user.name} (${user.role.label})')),
-    );
     PostSignIn.go(Navigator.of(context), user.role);
   }
 

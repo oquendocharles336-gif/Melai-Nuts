@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/pending_sync_chip.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/inventory_item.dart';
@@ -23,6 +24,9 @@ class InventoryCard extends StatelessWidget {
   final bool nextToSell;
   final VoidCallback onTap;
 
+  /// Changed on this device and not yet synced: shows "Pending sync".
+  final bool pendingSync;
+
   const InventoryCard._({
     required this.productId,
     required this.title,
@@ -32,6 +36,7 @@ class InventoryCard extends StatelessWidget {
     required this.isLowStock,
     required this.onTap,
     this.nextToSell = false,
+    this.pendingSync = false,
   });
 
   factory InventoryCard.item({required InventoryItem item, required VoidCallback onTap}) {
@@ -47,6 +52,7 @@ class InventoryCard extends StatelessWidget {
       priority: item.worstFefoPriority,
       isLowStock: item.needsRestock,
       onTap: onTap,
+      pendingSync: item.pendingSync,
     );
   }
 
@@ -55,16 +61,18 @@ class InventoryCard extends StatelessWidget {
     required VoidCallback onTap,
     bool nextToSell = false,
   }) {
-    final product = findProductById(batch.productId);
+    final product = tryFindProductById(batch.productId);
+    final name = product?.name ?? (batch.productName.isNotEmpty ? batch.productName : findProductById(batch.productId).name);
     return InventoryCard._(
       productId: batch.productId,
-      title: batch.variantLabel.isEmpty ? product.name : '${product.name} • ${batch.variantLabel}',
-      subtitle: 'Batch ${batch.batchCode} • ${batch.daysUntilExpiry < 0 ? 'expired' : '${batch.daysUntilExpiry}d left'}',
+      title: batch.variantLabel.isEmpty ? name : '$name • ${batch.variantLabel}',
+      subtitle: 'Batch ${batch.batchCode} • ${batch.isExpired ? 'expired' : '${batch.daysUntilExpiry}d left'}',
       quantity: batch.quantity,
       priority: batch.fefoPriority,
       isLowStock: batch.isLowStock,
       onTap: onTap,
       nextToSell: nextToSell,
+      pendingSync: batch.pendingSync,
     );
   }
 
@@ -109,6 +117,7 @@ class InventoryCard extends StatelessWidget {
                     ],
                   ),
                   Text(subtitle, style: AppTextStyles.bodySm, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (pendingSync) ...[const SizedBox(height: 3), const PendingSyncChip()],
                 ],
               ),
             ),

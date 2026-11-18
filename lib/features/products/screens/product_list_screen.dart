@@ -4,7 +4,10 @@ import '../../../core/utils/app_error.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/services/staff_offline_store.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/pending_sync_chip.dart';
 import '../../../core/widgets/state_views.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
@@ -14,6 +17,10 @@ import '../../../data/repositories/staff_repository.dart';
 /// Full Product Management catalog list — search, category filter chips,
 /// and a management-focused product card (SKU, margin, edit/pricing
 /// shortcuts) rather than the customer-facing storefront card.
+///
+/// Products created or edited on this device while offline are listed right
+/// away with a "Pending sync" indicator (from [StaffStore.pendingProducts]);
+/// it disappears once the server has the change.
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
 
@@ -34,9 +41,104 @@ class _ProductListScreenState extends State<ProductListScreen> {
   final Set<String> _reactivating = {};
 
   @override
+  void initState() {
+    super.initState();
+    StaffStore.instance.ensureStarted();
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// A product created offline, shown until the catalog has it.
+  static Product _fromPending(PendingProduct p) {
+    final category = findCategoryById(p.categoryId ?? '');
+    return Product(
+      id: p.id,
+      name: p.name,
+      variantLabel: 'Standard',
+      categoryId: p.categoryId ?? '',
+      price: p.price,
+      rating: 0,
+      reviewCount: 0,
+      stockLabel: 'Out of Stock',
+      description: (p.data['description'] as String?) ?? '',
+      branchAvailability: [
+        for (final b in kBranches)
+          if (p.branchIds.contains(b.id)) b.name,
+      ],
+      variants: [ProductVariant(id: p.variantId, label: 'Standard', price: p.price, costPrice: p.costPrice)],
+      icon: category.icon,
+      color: category.color,
+      costPrice: p.costPrice ?? 0,
+      isActive: p.isActive,
+    );
+  }
+
+  /// The catalog plus this device's pending changes: new products first,
+  /// edited ones showing the values saved on the device.
+  ({List<Product> products, Map<String, PendingProduct> pending}) _withPending() {
+    final pending = <String, PendingProduct>{};
+    for (final p in StaffStore.instance.pendingProducts) {
+      pending[p.id] = p; // the newest edit of a product wins (oldest first)
+    }
+    final known = {for (final p in kProducts) p.id};
+    final created = [
+      for (final p in pending.values)
+        if (p.isCreate && !known.contains(p.id)) _fromPending(p),
+    ];
+    final list = <Product>[
+      ...created,
+      for (final p in kProducts)
+        if (pending[p.id] case final edit? when !edit.isCreate) _editedCopy(p, edit) else p,
+    ];
+    return (products: list, pending: pending);
+  }
+
+  /// [product] with the name / price / category / active state of an edit
+  /// saved offline (everything else as the catalog has it).
+  static Product _editedCopy(Product product, PendingProduct edit) {
+    final d = edit.data;
+    final price = (d['price'] as num?)?.toDouble() ?? product.price;
+    return Product(
+      id: product.id,
+      name: (d['name'] as String?) ?? product.name,
+      variantLabel: product.variantLabel,
+      categoryId: (d['category_id'] as String?) ?? product.categoryId,
+      price: price,
+      originalPrice: product.originalPrice,
+      rating: product.rating,
+      reviewCount: product.reviewCount,
+      badge: product.badge,
+      stockLabel: product.stockLabel,
+      description: (d['description'] as String?) ?? product.description,
+      branchAvailability: product.branchAvailability,
+      variants: product.variants.length == 1
+          ? [
+              ProductVariant(
+                id: product.variants.first.id,
+                label: product.variants.first.label,
+                price: price,
+                badge: product.variants.first.badge,
+                costPrice: product.variants.first.costPrice,
+                sku: product.variants.first.sku,
+                stockOnHand: product.variants.first.stockOnHand,
+              ),
+            ]
+          : product.variants,
+      spiceLevels: product.spiceLevels,
+      icon: product.icon,
+      color: product.color,
+      images: product.images,
+      sku: product.sku,
+      costPrice: product.costPrice,
+      isActive: (d['is_active'] as bool?) ?? product.isActive,
+      tags: product.tags,
+      unitsSoldLast30Days: product.unitsSoldLast30Days,
+      isFeatured: product.isFeatured,
+    );
   }
 
   Future<void> _loadInactive() async {
@@ -145,8 +247,8 @@ class _ProductListScreenState extends State<ProductListScreen> {
     );
   }
 
-  List<Product> get _filtered {
-    var list = _selectedCategory == null ? kProducts : productsByCategory(_selectedCategory!);
+  List<Product> _filtered(List<Product> all) {
+    var list = _selectedCategory == null ? all : all.where((p) => p.categoryId == _selectedCategory).toList();
     final query = _searchController.text.trim().toLowerCase();
     if (query.isNotEmpty) {
       list = list.where((p) => p.name.toLowerCase().contains(query) || p.sku.toLowerCase().contains(query)).toList();
@@ -156,7 +258,16 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final products = _filtered;
+    return ListenableBuilder(
+      listenable: Listenable.merge([StaffStore.instance, ProductsRepository.instance]),
+      builder: (context, _) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    final merged = _withPending();
+    final all = merged.products;
+    final products = _filtered(all);
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -193,7 +304,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text('All (${kProducts.length})'),
+                      label: Text('All (${all.length})'),
                       selected: _selectedCategory == null && !_showInactive,
                       onSelected: (_) => setState(() {
                         _selectedCategory = null;
@@ -205,7 +316,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: ChoiceChip(
-                        label: Text('${cat.name} (${productsByCategory(cat.id).length})'),
+                        label: Text('${cat.name} (${all.where((p) => p.categoryId == cat.id).length})'),
                         selected: _selectedCategory == cat.id && !_showInactive,
                         onSelected: (_) => setState(() {
                           _selectedCategory = cat.id;
@@ -237,11 +348,21 @@ class _ProductListScreenState extends State<ProductListScreen> {
                 separatorBuilder: (context, index) => const SizedBox(height: 10),
                 itemBuilder: (context, i) {
                   final product = products[i];
+                  final pending = merged.pending[product.id];
+                  // A product created offline has no server copy to open yet.
+                  final waiting = pending != null && pending.isCreate;
+                  void notYet() => ScaffoldMessenger.of(context)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(const SnackBar(
+                      content: Text('This product is still waiting to sync. You can open and edit it once it is on the server.'),
+                    ));
                   return _ManagedProductCard(
                     product: product,
-                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.productDetails, arguments: product.id),
-                    onEdit: () => Navigator.of(context).pushNamed(AppRoutes.productEdit, arguments: product.id),
-                    onPricing: () => Navigator.of(context).pushNamed(AppRoutes.productPricing, arguments: product.id),
+                    pendingSync: pending != null,
+                    syncFailed: pending?.syncState == LocalSyncState.failed,
+                    onTap: waiting ? notYet : () => Navigator.of(context).pushNamed(AppRoutes.productDetails, arguments: product.id),
+                    onEdit: waiting ? notYet : () => Navigator.of(context).pushNamed(AppRoutes.productEdit, arguments: product.id),
+                    onPricing: waiting ? notYet : () => Navigator.of(context).pushNamed(AppRoutes.productPricing, arguments: product.id),
                   );
                 },
               ),
@@ -258,12 +379,16 @@ class _ManagedProductCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onPricing;
+  final bool pendingSync;
+  final bool syncFailed;
 
   const _ManagedProductCard({
     required this.product,
     required this.onTap,
     required this.onEdit,
     required this.onPricing,
+    this.pendingSync = false,
+    this.syncFailed = false,
   });
 
   /// Lowest–highest variant price; falls back to the product price for a
@@ -321,7 +446,18 @@ class _ManagedProductCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      Text('${product.sku} • ${product.variants.length} variant${product.variants.length == 1 ? '' : 's'}', style: AppTextStyles.bodySm),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '${product.sku.isEmpty ? 'No SKU' : product.sku} • ${product.variants.length} variant${product.variants.length == 1 ? '' : 's'}',
+                              style: AppTextStyles.bodySm,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (pendingSync) ...[const SizedBox(width: 6), PendingSyncChip(failed: syncFailed)],
+                        ],
+                      ),
                     ],
                   ),
                 ),

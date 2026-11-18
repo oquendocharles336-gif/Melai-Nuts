@@ -41,14 +41,12 @@ import '../features/staff/screens/staff_transactions_screen.dart';
 import '../features/staff/screens/staff_extra_screens.dart';
 import '../features/inventory/screens/inventory_dashboard_screen.dart';
 import '../features/inventory/screens/inventory_list_screen.dart';
-import '../features/inventory/screens/branch_inventory_screen.dart';
 import '../features/inventory/screens/inventory_product_details_screen.dart';
 import '../features/inventory/screens/expiring_soon_screen.dart';
 import '../features/inventory/screens/batch_details_screen.dart';
 import '../features/inventory/screens/low_stock_screen.dart';
 import '../features/inventory/screens/inventory_adjustment_screen.dart';
 import '../features/inventory/screens/inventory_adjustment_success_screen.dart';
-import '../features/inventory/screens/add_inventory_screen.dart';
 import '../features/inventory/screens/receive_batch_screen.dart';
 import '../features/staff/screens/staff_refunds_screen.dart';
 import '../data/models/inventory_item.dart';
@@ -120,6 +118,11 @@ class AppRoutes {
 
   /// Lets a tapped push notification open a screen from outside the widget tree.
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  /// Shows app-wide notifications (connection lost / restored, synced,
+  /// expired stock) as a toast over whatever screen is open — see
+  /// `AppNotices`.
+  static final GlobalKey<ScaffoldMessengerState> messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   static const String splash = '/';
   // Single sign-in / create-account screen shared by every role (customer,
@@ -244,14 +247,12 @@ class AppRoutes {
   // Inventory & FEFO feature screens (lib/features/inventory/).
   static const String inventoryDashboard = '/inventory';
   static const String inventoryList = '/inventory/list';
-  static const String inventoryBranch = '/inventory/branch';
   static const String inventoryProductDetails = '/inventory/product-details';
   static const String inventoryExpiring = '/inventory/expiring';
   static const String inventoryBatchDetails = '/inventory/batch-details';
   static const String inventoryLowStock = '/inventory/low-stock';
   static const String inventoryAdjustment = '/inventory/adjust';
   static const String inventoryAdjustmentSuccess = '/inventory/adjust-success';
-  static const String inventoryAdd = '/inventory/add';
   static const String inventoryReceive = '/inventory/receive';
   static const String staffRefunds = '/staff/refunds';
 
@@ -371,14 +372,12 @@ class AppRoutes {
     staffProfile: _staff,
     inventoryDashboard: _staff,
     inventoryList: _staff,
-    inventoryBranch: _staff,
     inventoryProductDetails: _staff,
     inventoryExpiring: _staff,
     inventoryBatchDetails: _staff,
     inventoryLowStock: _staff,
     inventoryAdjustment: _staffManageInventory,
     inventoryAdjustmentSuccess: _staffManageInventory,
-    inventoryAdd: _staffManageInventory,
     inventoryReceive: _staffManageInventory,
     staffRefunds: _staffManageRefunds,
 
@@ -575,7 +574,6 @@ class AppRoutes {
     inventoryDashboard: (_) => const InventoryDashboardScreen(),
     inventoryList: (_) => const InventoryListScreen(),
     inventoryLowStock: (_) => const LowStockScreen(),
-    inventoryAdd: (_) => const AddInventoryScreen(),
     inventoryExpiring: (_) => const ExpiringSoonScreen(),
     staffRefunds: (_) => const StaffRefundsScreen(),
 
@@ -587,7 +585,7 @@ class AppRoutes {
     // take a productId argument and are handled exclusively in
     // onGenerateRoute below (see the earlier note on route shadowing).
 
-    // NOTE: inventoryBranch, inventoryProductDetails,
+    // NOTE: inventoryProductDetails,
     // inventoryBatchDetails, and inventoryAdjustment are intentionally NOT
     // registered here — they take (optional or required) arguments and are
     // handled exclusively in onGenerateRoute below. A static `routes` map
@@ -720,11 +718,6 @@ class AppRoutes {
         return MaterialPageRoute(
           builder: (_) => ReceiveBatchScreen(initialItem: item),
         );
-      case inventoryBranch:
-        final branch = settings.arguments as String;
-        return MaterialPageRoute(
-          builder: (_) => BranchInventoryScreen(branch: branch),
-        );
       case inventoryProductDetails:
         final variantId = settings.arguments as String;
         return MaterialPageRoute(
@@ -736,9 +729,13 @@ class AppRoutes {
           builder: (_) => BatchDetailsScreen(batch: batch),
         );
       case inventoryAdjustment:
-        final batch = settings.arguments as InventoryBatch;
+        // An InventoryBatch, or {'batch': InventoryBatch, 'expired': true} to
+        // open pre-filled for removing an expired batch (expiry notification).
+        final args = settings.arguments;
+        final batch = args is Map ? args['batch'] as InventoryBatch : args as InventoryBatch;
+        final expired = args is Map && args['expired'] == true;
         return MaterialPageRoute(
-          builder: (_) => InventoryAdjustmentScreen(batch: batch),
+          builder: (_) => InventoryAdjustmentScreen(batch: batch, prefillExpired: expired),
         );
       case inventoryAdjustmentSuccess:
         final args = settings.arguments as Map<String, dynamic>;
@@ -748,6 +745,7 @@ class AppRoutes {
             batch: args['batch'] as InventoryBatch,
             adjustment: args['adjustment'] as int,
             newStock: args['newStock'] as int,
+            pendingSync: args['pendingSync'] == true,
           ),
         );
       case productDetails:

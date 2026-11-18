@@ -121,3 +121,15 @@ Online payment stays **off** until all of these are done.
 8. **Test refund:** cancel that test order from the shop side and check the downpayment comes back to the GCash account (admin website > Refunds > Send via HitPay).
 
 If step 7 or 8 fails, turn online payment off again and tell us.
+
+---
+
+## Offline use (version `2026-11-18.2`): to approve
+
+The staff app now works offline (see `CHANGED_FILES.txt`). The Terms and Privacy Policy were updated to say so. Everyone is asked to accept the new version the next time they open the app. The new wording is in `lib/l10n/app_en.arb` / `app_fil.arb` and on the website at `/terms#terms-10` and `/privacy#privacy-12`. It shows the "draft" note until you approve it (remove `terms.10` and `privacy.12` from `LegalConfig.ownerReviewSections`, then run `python3 scripts/gen_legal_pages.py`).
+
+- **Terms 10. Using the app offline (new):** what works without a connection; offline changes are "Pending sync" and are final only when the server accepts them; the server may refuse one, and a staff member then retries or discards it; offline receipts carry a temporary OFFLINE-… number and the server's total is final; "Expired" removals only on or after the expiry date, recorded with the staff member and time.
+- **Privacy 12. Working offline (new):** what a staff or owner phone keeps (inventory, up to 300 recent e-receipts with the customer's name and contact number when the order has them, local notifications, expired-batch IDs, unsent changes), why, where (the app's private storage only), and for how long (saved copies erased at sign-out; unsent changes stay, linked only to their account, until sent or discarded; accepted changes deleted within 14 days).
+- **Privacy 2 and 4 (changed):** one added bullet about offline staff changes, and one sentence noting that the offline copy on staff phones includes receipts with customer details.
+
+Please confirm: is keeping a customer's name and contact number on the e-receipts on staff phones acceptable? If not, the app can leave those two fields out of the stored receipts.

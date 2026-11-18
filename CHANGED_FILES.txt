@@ -1,22 +1,35 @@
 CHANGED_FILES.txt
 DELETED_IN_THIS_CHANGE.txt
+lib/app/app.dart
 lib/app/routes.dart
-lib/core/constants/app_constants.dart
+lib/core/services/app_notices.dart                 (new)
+lib/core/services/sqlite_service.dart
+lib/core/services/staff_inventory_overlay.dart     (new)
+lib/core/services/staff_offline_store.dart         (new)
 lib/core/services/staff_store.dart
+lib/core/widgets/offline_banner.dart
+lib/core/widgets/pending_sync_chip.dart            (new)
+lib/data/models/inventory_batch.dart
+lib/data/models/inventory_item.dart
+lib/data/models/staff_models.dart
 lib/data/repositories/staff_repository.dart
-lib/features/inventory/screens/add_inventory_screen.dart
-lib/features/inventory/screens/batch_details_screen.dart
-lib/features/inventory/screens/expiring_soon_screen.dart
+lib/features/auth/screens/login_screen.dart
+lib/features/auth/screens/phone_login_screen.dart
+lib/features/inventory/screens/inventory_adjustment_screen.dart
+lib/features/inventory/screens/inventory_adjustment_success_screen.dart
 lib/features/inventory/screens/inventory_dashboard_screen.dart
 lib/features/inventory/screens/receive_batch_screen.dart
+lib/features/inventory/widgets/inventory_card.dart
 lib/features/notifications/notification_targets.dart
-lib/features/notifications/push_tap_router.dart
-lib/features/notifications/screens/notification_center_screen.dart
-lib/features/notifications/screens/notification_detail_screen.dart
-lib/features/owner/screens/owner_dashboard_screen.dart
-lib/features/staff/screens/staff_dashboard_tab.dart
-lib/features/staff/screens/staff_extra_screens.dart
+lib/features/products/screens/add_product_screen.dart
+lib/features/products/screens/edit_product_screen.dart
+lib/features/products/screens/product_list_screen.dart
+lib/features/staff/pos_sale_queue.dart
+lib/features/staff/screens/pos_flow_screens.dart
 lib/features/staff/screens/staff_portal_screen.dart
-supabase/migrations/20261118060000_expiry_alerts_on_by_default.sql
-supabase/tests/push_notifications_test.sql
-test/push_tap_router_test.dart
+lib/features/staff/screens/staff_transactions_screen.dart
+lib/features/staff/staff_offline_sync.dart         (new)
+lib/features/staff/widgets/e_receipt.dart          (new)
+lib/features/staff/widgets/pos_offline_widgets.dart
+lib/main.dart
+supabase/migrations/20261118070000_staff_offline_sync.sql (new)

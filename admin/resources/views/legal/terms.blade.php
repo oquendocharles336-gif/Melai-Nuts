@@ -49,6 +49,11 @@
         <p>Para sa tanong tungkol sa iyong account, order o sa mga tuntuning ito, makipag-ugnayan sa alinmang branch ng Melai Nuts o mag-email sa melaioraya5&#64;gmail.com. Makikita ang numero ng branch sa app, sa order details at sa checkout. Detalye ng negosyo: [PUPUNAN NG MAY-ARI: rehistradong pangalan at address ng negosyo].</p>
         <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
+    <section id="terms-10">
+        <h2>10. Paggamit ng app nang offline</h2>
+        <ul><li>Kapag walang koneksyon, ipinapakita ng app ang datos na naka-save sa iyong telepono, at sinasabi nito kapag nawala ang koneksyon at kapag bumalik ito. Hindi makakapag-order, makakapagbayad online o makakahiling ng refund hangga&#x27;t hindi ka muling nakakakonekta.</li><li>Staff at may-ari: ang bago o binagong produkto, natanggap na stock, pag-aayos ng stock at benta sa counter na na-save habang offline ay may markang &quot;Pending sync&quot; at kusang ipinapadala pagbalik ng koneksyon. Pinal lang ang mga ito kapag tinanggap na ng aming server. Sinusuri ulit ng server ang bawat isa (pahintulot, branch, stock at presyo) at maaari nitong tanggihan, halimbawa kapag wala na ang stock; ang tinanggihang pagbabago ay iniiwan para subukan ulit o itapon ng staff, at hindi kailanman ipinapatupad nang palihim.</li><li>Ang e-receipt ng bentang ginawa offline ay may pansamantalang numero (OFFLINE-…) at ang mga presyong ipinakita ng register. Ang server ang nagbibigay ng totoong order number, at ang total ng server ang pinal na halaga.</li><li>Maaaring alisin ang stock na may dahilang &quot;Expired&quot; sa araw o pagkatapos lang ng expiry date ng batch. Itinatala kung sinong staff ang kumumpirma at kung kailan.</li></ul>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
+    </section>
     <p><a class="link" href="{{ url()->previous() }}">Bumalik</a> · <a class="link" href="{{ route('legal.privacy', ['lang' => 'fil']) }}">Patakaran sa Privacy</a></p>
 </article>
 @else
@@ -94,6 +99,11 @@
     <section id="terms-9">
         <h2>9. Contact</h2>
         <p>For questions about your account, an order or these terms, contact any Melai Nuts branch or email melaioraya5&#64;gmail.com. Branch phone numbers are shown in the app on the order details and checkout screens. Business details: [TO BE FILLED IN BY THE OWNER: registered business name and business address].</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
+    </section>
+    <section id="terms-10">
+        <h2>10. Using the app offline</h2>
+        <ul><li>Without a connection the app shows the data saved on your phone, and it tells you when the connection is lost and when it is back. Orders, online payments and refunds can&#x27;t be placed until you reconnect.</li><li>Staff and owners: new or edited products, stock received, stock adjustments and counter sales saved offline are marked &quot;Pending sync&quot; and are sent automatically when the connection returns. They are final only when our server accepts them. The server checks each one again (permission, branch, stock and prices) and may refuse it, for example when the stock is no longer there; a refused change is kept for a staff member to retry or discard, never applied silently.</li><li>An offline sale&#x27;s e-receipt has a temporary number (OFFLINE-…) and the prices the register showed. The server gives the sale its real order number, and the server&#x27;s total is the final amount.</li><li>Stock may be removed with the reason &quot;Expired&quot; only on or after the batch&#x27;s expiry date. The staff member who confirms it and the time are recorded.</li></ul>
         <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Go back</a> · <a class="link" href="{{ route('legal.privacy', ['lang' => 'en']) }}">Privacy Policy</a></p>

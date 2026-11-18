@@ -1,3 +1,6 @@
-# FEFO Overview and Stock Transfers removed from the app (out of scope).
-lib/features/inventory/screens/fefo_screen.dart
-lib/features/inventory/screens/stock_transfers_screen.dart
+# Branch Inventory tile removed from the staff Inventory tab, and the
+# "Add Inventory" landing screen removed (Add Inventory now opens Receive
+# Stock directly). Delete these from your copy; their routes
+# (/inventory/branch, /inventory/add) were removed from lib/app/routes.dart.
+lib/features/inventory/screens/branch_inventory_screen.dart
+lib/features/inventory/screens/add_inventory_screen.dart

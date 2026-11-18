@@ -13,20 +13,30 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/request_key.dart';
+import '../../../core/widgets/date_form_field.dart';
+import '../../../core/widgets/pending_sync_chip.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../data/repositories/staff_repository.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
+import '../../staff/staff_offline_sync.dart';
 
-/// Stock adjustment for one batch (damage, count correction, ...).
+/// Stock adjustment for one batch (damage, count correction, expired, ...).
 ///
-/// The change is saved by the database, which re-checks that the caller may
-/// manage inventory at this branch and that stock cannot go below zero. The
-/// success screen is only shown once the database has confirmed the change.
+/// Online the change is saved by the database, which re-checks that the
+/// caller may manage inventory at this branch and that stock cannot go below
+/// zero. Offline it is saved on this device as a stock movement and synced
+/// later ([StaffOfflineSync]); the success screen then says "Pending sync".
+///
+/// [prefillExpired] (opened from an expired-stock notification): quantity is
+/// pre-filled with the batch's expired units (removed) and the reason with
+/// "Expired", so staff only confirm. An "Expired" adjustment is blocked
+/// unless the batch has really reached its expiry date, and asks for a
+/// confirmation that shows the expiry date.
 class InventoryAdjustmentScreen extends StatefulWidget {
   final InventoryBatch batch;
+  final bool prefillExpired;
 
-  const InventoryAdjustmentScreen({super.key, required this.batch});
+  const InventoryAdjustmentScreen({super.key, required this.batch, this.prefillExpired = false});
 
   @override
   State<InventoryAdjustmentScreen> createState() => _InventoryAdjustmentScreenState();
@@ -41,8 +51,34 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
   String _reasonPreset = 'Stock count correction';
   final _requestKey = RequestKeyHolder();
 
+  static const String expiredReason = 'Expired';
+  static const List<String> _reasons = ['Stock count correction', 'Damaged goods', expiredReason, 'Found extra stock'];
+
   int get _rawNewStock => widget.batch.quantity + _adjustment;
   int get _newStock => _rawNewStock.clamp(0, 999999);
+
+  bool get _isExpiredReason => _reasonPreset == expiredReason;
+
+  /// "Expired" chosen for a batch that has not reached its expiry date.
+  bool get _expiredNotAllowed => _isExpiredReason && !widget.batch.isExpired;
+
+  String get _expiryText => DateFormField.formatDate(widget.batch.expirationDate);
+
+  String get _productName {
+    final p = findProductById(widget.batch.productId);
+    return widget.batch.productName.isNotEmpty ? widget.batch.productName : p.name;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.prefillExpired) {
+      // The batch's remaining units are the expired units: remove them all.
+      _adjustment = -widget.batch.quantity;
+      _amountController.text = '$_adjustment';
+      _reasonPreset = expiredReason;
+    }
+  }
 
   @override
   void dispose() {
@@ -69,45 +105,87 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
     if (widget.batch.quantity + n < 0) {
       return 'Stock cannot go below 0 (only ${widget.batch.quantity} in this batch).';
     }
+    if (_isExpiredReason && n > 0) return 'Expired stock can only be removed (use a negative number).';
     return null;
   }
 
   Future<void> _submit() async {
-    if (_saving || !FormUtils.validateAndFocus(_formKey)) return;
-    // Stock changes are recorded in the audit log: confirm first.
-    final ok = await ConfirmDialog.show(
-      context,
-      title: 'Save this adjustment?',
-      message: '${_adjustment > 0 ? 'Add' : 'Remove'} ${_adjustment.abs()} pack(s) '
-          '${_adjustment > 0 ? 'to' : 'from'} batch ${widget.batch.batchCode} '
-          '(${widget.batch.quantity} → $_newStock). Reason: $_reasonPreset.',
-      confirmLabel: 'Save',
-      destructive: _adjustment < 0,
-      icon: Icons.inventory_2_outlined,
-    );
-    if (!ok || !mounted) return;
-    setState(() => _saving = true);
-    try {
-      final result = await StaffRepository.instance.adjustBatch(
-        batchId: widget.batch.id,
-        delta: _adjustment,
-        reason: _reasonPreset,
-        note: _reasonController.text.trim(),
-        // One key per distinct request: a retry after a timeout reuses it, so
-        // the server applies the adjustment once even if the first try landed.
-        idempotencyKey: _requestKey.keyFor(
-          jsonEncode([widget.batch.id, _adjustment, _reasonPreset, _reasonController.text.trim()]),
+    if (_saving) return;
+    if (widget.batch.isLocal) {
+      AppErrors.showSnack(context, const AppError(AppErrorKind.invalidData,
+          'This batch is still waiting to sync. You can adjust it once it has reached the server.'));
+      return;
+    }
+    if (!FormUtils.validateAndFocus(_formKey)) return;
+    // Validation step for expired stock: the batch must really be expired.
+    if (_expiredNotAllowed) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.block_rounded, color: AppColors.error),
+          title: const Text('This batch has not expired'),
+          content: Text(
+            'Batch ${widget.batch.batchCode} of $_productName expires on $_expiryText. '
+            'It cannot be adjusted as "Expired" before that date. Choose another reason if the stock '
+            'really has to be removed.',
+          ),
+          actions: [FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
         ),
       );
+      return;
+    }
+    if (!mounted) return;
+    // Stock changes are recorded in the audit log: confirm first.
+    final ok = _isExpiredReason
+        ? await ConfirmDialog.show(
+            context,
+            title: 'Confirm expired stock',
+            message: 'Confirm these ${_adjustment.abs()} unit(s) of $_productName are truly expired?\n\n'
+                'Batch ${widget.batch.batchCode} • Expiry date: $_expiryText\n'
+                'Stock: ${widget.batch.quantity} → $_newStock',
+            confirmLabel: 'Yes, remove expired',
+            cancelLabel: 'Review again',
+            destructive: true,
+            icon: Icons.event_busy_rounded,
+          )
+        : await ConfirmDialog.show(
+            context,
+            title: 'Save this adjustment?',
+            message: '${_adjustment > 0 ? 'Add' : 'Remove'} ${_adjustment.abs()} pack(s) '
+                '${_adjustment > 0 ? 'to' : 'from'} batch ${widget.batch.batchCode} '
+                '(${widget.batch.quantity} → $_newStock). Reason: $_reasonPreset.',
+            confirmLabel: 'Save',
+            destructive: _adjustment < 0,
+            icon: Icons.inventory_2_outlined,
+          );
+    if (!ok || !mounted) return;
+    setState(() => _saving = true);
+    final note = _reasonController.text.trim();
+    try {
+      final result = await StaffOfflineSync.instance.adjustBatch(
+        branchId: widget.batch.branchId,
+        productId: widget.batch.productId,
+        variantId: widget.batch.variantId,
+        batchId: widget.batch.id,
+        batchCode: widget.batch.batchCode,
+        delta: _adjustment,
+        reason: _reasonPreset,
+        note: note,
+        // One key per distinct request: a retry after a timeout reuses it, so
+        // the server applies the adjustment once even if the first try landed.
+        // Offline it is also the queued operation's id (synced once).
+        requestKey: _requestKey.keyFor(jsonEncode([widget.batch.id, _adjustment, _reasonPreset, note])),
+      );
       if (!mounted) return;
-      StaffStore.instance.refreshLive();
+      if (result != null) StaffStore.instance.refreshLive();
       Navigator.of(context).pushReplacementNamed(
         AppRoutes.inventoryAdjustmentSuccess,
         arguments: {
           'productId': widget.batch.productId,
           'batch': widget.batch,
-          'adjustment': (result['adjustment'] as num).toInt(),
-          'newStock': (result['new_quantity'] as num).toInt(),
+          'adjustment': result == null ? _adjustment : (result['adjustment'] as num).toInt(),
+          'newStock': result == null ? _newStock : (result['new_quantity'] as num).toInt(),
+          'pendingSync': result == null,
         },
       );
     } catch (e, st) {
@@ -151,8 +229,20 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(product.name, style: AppTextStyles.labelLg),
+                          Row(
+                            children: [
+                              Flexible(child: Text(_productName, style: AppTextStyles.labelLg, overflow: TextOverflow.ellipsis)),
+                              if (widget.batch.pendingSync) ...[const SizedBox(width: 6), const PendingSyncChip()],
+                            ],
+                          ),
                           Text('${widget.batch.variantLabel.isEmpty ? '' : '${widget.batch.variantLabel} • '}Batch ${widget.batch.batchCode} • ${widget.batch.branch}', style: AppTextStyles.bodySm),
+                          Text(
+                            '${widget.batch.isExpired ? 'Expired' : 'Expires'} $_expiryText',
+                            style: AppTextStyles.bodySm.copyWith(
+                              color: widget.batch.isExpired ? AppColors.error : AppColors.textSecondary,
+                              fontWeight: widget.batch.isExpired ? FontWeight.w600 : null,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -227,7 +317,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final reason in const ['Stock count correction', 'Damaged goods', 'Expired / disposed', 'Found extra stock'])
+                  for (final reason in _reasons)
                     ChoiceChip(
                       label: Text(reason),
                       selected: _reasonPreset == reason,
@@ -236,6 +326,31 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
                     ),
                 ],
               ),
+              if (_expiredNotAllowed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.error_outline_rounded, size: 16, color: AppColors.error),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'This batch expires on $_expiryText, so it cannot be adjusted as Expired yet.',
+                          style: AppTextStyles.bodySm.copyWith(color: AppColors.error),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (widget.batch.isLocal)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'This batch was received offline and is still waiting to sync. Adjust it once it has synced.',
+                    style: AppTextStyles.bodySm.copyWith(color: AppColors.warning),
+                  ),
+                ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _reasonController,
@@ -249,8 +364,8 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
               PrimaryButton(
-                label: 'Submit Adjustment',
-                icon: Icons.check_rounded,
+                label: _isExpiredReason ? 'Confirm Expired Stock' : 'Submit Adjustment',
+                icon: _isExpiredReason ? Icons.event_busy_rounded : Icons.check_rounded,
                 loading: _saving,
                 // Always enabled: problems are explained under the field instead.
                 onPressed: _submit,

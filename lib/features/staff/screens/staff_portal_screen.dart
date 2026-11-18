@@ -17,6 +17,8 @@ import '../../inventory/screens/inventory_dashboard_screen.dart';
 import '../../settings/screens/logout_flow.dart';
 import '../barcode/barcode_scan_screen.dart';
 import '../barcode/sku_matcher.dart';
+import '../../../core/widgets/pending_sync_chip.dart';
+import '../widgets/e_receipt.dart';
 import '../widgets/pos_offline_widgets.dart';
 import '../widgets/staff_avatar.dart';
 import 'cash_drawer_screen.dart';
@@ -82,6 +84,8 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
               ],
             ),
             actions: [
+              // Changes saved offline (hidden while nothing is waiting).
+              const SyncQueueButton(),
               if (profile.isOwner && kBranches.isNotEmpty)
                 PopupMenuButton<String>(
                   tooltip: 'Switch branch',
@@ -290,7 +294,6 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
 
         return Column(
           children: [
-            const PosQueueBanner(),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
               child: TextField(
@@ -694,9 +697,13 @@ class _OrderCard extends StatelessWidget {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(o.id, style: AppTextStyles.labelLg),
+                Flexible(child: Text(o.id, style: AppTextStyles.labelLg, overflow: TextOverflow.ellipsis)),
+                if (o.pendingSync || o.syncError != null) ...[
+                  const SizedBox(width: 6),
+                  PendingSyncChip(failed: o.syncError != null),
+                ],
+                const Spacer(),
                 _StatusChip(status: o.status),
               ],
             ),
@@ -734,6 +741,20 @@ class _OrderCard extends StatelessWidget {
                 if (o.isDelivery) _PinIndicator(orderId: o.id),
                 const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.textSecondary),
               ],
+            ),
+            // E-receipt from the copy stored on this device (works offline).
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: const Size(0, 36),
+                  foregroundColor: AppColors.roleStaff,
+                ),
+                onPressed: () => showEReceipt(context, o),
+                icon: const Icon(Icons.receipt_rounded, size: 18),
+                label: const Text('E-receipt'),
+              ),
             ),
           ],
         ),

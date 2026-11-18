@@ -76,6 +76,13 @@ class InventoryBatch {
   /// Branch-wide stock of this batch's variant. Defaults to [quantity].
   final int? variantStock;
 
+  /// Product name as the inventory read model sent it (used when the product
+  /// is not in the loaded catalog yet, e.g. created offline).
+  final String productName;
+
+  /// Received / changed on this device and not yet accepted by the server.
+  final bool pendingSync;
+
   const InventoryBatch({
     required this.id,
     required this.productId,
@@ -89,13 +96,37 @@ class InventoryBatch {
     this.variantId = '',
     this.variantLabel = '',
     this.variantStock,
+    this.productName = '',
+    this.pendingSync = false,
   });
+
+  /// A batch received on this device that has no server id yet.
+  bool get isLocal => id.startsWith('local:');
+
+  InventoryBatch copyWith({int? quantity, int? variantStock, int? restockThreshold, bool? pendingSync}) =>
+      InventoryBatch(
+        id: id,
+        productId: productId,
+        batchCode: batchCode,
+        branch: branch,
+        receivedDate: receivedDate,
+        expirationDate: expirationDate,
+        quantity: quantity ?? this.quantity,
+        restockThreshold: restockThreshold ?? this.restockThreshold,
+        branchId: branchId,
+        variantId: variantId,
+        variantLabel: variantLabel,
+        variantStock: variantStock ?? this.variantStock,
+        productName: productName,
+        pendingSync: pendingSync ?? this.pendingSync,
+      );
 
   factory InventoryBatch.fromJson(
     Map<String, dynamic> j, {
     required String variantLabel,
     required int? restockThreshold,
     required int variantStock,
+    String productName = '',
   }) {
     return InventoryBatch(
       id: j['id'] as String,
@@ -110,8 +141,12 @@ class InventoryBatch {
       variantId: j['variant_id'] as String,
       variantLabel: variantLabel,
       variantStock: variantStock,
+      productName: (j['product_name'] as String?) ?? productName,
     );
   }
+
+  /// True once the batch has reached (or passed) its expiry date.
+  bool get isExpired => daysUntilExpiry <= 0;
 
   /// Whole calendar days until expiry (expiry dates carry no time of day).
   int get daysUntilExpiry {

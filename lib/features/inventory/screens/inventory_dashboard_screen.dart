@@ -98,34 +98,33 @@ class InventoryDashboardBody extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         Text('Quick Actions', style: AppTextStyles.headlineSm),
         const SizedBox(height: AppSpacing.sm),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.5,
-          children: [
-            _ActionTile(
-              icon: Icons.list_alt_rounded,
-              label: 'Inventory List',
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryList),
-            ),
-            _ActionTile(
-              icon: Icons.storefront_outlined,
-              label: 'Branch Inventory',
-              onTap: () => Navigator.of(context).pushNamed(
-                AppRoutes.inventoryBranch,
-                arguments: store.activeBranchName,
+        // One row: Inventory List + Add Inventory side by side. Without the
+        // inventory permission, Inventory List takes the full width (no gap).
+        SizedBox(
+          height: 104,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _ActionTile(
+                  icon: Icons.list_alt_rounded,
+                  label: 'Inventory List',
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryList),
+                ),
               ),
-            ),
-            if (store.canManageInventory)
-              _ActionTile(
-                icon: Icons.add_box_outlined,
-                label: 'Add Inventory',
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryAdd),
-              ),
-          ],
+              if (store.canManageInventory) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _ActionTile(
+                    icon: Icons.add_box_outlined,
+                    label: 'Add Inventory',
+                    // Straight to Receive Stock (no landing screen in between).
+                    onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryReceive),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
         if (expiring.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),

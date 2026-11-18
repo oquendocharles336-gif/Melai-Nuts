@@ -850,7 +850,8 @@ class PosReceiptScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Receipt'), automaticallyImplyLeading: false),
       body: SafeArea(
         child: FutureBuilder<StaffOrder?>(
-          future: StaffRepository.instance.fetchOrder(store.activeBranchId, sale.orderId),
+          // Also stores the full receipt on the device (offline e-receipts).
+          future: store.fetchOrderWithReceipt(sale.orderId),
           builder: (context, snap) {
             final order = snap.data;
             return ListView(

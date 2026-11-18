@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../data/repositories/products_repository.dart';
-import '../../features/customer/cart_controller.dart';
 import '../services/auth_service.dart';
 import '../services/branch_controller.dart';
 import '../services/checkout_attempt_store.dart';
@@ -12,18 +11,21 @@ import '../services/pending_writes_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
-/// Honest connectivity / sync strip for customer screens. Each strip
-/// reports a DIFFERENT, real state — never a guess from one slow request:
+/// Honest sync strip for customer screens. Each strip reports a DIFFERENT,
+/// real state — never a guess from one slow request:
 ///
-///  * offline           — no network path (from `ConnectivityService`).
 ///  * saved data        — online, but the server couldn't answer, so what's
 ///                        on screen is the last saved copy (`CacheStatus`).
 ///  * waiting to sync   — changes stored on this device, not yet accepted by
-///                        the server (`PendingWritesService`, unsynced cart).
+///                        the server (`PendingWritesService`).
 ///  * failed to sync    — the server refused a queued change; the customer
 ///                        chooses Retry or Discard (never silently dropped).
 ///  * order confirmed   — an earlier, unconfirmed checkout was found on the
 ///                        server after reconnecting (`CheckoutAttemptStore`).
+///
+/// Going offline / coming back online and an unsynced cart are NOT strips any
+/// more: they are announced once per change as notifications (`AppNotices`),
+/// so no permanent banner takes space at the top of the screen.
 ///
 /// Wrap any customer screen's body in this (see `CustomerPortalScreen`).
 class OfflineBanner extends StatelessWidget {
@@ -53,7 +55,6 @@ class OfflineBanner extends StatelessWidget {
         ConnectivityService.instance,
         CacheStatus.instance,
         PendingWritesService.instance,
-        CartController.instance,
         CheckoutAttemptStore.instance,
       ]),
       builder: (context, _) {
@@ -63,20 +64,12 @@ class OfflineBanner extends StatelessWidget {
         final writes = PendingWritesService.instance;
         final pending = uid == null ? 0 : writes.pendingCount(uid);
         final failed = uid == null ? 0 : writes.failedCount(uid);
-        final cartUnsynced = uid != null && CartController.instance.hasUnsyncedChanges;
         final recovered = uid == null ? null : CheckoutAttemptStore.instance.recoveredOrder;
 
         final strips = <_Strip>[];
         final savedAt = cache.oldestSavedAt;
-        if (!online) {
-          strips.add(_Strip(
-            icon: Icons.cloud_off_rounded,
-            color: AppColors.textMuted,
-            text: 'You\'re offline — showing saved data'
-                '${savedAt != null ? ' from ${_when(savedAt)}' : ''}. '
-                'Orders, payments and refunds can\'t be placed until you reconnect.',
-          ));
-        } else if (cache.isShowingSavedData) {
+        // Offline is announced as a notification (AppNotices), not a strip.
+        if (online && cache.isShowingSavedData) {
           strips.add(_Strip(
             icon: Icons.history_rounded,
             color: AppColors.textMuted,
@@ -92,13 +85,6 @@ class OfflineBanner extends StatelessWidget {
             color: AppColors.warning,
             text: '${_plural(pending, 'change')} saved on this device, waiting to sync. '
                 'Not saved to your account yet.',
-          ));
-        }
-        if (cartUnsynced) {
-          strips.add(const _Strip(
-            icon: Icons.shopping_cart_outlined,
-            color: AppColors.warning,
-            text: 'Your cart changes haven\'t synced to your account yet.',
           ));
         }
         if (failed > 0 && uid != null) {

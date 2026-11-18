@@ -12,19 +12,21 @@
 /// by the owner on 2026-11-07 (docs/owner-approval.md). Privacy 9 (product
 /// photos and file access, 2026-11-17) and the 2026-11-18 update (verified
 /// mobile number, first-order payment, manual payment confirmation, sign-in
-/// protection, processors, retention) wait for the owner, who also fills in
+/// protection, processors, retention) and the 2026-11-18.2 update (offline
+/// use: Terms 10, Privacy 12, offline data in Privacy 2 and 4) wait for the
+/// owner, who also fills in
 /// the business name and address marked "TO BE FILLED IN BY THE OWNER".
 class LegalConfig {
   LegalConfig._();
 
-  static const String termsVersion = '2026-11-18';
-  static const String privacyVersion = '2026-11-18';
+  static const String termsVersion = '2026-11-18.2';
+  static const String privacyVersion = '2026-11-18.2';
 
   /// Section numbers whose wording still needs the owner's confirmation.
   /// They show a small "draft" note until this set is emptied.
   static const Set<String> ownerReviewSections = {
-    'terms.2', 'terms.3', 'terms.6', 'terms.7', 'terms.9',
+    'terms.2', 'terms.3', 'terms.6', 'terms.7', 'terms.9', 'terms.10',
     'privacy.1', 'privacy.2', 'privacy.3', 'privacy.4', 'privacy.5', 'privacy.8',
-    'privacy.9', 'privacy.10', 'privacy.11',
+    'privacy.9', 'privacy.10', 'privacy.11', 'privacy.12',
   };
 }

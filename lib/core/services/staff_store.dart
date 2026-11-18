@@ -14,8 +14,11 @@ import '../../data/repositories/delivery_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/staff_repository.dart';
 import '../utils/app_error.dart';
+import 'staff_inventory_overlay.dart';
+import 'staff_offline_store.dart';
 import 'staff_session_store.dart';
 import 'supabase_service.dart';
+import 'sync_service.dart';
 
 /// Loading status of one section of staff data.
 class LoadState {
@@ -35,18 +38,47 @@ class LoadState {
 /// branch they are working in, dashboard numbers, inventory, orders, transfers
 /// and notifications.
 ///
-/// Everything here is read from the database (which enforces who may see what);
-/// nothing is stored on the device. Realtime subscriptions refresh it when
-/// orders, stock, transfers or notifications change.
+/// Everything here is read from the database (which enforces who may see what).
+/// The last answers (inventory, dashboard, orders with their full e-receipt
+/// data) are kept on the device ([StaffOfflineStore]) so every staff screen
+/// keeps working offline from that copy; changes made offline (products,
+/// received / adjusted stock, sales) are shown on top of it, marked
+/// "Pending sync", until the server has them. Realtime subscriptions refresh
+/// it when orders, stock, transfers or notifications change.
 ///
 /// Staff always work in their assigned branch. An owner has no assigned branch
 /// and picks the branch to view with [setOwnerBranch].
 class StaffStore extends ChangeNotifier {
-  StaffStore._();
+  StaffStore._() {
+    // A change saved / synced on this device re-shows the data at once.
+    _offline.addListener(_onLocalChange);
+    // A queued change reached the server: re-read the server copy (debounced).
+    SyncService.instance.addListener(_onSyncCounts);
+  }
   static final StaffStore instance = StaffStore._();
 
   final StaffRepository _repo = StaffRepository.instance;
   final DeliveryRepository _deliveryRepo = DeliveryRepository.instance;
+  final StaffOfflineStore _offline = StaffOfflineStore.instance;
+
+  /// The signed-in staff member's UID: the scope of everything kept on the device.
+  String? get _scope => profile?.uid;
+
+  // Last server copies (live, or read back from the device while offline).
+  StaffInventorySnapshot? _baseInventory;
+  DateTime? _baseInventoryAt;
+  String? _baseInventoryBranch;
+  List<StaffOrder>? _baseOrders;
+  String? _baseOrdersBranch;
+  List<StaffNotification> _serverNotifications = const [];
+  int _lastPending = 0;
+  Timer? _localDebounce;
+
+  /// True while a section is shown from the copy saved on this device
+  /// because the server could not be reached.
+  bool inventoryFromSavedCopy = false;
+  bool ordersFromSavedCopy = false;
+  bool dashboardFromSavedCopy = false;
 
   int _generation = 0;
   Timer? _debounce;
@@ -113,6 +145,10 @@ class StaffStore extends ChangeNotifier {
   final LoadState dashboardState = LoadState();
 
   List<InventoryItem> inventoryItems = const [];
+
+  /// Products created / edited on this device that the server does not have
+  /// yet (shown with "Pending sync" in the product list).
+  List<PendingProduct> pendingProducts = const [];
   List<InventoryBatch> batches = const [];
   final LoadState inventoryState = LoadState();
 
@@ -201,6 +237,7 @@ class StaffStore extends ChangeNotifier {
       }
     }
     if (gen != _generation || profile == null) return;
+    unawaited(_offline.tidy(profile!.uid));
     _restartRealtime();
     unawaited(ProductsRepository.instance.loadCatalog());
     await refreshAll();
@@ -239,6 +276,8 @@ class StaffStore extends ChangeNotifier {
   Future<void> setOwnerBranch(String branchId) async {
     if (!isOwner || _ownerBranchId == branchId) return;
     _ownerBranchId = branchId;
+    _baseInventory = null;
+    _baseOrders = null;
     dashboard = null;
     inventoryItems = const [];
     batches = const [];
@@ -261,8 +300,23 @@ class StaffStore extends ChangeNotifier {
 
   /// Wipes everything held in memory (sign-out).
   void clear() {
+    // Sign-out / account change: the saved copies of this account's branch
+    // data are erased (unsent changes stay queued for this account only).
+    final signedOut = profile?.uid;
+    if (signedOut != null) unawaited(_offline.clearCopiesForSignOut(signedOut));
     _generation++;
     _debounce?.cancel();
+    _localDebounce?.cancel();
+    _baseInventory = null;
+    _baseInventoryAt = null;
+    _baseInventoryBranch = null;
+    _baseOrders = null;
+    _baseOrdersBranch = null;
+    _serverNotifications = const [];
+    pendingProducts = const [];
+    inventoryFromSavedCopy = false;
+    ordersFromSavedCopy = false;
+    dashboardFromSavedCopy = false;
     _stopRealtime();
     profile = null;
     _ownerBranchId = null;
@@ -325,32 +379,188 @@ class StaffStore extends ChangeNotifier {
     }
   }
 
+  /// The copy of [kind] saved on this device, used when [error] is a
+  /// connectivity failure. Anything else (or no saved copy) is rethrown.
+  Future<({Map<String, dynamic> json, DateTime savedAt})> _savedSnapshot(
+      String scope, String branch, String kind, Object error) async {
+    final mapped = AppErrors.from(error);
+    if (!mapped.isConnectivity) throw mapped;
+    final saved = await _offline.snapshot(scope, branch, kind);
+    if (saved == null) throw mapped;
+    return saved;
+  }
+
+  /// Saving the offline copy is best effort: it never fails a refresh.
+  Future<void> _quietly(Future<void> Function() save, String where) async {
+    try {
+      await save();
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_store:$where');
+    }
+  }
+
   Future<void> refreshDashboard() => _load(dashboardState, () async {
         final branch = activeBranchId;
-        if (branch == null) throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
-        final d = await _repo.getDashboard(branch);
-        if (branch == activeBranchId) dashboard = d;
+        final scope = _scope;
+        if (branch == null || scope == null) throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
+        final started = DateTime.now();
+        Map<String, dynamic> raw;
+        var fromCopy = false;
+        try {
+          raw = await _repo.fetchDashboardJson(branch);
+          unawaited(_quietly(() => _offline.saveSnapshot(scope, branch, 'dashboard', raw, fetchedAt: started), 'dashboard_copy'));
+        } catch (e) {
+          raw = (await _savedSnapshot(scope, branch, 'dashboard', e)).json;
+          fromCopy = true;
+        }
+        if (branch == activeBranchId) {
+          dashboard = StaffDashboard.fromJson(raw);
+          dashboardFromSavedCopy = fromCopy;
+        }
       });
 
   Future<void> refreshInventory() => _load(inventoryState, () async {
         final branch = activeBranchId;
-        if (branch == null) throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
-        final s = await _repo.getInventory(branch);
-        if (branch == activeBranchId) {
-          inventoryItems = s.items;
-          batches = s.batches;
+        final scope = _scope;
+        if (branch == null || scope == null) throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
+        final started = DateTime.now();
+        StaffInventorySnapshot base;
+        DateTime baseAt;
+        var fromCopy = false;
+        try {
+          final raw = await _repo.fetchInventoryJson(branch);
+          base = _repo.parseInventory(raw);
+          baseAt = started;
+          unawaited(_quietly(() => _offline.saveSnapshot(scope, branch, 'inventory', raw, fetchedAt: started), 'inventory_copy'));
+        } catch (e) {
+          final saved = await _savedSnapshot(scope, branch, 'inventory', e);
+          base = _repo.parseInventory(saved.json);
+          baseAt = saved.savedAt;
+          fromCopy = true;
         }
+        if (branch != activeBranchId) return;
+        _baseInventory = base;
+        _baseInventoryAt = baseAt;
+        _baseInventoryBranch = branch;
+        inventoryFromSavedCopy = fromCopy;
+        // Until the overlay is computed, show the server copy as it is.
+        inventoryItems = base.items;
+        batches = base.batches;
+        await _applyInventoryOverlay();
       });
+
+  /// Shows this device's not-yet-counted changes on top of the server copy.
+  Future<void> _applyInventoryOverlay() async {
+    final scope = _scope;
+    if (scope == null) return;
+    final products = await _offline.pendingProducts(scope);
+    if (scope != _scope) return;
+    pendingProducts = products;
+    final base = _baseInventory;
+    final at = _baseInventoryAt;
+    final branch = _baseInventoryBranch;
+    if (base == null || at == null || branch == null || branch != activeBranchId) return;
+    final movements = await _offline.unreconciledMovements(scope, branch, at);
+    if (!identical(base, _baseInventory)) return; // a newer copy arrived meanwhile
+    final shown = StaffInventoryOverlay.apply(
+      base: base,
+      movements: movements,
+      pendingProducts: products,
+      branchName: activeBranchName,
+    );
+    inventoryItems = shown.items;
+    batches = shown.batches;
+  }
 
   Future<void> refreshOrders() => _load(ordersState, () async {
         final branch = activeBranchId;
-        if (branch == null) throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
-        final rows = await _repo.listOrders(branchId: branch, limit: 150);
-        if (branch == activeBranchId) {
-          orders = rows;
-          unawaited(_loadDeliveryPins(branch, rows));
+        final scope = _scope;
+        if (branch == null || scope == null) throw const AppError(AppErrorKind.notFound, 'Please choose a branch first.');
+        List<StaffOrder> server;
+        var fromCopy = false;
+        try {
+          final rows = await _repo.listOrderRows(branchId: branch, limit: 150);
+          server = rows.map(StaffOrder.fromJson).toList();
+          // Full receipt data of every fetched order, for offline e-receipts.
+          unawaited(_quietly(() => _offline.saveServerReceipts(scope, branch, rows), 'receipts_copy'));
+          unawaited(_offline.dropReconciledReceipts(scope, {for (final o in server) o.id}));
+        } catch (e) {
+          final mapped = AppErrors.from(e);
+          if (!mapped.isConnectivity) throw mapped;
+          final saved = await _offline.receipts(scope, branch, limit: 150);
+          if (saved.isEmpty) throw mapped;
+          server = [for (final r in saved) if (!r.isLocal) r.toOrder()];
+          fromCopy = true;
         }
+        if (branch != activeBranchId) return;
+        _baseOrders = server;
+        _baseOrdersBranch = branch;
+        ordersFromSavedCopy = fromCopy;
+        orders = server;
+        await _applyOrdersOverlay();
+        if (!fromCopy) unawaited(_loadDeliveryPins(branch, server));
       });
+
+  /// Adds the sales rung up on this device (with locally generated
+  /// e-receipts) to the server's orders until the server has them.
+  Future<void> _applyOrdersOverlay() async {
+    final base = _baseOrders;
+    final branch = _baseOrdersBranch;
+    final scope = _scope;
+    if (base == null || branch == null || scope == null || branch != activeBranchId) return;
+    final local = await _offline.localReceipts(scope, branch);
+    if (!identical(base, _baseOrders)) return;
+    final serverIds = {for (final o in base) o.id};
+    final extra = [
+      for (final r in local)
+        if (r.serverOrderId == null || !serverIds.contains(r.serverOrderId)) r.toOrder(),
+    ];
+    orders = extra.isEmpty ? base : ([...extra, ...base]..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+  }
+
+  /// One order with its receipt kept on the device (POS receipt screen).
+  /// Offline, the saved copy is returned instead.
+  Future<StaffOrder?> fetchOrderWithReceipt(String orderId) async {
+    final branch = activeBranchId;
+    final scope = _scope;
+    try {
+      final rows = await _repo.listOrderRows(branchId: branch, orderId: orderId, limit: 1);
+      if (rows.isEmpty) return null;
+      if (scope != null && branch != null) {
+        unawaited(_quietly(() => _offline.saveServerReceipts(scope, branch, rows), 'receipt_copy'));
+      }
+      return StaffOrder.fromJson(rows.first);
+    } catch (e) {
+      if (scope == null || !AppErrors.from(e).isConnectivity) rethrow;
+      final saved = await _offline.receipt(scope, orderId);
+      if (saved == null) rethrow;
+      return saved.toOrder();
+    }
+  }
+
+  /// The e-receipt of [orderId] as stored on this device (works offline).
+  Future<StaffOrder?> storedReceipt(String orderId) async {
+    final scope = _scope;
+    if (scope == null) return null;
+    return (await _offline.receipt(scope, orderId))?.toOrder();
+  }
+
+  void _onLocalChange() {
+    if (profile == null) return;
+    _localDebounce?.cancel();
+    _localDebounce = Timer(const Duration(milliseconds: 150), () async {
+      final gen = _generation;
+      await Future.wait([_applyInventoryOverlay(), _applyOrdersOverlay(), _applyNotifications()]);
+      if (gen == _generation) notifyListeners();
+    });
+  }
+
+  void _onSyncCounts() {
+    final pending = SyncService.instance.pendingCount;
+    final sent = pending < _lastPending;
+    _lastPending = pending;
+    if (sent && profile != null) _scheduleRefresh();
+  }
 
   Future<void> _loadDeliveryPins(String branch, List<StaffOrder> rows) async {
     final gen = _generation;
@@ -376,8 +586,36 @@ class StaffStore extends ChangeNotifier {
       });
 
   Future<void> refreshNotifications() => _load(notificationsState, () async {
-        notifications = await _repo.fetchNotifications();
+        try {
+          // Offline, the read cache answers with the last saved list.
+          _serverNotifications = await _repo.fetchNotifications();
+        } catch (e) {
+          final mapped = AppErrors.from(e);
+          if (!mapped.isConnectivity) throw mapped;
+          // Nothing saved yet: keep what is shown; local notices still appear.
+        }
+        await _applyNotifications();
       });
+
+  /// Server notifications plus the ones raised on this device (connection,
+  /// sync, expired stock), newest first.
+  Future<void> _applyNotifications() async {
+    final scope = _scope;
+    final local = scope == null ? const <StaffNotification>[] : await _offline.notifications(scope);
+    final all = [...local, ..._serverNotifications]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    notifications = all;
+  }
+
+  /// Adds a notification raised on this device to the list (and the badge).
+  Future<void> addLocalNotification(StaffNotification n) async {
+    final scope = _scope;
+    if (scope == null) return;
+    await _offline.putNotification(scope, n);
+    await _applyNotifications();
+    notifyListeners();
+  }
+
+  static bool _isLocal(String id) => id.startsWith('local:');
 
   Future<void> refreshRefunds() => _load(refundsState, () async {
         final branch = activeBranchId;
@@ -411,7 +649,13 @@ class StaffStore extends ChangeNotifier {
 
   Future<void> markNotificationRead(String id) async {
     notifications = [for (final n in notifications) n.id == id ? n.asRead() : n];
+    _serverNotifications = [for (final n in _serverNotifications) n.id == id ? n.asRead() : n];
     notifyListeners();
+    final scope = _scope;
+    if (_isLocal(id)) {
+      if (scope != null) await _offline.markNotificationsRead(scope, id: id);
+      return;
+    }
     try {
       await _repo.markNotificationRead(id);
     } catch (caughtError, caughtStack) {
@@ -422,7 +666,10 @@ class StaffStore extends ChangeNotifier {
 
   Future<void> markAllNotificationsRead() async {
     notifications = [for (final n in notifications) n.asRead()];
+    _serverNotifications = [for (final n in _serverNotifications) n.asRead()];
     notifyListeners();
+    final scope = _scope;
+    if (scope != null) unawaited(_offline.markNotificationsRead(scope));
     try {
       await _repo.markAllNotificationsRead();
     } catch (caughtError, caughtStack) {
@@ -433,7 +680,13 @@ class StaffStore extends ChangeNotifier {
 
   Future<void> deleteNotification(String id) async {
     notifications = notifications.where((n) => n.id != id).toList();
+    _serverNotifications = _serverNotifications.where((n) => n.id != id).toList();
     notifyListeners();
+    final scope = _scope;
+    if (_isLocal(id)) {
+      if (scope != null) await _offline.deleteNotification(scope, id);
+      return;
+    }
     try {
       await _repo.deleteNotification(id);
     } catch (caughtError, caughtStack) {

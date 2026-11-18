@@ -180,6 +180,32 @@ class StaffRepository {
         'p_branch_ids': branchIds,
       })) as String;
 
+  /// Creates a product (and its default "Standard" variant) with ids made on
+  /// this device. Safe to send again: a replay returns the product already
+  /// created (`staff_create_product_offline`, migration 20261118070000).
+  Future<Map<String, dynamic>> createProductWithIds({
+    required String productId,
+    required String variantId,
+    required String name,
+    required String description,
+    String? categoryId,
+    required double price,
+    double? costPrice,
+    bool isActive = true,
+    List<String> branchIds = const [],
+  }) async =>
+      _map(await _rpc('staff_create_product_offline', {
+        'p_product_id': productId,
+        'p_variant_id': variantId,
+        'p_name': name,
+        'p_description': description,
+        'p_category_id': categoryId,
+        'p_price': price,
+        'p_cost_price': costPrice,
+        'p_is_active': isActive,
+        'p_branch_ids': branchIds,
+      }));
+
   Future<void> setProductActive(String productId, bool isActive) =>
       _rpc('staff_set_product_active', {'p_product_id': productId, 'p_is_active': isActive});
 
@@ -194,7 +220,11 @@ class StaffRepository {
   // ---- Account / dashboard ------------------------------------------------
 
   Future<StaffDashboard> getDashboard(String? branchId) async =>
-      StaffDashboard.fromJson(_map(await _rpc('staff_get_dashboard', {'p_branch_id': branchId})));
+      StaffDashboard.fromJson(await fetchDashboardJson(branchId));
+
+  /// The raw dashboard answer (kept on the device for offline use).
+  Future<Map<String, dynamic>> fetchDashboardJson(String? branchId) async =>
+      _map(await _rpc('staff_get_dashboard', {'p_branch_id': branchId}));
 
   // ---- Inventory ------------------------------------------------------------
 
@@ -214,8 +244,16 @@ class StaffRepository {
   Future<OwnerSalesSummary> getOwnerSalesSummary({int days = 30}) async =>
       OwnerSalesSummary.fromJson(_map(await _rpc('owner_sales_summary', {'p_days': days})));
 
-  Future<StaffInventorySnapshot> getInventory(String? branchId) async {
-    final data = _map(await _rpc('staff_get_inventory', {'p_branch_id': branchId}));
+  Future<StaffInventorySnapshot> getInventory(String? branchId) async =>
+      parseInventory(await fetchInventoryJson(branchId));
+
+  /// The raw inventory answer (kept on the device for offline use).
+  Future<Map<String, dynamic>> fetchInventoryJson(String? branchId) async =>
+      _map(await _rpc('staff_get_inventory', {'p_branch_id': branchId}));
+
+  /// Builds the read model from a `staff_get_inventory` answer (live or the
+  /// copy saved on this device).
+  StaffInventorySnapshot parseInventory(Map<String, dynamic> data) {
     final resolvedBranch = data['branch_id'] as String;
     final itemRows = _list(data['items']);
     final batchRows = _list(data['batches']);
@@ -229,6 +267,7 @@ class StaffRepository {
           variantLabel: (itemByVariant[b['variant_id']]?['variant_label'] as String?) ?? '',
           restockThreshold: (itemByVariant[b['variant_id']]?['restock_threshold'] as num?)?.toInt(),
           variantStock: (itemByVariant[b['variant_id']]?['quantity'] as num?)?.toInt() ?? 0,
+          productName: (itemByVariant[b['variant_id']]?['product_name'] as String?) ?? '',
         ),
     ];
 
@@ -349,13 +388,30 @@ class StaffRepository {
     int limit = 100,
     String? orderId,
   }) async =>
+      (await listOrderRows(
+        branchId: branchId,
+        statuses: statuses,
+        since: since,
+        limit: limit,
+        orderId: orderId,
+      )).map(StaffOrder.fromJson).toList();
+
+  /// The raw order rows — each one carries everything an e-receipt needs, so
+  /// they are kept on the device as the offline receipt copy.
+  Future<List<Map<String, dynamic>>> listOrderRows({
+    String? branchId,
+    List<String>? statuses,
+    DateTime? since,
+    int limit = 100,
+    String? orderId,
+  }) async =>
       _list(await _rpc('staff_list_orders', {
         'p_branch_id': branchId,
         'p_statuses': statuses,
         'p_since': since?.toUtc().toIso8601String(),
         'p_limit': limit,
         'p_order_id': orderId,
-      })).map(StaffOrder.fromJson).toList();
+      }));
 
   Future<StaffOrder?> fetchOrder(String? branchId, String orderId) async {
     final rows = await listOrders(branchId: branchId, orderId: orderId, limit: 1);

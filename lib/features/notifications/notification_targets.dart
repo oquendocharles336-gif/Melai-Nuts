@@ -4,6 +4,7 @@ import '../../app/routes.dart';
 import '../../core/services/customer_data_store.dart';
 import '../../core/services/staff_store.dart';
 import '../../core/utils/app_error.dart';
+import '../../data/models/inventory_batch.dart';
 import '../../data/models/order.dart';
 import '../../data/models/staff_models.dart';
 import '../../data/repositories/orders_repository.dart';
@@ -17,6 +18,10 @@ class NotificationTargets {
   NotificationTargets._();
 
   static final RegExp _orderId = RegExp(r'ORD-\d+');
+
+  /// Reference of an expired-stock notification raised on the device:
+  /// `expired:<batch id>`.
+  static const String expiredPrefix = 'expired:';
 
   /// The order id a notification's text mentions (e.g. "Order ORD-1010 completed").
   static String? orderIdIn(String? title, String? body) =>
@@ -60,6 +65,10 @@ class NotificationTargets {
     final store = StaffStore.instance;
     switch (category) {
       case 'inventory':
+        final ref = reference ?? '';
+        if (ref.startsWith(expiredPrefix)) {
+          return openExpiredBatch(navigator, ref.substring(expiredPrefix.length));
+        }
         final isExpiry = (reference ?? '').startsWith('expiry:') ||
             (title ?? '').toLowerCase().contains('expir');
         navigator.pushNamed(isExpiry ? AppRoutes.inventoryExpiring : AppRoutes.inventoryLowStock);
@@ -77,6 +86,26 @@ class NotificationTargets {
         return true;
     }
     return false;
+  }
+
+  /// Opens Stock Adjustment pre-filled for removing the expired units of
+  /// batch [batchId] (quantity = the units left in the batch, reason
+  /// "Expired"). Falls back to Expiring Soon when the batch is gone or empty.
+  static Future<bool> openExpiredBatch(NavigatorState navigator, String batchId) async {
+    final store = StaffStore.instance;
+    await store.ensureStarted();
+    if (!store.inventoryState.loaded) await store.refreshInventory();
+    if (!navigator.mounted) return false;
+    InventoryBatch? batch;
+    for (final b in store.batches) {
+      if (b.id == batchId) batch = b;
+    }
+    if (batch == null || batch.quantity <= 0 || !store.canManageInventory) {
+      navigator.pushNamed(AppRoutes.inventoryExpiring);
+      return true;
+    }
+    navigator.pushNamed(AppRoutes.inventoryAdjustment, arguments: {'batch': batch, 'expired': true});
+    return true;
   }
 
   static Future<StaffOrder?> _staffOrder(StaffStore store, String id) async {
