@@ -31,7 +31,7 @@ class AccountEmailException implements Exception {
 ///   POST {base}/password-reset/request {"email", "captcha_token"?}  (App Check or captcha)
 ///   POST {base}/password-reset/check   {"token"}
 ///   POST {base}/password-reset/confirm {"token", "password"}
-///   POST {base}/email-change/request   {"new_email", "captcha_token"?} + Bearer <fresh ID token>
+///   POST {base}/email-change/request   {"new_email", "captcha_token"?} + `Bearer` (fresh ID token)
 ///
 /// The links in the e-mails open `https://<website>/auth/action?mode=…&token=…`, in the app
 /// through the Android App Link (ResetPasswordLinkScreen) or on the website. Firebase stays
@@ -44,10 +44,10 @@ class AccountEmailService {
 
   /// Never says whether the address has an account.
   Future<void> requestPasswordReset(String email, {String? captchaToken}) => _post(
-        '/password-reset/request',
-        {'email': email.trim().toLowerCase(), if (captchaToken != null) 'captcha_token': captchaToken},
-        appCheck: true,
-      );
+    '/password-reset/request',
+    {'email': email.trim().toLowerCase(), 'captcha_token': ?captchaToken},
+    appCheck: true,
+  );
 
   /// The account the link belongs to (the link is NOT used up). Returns the e-mail.
   Future<String> checkPasswordReset(String token) async {
@@ -75,7 +75,7 @@ class AccountEmailService {
     final token = await user.getIdToken(true);
     await _post(
       '/email-change/request',
-      {'new_email': newEmail.trim().toLowerCase(), if (captchaToken != null) 'captcha_token': captchaToken},
+      {'new_email': newEmail.trim().toLowerCase(), 'captcha_token': ?captchaToken},
       idToken: token,
       appCheck: true,
     );
@@ -99,15 +99,15 @@ class AccountEmailService {
     try {
       response = await http
           .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              if (SupabaseConfig.anonKey.isNotEmpty) 'apikey': SupabaseConfig.anonKey,
-              'Authorization': 'Bearer ${idToken ?? SupabaseConfig.anonKey}',
-              if (appCheckToken != null && appCheckToken.isNotEmpty) 'X-Firebase-AppCheck': appCheckToken,
-            },
-            body: jsonEncode(body),
-          )
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (SupabaseConfig.anonKey.isNotEmpty) 'apikey': SupabaseConfig.anonKey,
+          'Authorization': 'Bearer ${idToken ?? SupabaseConfig.anonKey}',
+          if (appCheckToken != null && appCheckToken.isNotEmpty) 'X-Firebase-AppCheck': appCheckToken,
+        },
+        body: jsonEncode(body),
+      )
           .timeout(_timeout);
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'account_email_service:post');
