@@ -77,6 +77,86 @@ class FirebaseAuthClient
         }
     }
 
+    // --- Verifying a mobile number for the signed-in account (SMS one-time code) ---------------
+    // The same Identity Toolkit calls the Firebase Web SDK makes for linkWithPhoneNumber. Firebase
+    // sends and checks the code; once linked, the number is in the account's ID token as
+    // `phone_number`, which is all the database accepts (claim_verified_phone).
+
+    /** The reCAPTCHA site key Firebase expects for phone verification on the web. */
+    public function recaptchaSiteKey(): string
+    {
+        $r = $this->send(fn () => Http::timeout(15)->acceptJson()->get(self::IDENTITY.'recaptchaParams', ['key' => $this->key()]));
+        if ($r->failed()) {
+            throw $this->error($r, 'recaptchaParams');
+        }
+        $key = (string) $r->json('recaptchaSiteKey', '');
+        if ($key === '') {
+            throw new FirebaseAuthException(FirebaseAuthException::CONFIG, 'Phone verification is not enabled in the Firebase project (Authentication > Sign-in method > Phone).');
+        }
+
+        return $key;
+    }
+
+    /** SMSes a code to $phoneE164. Returns the sessionInfo to pass to linkPhoneNumber(). */
+    public function sendPhoneCode(string $phoneE164, string $recaptchaToken): string
+    {
+        $r = $this->identity('accounts:sendVerificationCode', ['phoneNumber' => $phoneE164, 'recaptchaToken' => $recaptchaToken]);
+        $session = (string) $r->json('sessionInfo', '');
+        if ($session === '') {
+            throw new FirebaseAuthException(FirebaseAuthException::UNEXPECTED, 'The SMS could not be sent. Please try again.');
+        }
+
+        return $session;
+    }
+
+    /**
+     * Checks the SMS code and links the number to the account of $idToken (or replaces its number).
+     *
+     * @return array{uid: string, id_token: string, refresh_token: string, expires_in: int}
+     */
+    public function linkPhoneNumber(string $idToken, string $sessionInfo, string $code): array
+    {
+        $r = $this->identity('accounts:signInWithPhoneNumber', ['idToken' => $idToken, 'sessionInfo' => $sessionInfo, 'code' => $code]);
+        $out = [
+            'uid' => (string) $r->json('localId', ''),
+            'id_token' => (string) $r->json('idToken', ''),
+            'refresh_token' => (string) $r->json('refreshToken', ''),
+            'expires_in' => (int) $r->json('expiresIn', 3600),
+        ];
+        if ($out['uid'] === '' || $out['id_token'] === '') {
+            throw new FirebaseAuthException(FirebaseAuthException::UNEXPECTED, 'The number could not be verified. Please try again.');
+        }
+
+        return $out;
+    }
+
+    // --- The links in Firebase's e-mails (custom action URL https://<website>/auth/action) ------
+
+    /** Checks a password-reset code WITHOUT using it. @return string the account's e-mail */
+    public function verifyPasswordResetCode(string $oobCode): string
+    {
+        $r = $this->identity('accounts:resetPassword', ['oobCode' => $oobCode]);
+        if (strtoupper((string) $r->json('requestType', 'PASSWORD_RESET')) !== 'PASSWORD_RESET') {
+            throw new FirebaseAuthException(FirebaseAuthException::LINK_INVALID, 'This link is not a password-reset link.');
+        }
+
+        return mb_strtolower(trim((string) $r->json('email', '')));
+    }
+
+    /** Sets the new password. Firebase accepts each code once and ends the account's other sign-ins. */
+    public function confirmPasswordReset(string $oobCode, string $newPassword): void
+    {
+        $this->identity('accounts:resetPassword', ['oobCode' => $oobCode, 'newPassword' => $newPassword]);
+    }
+
+    /** Applies an e-mail verification / e-mail recovery code. @return string the request type */
+    public function applyActionCode(string $oobCode): string
+    {
+        $r = $this->identity('accounts:update', ['oobCode' => $oobCode]);
+
+        return (string) $r->json('requestType', '');
+    }
+
     /** Deletes the account the ID token belongs to (rollback of a half-finished registration). */
     public function deleteAccount(string $idToken): void
     {
@@ -162,6 +242,16 @@ class FirebaseAuthClient
             $code === 'USER_DISABLED' => new FirebaseAuthException(FirebaseAuthException::USER_DISABLED, 'This Melai Nuts app account is disabled. Ask the owner to reactivate it in the app\'s User Management.', $code),
             str_starts_with($code, 'TOO_MANY_ATTEMPTS') => new FirebaseAuthException(FirebaseAuthException::TOO_MANY_ATTEMPTS, 'Too many attempts on this app account. Wait a few minutes and try again.', $code),
             in_array($code, ['TOKEN_EXPIRED', 'INVALID_REFRESH_TOKEN', 'USER_NOT_FOUND', 'INVALID_ID_TOKEN', 'CREDENTIAL_TOO_OLD_LOGIN_AGAIN'], true) => new FirebaseAuthException(FirebaseAuthException::SESSION_ENDED, 'Your app sign-in has ended (password changed, account disabled or deleted, or sessions revoked). Please sign in again.', $code),
+            in_array($code, ['EXPIRED_OOB_CODE', 'INVALID_OOB_CODE'], true) => new FirebaseAuthException(FirebaseAuthException::LINK_INVALID, $code === 'EXPIRED_OOB_CODE'
+                ? 'This link has expired. Request a new one.'
+                : 'This link was already used or is not valid anymore. Request a new one.', $code),
+            in_array($code, ['INVALID_CODE', 'INVALID_VERIFICATION_CODE'], true) => new FirebaseAuthException(FirebaseAuthException::PHONE_CODE, 'That code is not correct. Please check the SMS and try again.', $code),
+            in_array($code, ['SESSION_EXPIRED', 'INVALID_SESSION_INFO', 'MISSING_SESSION_INFO', 'CODE_EXPIRED'], true) => new FirebaseAuthException(FirebaseAuthException::PHONE_CODE, 'That code has expired. Please request a new code.', $code),
+            in_array($code, ['INVALID_PHONE_NUMBER', 'MISSING_PHONE_NUMBER'], true) => new FirebaseAuthException(FirebaseAuthException::PHONE_CODE, 'That mobile number is not valid. Please check it and try again.', $code),
+            in_array($code, ['CAPTCHA_CHECK_FAILED', 'MISSING_RECAPTCHA_TOKEN', 'INVALID_RECAPTCHA_TOKEN'], true) => new FirebaseAuthException(FirebaseAuthException::PHONE_CODE, 'The security check failed. Please complete it again.', $code),
+            $code === 'QUOTA_EXCEEDED' => new FirebaseAuthException(FirebaseAuthException::TOO_MANY_ATTEMPTS, 'We have sent too many codes right now. Please try again later.', $code),
+            in_array($code, ['PHONE_NUMBER_EXISTS', 'CREDENTIAL_ALREADY_IN_USE', 'FEDERATED_USER_ID_ALREADY_LINKED'], true)
+                => new FirebaseAuthException(FirebaseAuthException::PHONE_TAKEN, 'This mobile number is already used by another Melai Nuts account. Sign in to that account, or use a different number.', $code),
             $code === 'OPERATION_NOT_ALLOWED' => new FirebaseAuthException(FirebaseAuthException::CONFIG, 'Email/password sign-in is disabled in the Firebase project. Enable it in Firebase console > Authentication > Sign-in method.', $code),
             $code === 'PROJECT_NOT_FOUND' || $reasons->contains('API_KEY_INVALID') || str_contains($raw, 'API key not valid')
                 => new FirebaseAuthException(FirebaseAuthException::CONFIG, 'Firebase does not accept the configured Web API key. '.$configHint, $code ?: 'API_KEY_INVALID'),

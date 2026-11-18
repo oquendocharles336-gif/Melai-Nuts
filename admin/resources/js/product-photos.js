@@ -135,9 +135,11 @@ async function prepare(file, limit = MAX_BYTES, info = {}) {
     return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.' + ext, { type: blob.type });
 }
 
-export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, max, canEdit, maxBytes = MAX_BYTES, blocker = null }, { api, changed }) {
+export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, sessionUrl = null, max, canEdit, maxBytes = MAX_BYTES, blocker = null, reauth = false }, { api, changed }) {
     return {
         rows, max, canEdit, blocker,
+        // The app sign-in for uploads is missing or ended: asked for in place (app password), never a sign-out.
+        reauth: !!reauth, reauthPassword: '', reauthBusy: false, reauthError: null,
         limit: Math.min(MAX_BYTES, maxBytes || MAX_BYTES),
         currentId: null, pending: [], busy: false, error: null, confirmKey: null, dropOn: null, replacing: null,
         access: readPhotoAccess(), consentOpen: false, consentFor: null, consentReturn: null,
@@ -310,6 +312,7 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
                         ? 'That photo is larger than this server accepts. Choose a smaller photo.'
                         : `The upload did not work (error ${xhr.status}). Nothing was changed.`));
                     err.status = xhr.status;
+                    err.reauth = data?.reauth === true;
                     reject(err);
                 };
                 xhr.onerror = () => reject(new Error('Could not reach the server. Check the connection and try again.'));
@@ -346,8 +349,26 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
             return before === 0 ? 'New main photo' : `New photo ${before + 1}`;
         },
 
+        /** Confirms the app password, then saves what is waiting (the owner stays signed in). */
+        async renewSession() {
+            if (this.reauthBusy || !sessionUrl) return;
+            if (!this.reauthPassword) { this.reauthError = 'Enter your Melai Nuts app password.'; return; }
+            this.reauthBusy = true; this.reauthError = null;
+            try {
+                const res = await api(sessionUrl, { method: 'POST', body: { current_password: this.reauthPassword } });
+                this.reauth = false; this.reauthPassword = ''; this.error = null;
+                window.Alpine?.store('ui')?.toast(res.message || 'App sign-in confirmed.', 'ok', true);
+                if (this.ready.length) this.save();
+            } catch (err) {
+                this.reauthError = err.message;
+            } finally {
+                this.reauthBusy = false;
+            }
+        },
+
         async save() {
             if (this.busy || !this.ready.length) return;
+            if (this.reauth) { this.error = 'Confirm your app password above first. Your photos are kept.'; return; }
             const id = this.currentId;
             this.busy = true; this.error = null; this.confirmKey = null;
             let saved = 0, failed = 0, message = '';
@@ -361,7 +382,15 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
                     this.pending = this.pending.filter(x => x.key !== p.key);
                     saved++; message = res.message || message;
                 } catch (err) {
-                    p.uploading = false; p.progress = 0; p.error = err.message; failed++;
+                    p.uploading = false; p.progress = 0; failed++;
+                    if (err.reauth) {
+                        // Not this photo's fault: keep it waiting, ask for the app password, stop here.
+                        p.error = null; this.reauth = true; this.busy = false;
+                        this.error = err.message;
+                        this.$nextTick(() => this.$refs.reauthInput?.focus());
+                        return;
+                    }
+                    p.error = err.message;
                     if (err.status === 401 || err.status === 419) { window.location.href = '/login'; return; }
                 }
             }
@@ -385,6 +414,7 @@ export function productPhotosComponent(rows, { storeUrl, destroyUrl, orderUrl, m
                 changed('products');
             } catch (err) {
                 this.error = err.message;
+                if (err.reauth || err.data?.reauth) this.reauth = true;
             } finally {
                 this.busy = false; this.confirmKey = null;
             }

@@ -11,6 +11,7 @@
 #   DATABASE_URL=postgresql://... bash supabase/tests/staff_idempotency_concurrency_test.sh
 # =============================================================================
 set -uo pipefail
+ph() { printf '+639%09d' "$(( $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000000000 ))"; }  # a verified test number per uid
 : "${DATABASE_URL:?set DATABASE_URL}"
 N="${N:-8}"
 PSQL=(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt)
@@ -60,7 +61,7 @@ VAR=$("${PSQL[@]}" -c "select v.id from public.product_variants v join public.pr
 # A batch for branch B, via the real RPC as B's staff.
 as_staff() { # uid, sql  -> prints the query result, or "ERROR: ..." if anything failed
   local out
-  out=$("${PSQL[@]}" -c "begin; select set_config('request.jwt.claims', '{\"sub\":\"$1\",\"role\":\"authenticated\",\"email\":\"$1@test.local\",\"email_verified\":true}', true); set local role authenticated; $2; commit;" 2>&1)
+  out=$("${PSQL[@]}" -c "begin; select set_config('request.jwt.claims', '{\"sub\":\"$1\",\"role\":\"authenticated\",\"email\":\"$1@test.local\",\"email_verified\":true,\"phone_number\":\"$(ph "$1")\"}', true); set local role authenticated; $2; commit;" 2>&1)
   if grep -q 'ERROR' <<<"$out"; then grep -m1 'ERROR' <<<"$out"; else tail -1 <<<"$out"; fi
 }
 as_staff idem-b "select public.staff_receive_batch('$BB','$VAR','IDEM-B1',10,current_date+60,null,null,true)" >/dev/null

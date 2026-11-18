@@ -1,7 +1,7 @@
 # E-mail codes, captcha and first-order prepayment: setup
 
-Covers migrations `20261118000000_first_order_prepayment.sql` and
-`20261118010000_auth_email_codes_and_sign_in_guard.sql` and the Edge Functions
+Covers migrations `20261118015010_first_order_prepayment.sql` and
+`20261118015111_auth_email_codes_and_sign_in_guard.sql` and the Edge Functions
 `email-verification` and `auth-guard`. Nothing here contains a real key: every value comes
 from your own dashboards. Never commit any of them.
 

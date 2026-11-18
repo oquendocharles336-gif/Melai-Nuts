@@ -284,3 +284,72 @@ Deno.test("a URL in the request is never used as the return page", async () => {
   assertEquals(res.status, 200);
   assertEquals(sent, ["https://shop.test/paid"]);
 });
+
+// ---------------------------------------------------------------------------------------
+// Remaining balance of a first order paid 50% (migration 20261118040000).
+function tableClient(rows: Record<string, unknown>, rpcs: Record<string, { data?: unknown; error?: unknown }>, calls: string[]) {
+  return () => ({
+    rpc: (fn: string, args?: unknown) => {
+      calls.push(`rpc:${fn}:${JSON.stringify(args ?? {})}`);
+      return Promise.resolve(rpcs[fn] ?? { data: null, error: { message: "missing" } });
+    },
+    from: (table: string) => {
+      calls.push(`from:${table}`);
+      const q = { select: () => q, eq: () => q, maybeSingle: () => Promise.resolve({ data: rows[table] ?? null, error: null }) };
+      return q;
+    },
+  });
+}
+
+const balanceRows = {
+  orders: { id: "ORD-T-1", firebase_uid: "u1", status: "pending", total: 100 },
+  payments: { id: "p1", method: "cash", status: "pending", amount: 50 },
+  order_downpayments: { amount: 50, status: "success", kind: "first_order" },
+  customer_profiles: { full_name: "A", email: "a@test.local" },
+};
+const onRpcs = {
+  online_payment_enabled: { data: true },
+  hitpay_claim_checkout: { data: { action: "create" } },
+  hitpay_set_checkout: { data: null, error: null },
+};
+
+Deno.test("first order 50% paid: the page is for the remaining balance (payments.amount), never the order total", async () => {
+  const calls: string[] = [];
+  let sent = "";
+  const fetchFn = (_url: string | URL | Request, init?: RequestInit) => {
+    sent = String(init?.body ?? "");
+    return Promise.resolve(new Response(JSON.stringify({ id: "preq-bal", url: "https://pay.test/bal" }), { status: 200 }));
+  };
+  const handler = makeHandler(tableClient(balanceRows, onRpcs, calls), (n) => fullEnv[n], fetchFn as typeof fetch, () => Promise.resolve());
+  const res = await handler(request());
+  assertEquals(res.status, 200, "status");
+  const form = new URLSearchParams(sent);
+  assertEquals(form.get("amount"), "50.00", "amount");
+  assertEquals(form.get("purpose"), "Melai Nuts order ORD-T-1 (remaining balance)", "purpose");
+});
+
+Deno.test("first order 50% paid, balance already paid: refused, HitPay never called", async () => {
+  const calls: string[] = [];
+  const rows = { ...balanceRows, payments: { ...balanceRows.payments, status: "success" } };
+  const handler = makeHandler(tableClient(rows, onRpcs, calls), (n) => fullEnv[n], neverFetch as unknown as typeof fetch);
+  const res = await handler(request());
+  assertEquals(res.status, 409, "status");
+});
+
+Deno.test("first order still awaiting its 50%: the page is for the downpayment", async () => {
+  const calls: string[] = [];
+  let sent = "";
+  const rows = {
+    ...balanceRows,
+    orders: { ...balanceRows.orders, status: "awaitingDownpayment" },
+    order_downpayments: { amount: 50, status: "pending", kind: "first_order" },
+  };
+  const fetchFn = (_url: string | URL | Request, init?: RequestInit) => {
+    sent = String(init?.body ?? "");
+    return Promise.resolve(new Response(JSON.stringify({ id: "preq-dp", url: "https://pay.test/dp" }), { status: 200 }));
+  };
+  const handler = makeHandler(tableClient(rows, onRpcs, calls), (n) => fullEnv[n], fetchFn as typeof fetch, () => Promise.resolve());
+  const res = await handler(request());
+  assertEquals(res.status, 200, "status");
+  assertEquals(new URLSearchParams(sent).get("purpose"), "Melai Nuts order ORD-T-1", "purpose");
+});

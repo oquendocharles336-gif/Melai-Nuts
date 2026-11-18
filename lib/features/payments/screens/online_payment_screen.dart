@@ -34,12 +34,17 @@ class OnlinePaymentScreen extends StatefulWidget {
   /// starts with "Pay now" instead of assuming the payment page is open.
   final bool resume;
 
+  /// A first order paid 50% online whose half is paid: this screen pays the
+  /// remaining balance online (the payments row, migration 20261118040000).
+  final bool payBalance;
+
   const OnlinePaymentScreen({
     super.key,
     required this.order,
     required this.itemCount,
     this.startError,
     this.resume = false,
+    this.payBalance = false,
   });
 
   @override
@@ -59,7 +64,7 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
   bool _refreshing = false;
   late bool _pageOpened;
 
-  bool get _paysDownpayment => widget.order.downpayment != null;
+  bool get _paysDownpayment => widget.order.downpayment != null && !widget.payBalance;
 
   /// A first order paying 50% / 100% online (migration 20261118000000).
   bool get _isFirstOrder => widget.order.downpayment?.isFirstOrder ?? false;
@@ -275,6 +280,9 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
                       _InfoLine(_isFirstOrder ? 'Pay online now' : 'Downpayment',
                           _money(_downpayment?.amount ?? widget.order.downpayment!.amount)),
                       _InfoLine(widget.order.isDelivery ? 'Cash on delivery' : 'Cash at pickup', _money(widget.order.cashBalance)),
+                    ] else if (widget.payBalance) ...[
+                      _InfoLine('Paid online', _money(widget.order.downpayment?.amount ?? 0)),
+                      _InfoLine('Remaining balance', _money(widget.order.cashBalance)),
                     ] else
                       _InfoLine('Amount', '₱${widget.order.total.toStringAsFixed(2)}'),
                     _InfoLine('Status', _status?.label ?? 'Pending', valueColor: accent),

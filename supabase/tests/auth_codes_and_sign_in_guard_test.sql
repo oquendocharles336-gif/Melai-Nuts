@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Melai Nuts — e-mail codes and the sign-in captcha gate
--- (migration 20261118010000_auth_email_codes_and_sign_in_guard.sql)
+-- (migration 20261118015111_auth_email_codes_and_sign_in_guard.sql)
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/auth_codes_and_sign_in_guard_test.sql
 -- DEV / staging only. One transaction, rolled back. Raises if any check fails.

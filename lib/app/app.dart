@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import '../core/services/locale_controller.dart';
@@ -38,6 +40,18 @@ class MelaiNutsApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       initialRoute: AppRoutes.splash,
+      // A password-reset link that started the app (Android App Link) opens its screen directly;
+      // anything else starts at the splash screen as before.
+      onGenerateInitialRoutes: (initialRoute) {
+        final link = PlatformDispatcher.instance.defaultRouteName;
+        if (AppRoutes.isAccountActionLink(link)) return [AppRoutes.accountActionRoute(link)];
+        return [
+          MaterialPageRoute<dynamic>(
+            settings: RouteSettings(name: initialRoute),
+            builder: AppRoutes.routes[initialRoute] ?? AppRoutes.routes[AppRoutes.splash]!,
+          ),
+        ];
+      },
       routes: AppRoutes.routes,
       onGenerateRoute: (settings) => AppRoutes.onGenerateRoute(settings),
       onUnknownRoute: (settings) => MaterialPageRoute<dynamic>(

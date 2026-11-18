@@ -66,7 +66,7 @@ class OrderController extends ShopController
         try {
             $item = $this->orders->find($order);
             abort_if($item === null, 404);
-            if (! $item['can_pay']) {
+            if (! $item['can_pay'] && ! ($item['can_pay_balance'] ?? false)) {
                 return back()->with('shop_status', 'Nothing to pay online for this order.');
             }
             $url = $this->orders->startPayment($order);

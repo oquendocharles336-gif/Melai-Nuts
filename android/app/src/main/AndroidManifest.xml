@@ -46,6 +46,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Password-reset e-mail link (Firebase custom action URL) opens the app's reset
+                 screen. Verified against https://<host>/.well-known/assetlinks.json (the website
+                 serves it from ANDROID_APP_LINK_SHA256 in admin/.env). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="${melaiWebHost}" android:path="/auth/action"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

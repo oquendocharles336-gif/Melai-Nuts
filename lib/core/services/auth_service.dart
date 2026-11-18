@@ -484,6 +484,103 @@ class AuthService {
     return _createPhoneCustomer(user, fullName);
   }
 
+  // ---------------------------------------------------------------------------
+  // Verifying the mobile number of the SIGNED-IN account (checkout, first-order
+  // rule). The SMS code links the number to this Firebase account (or replaces
+  // its number); Firebase then puts it in the ID token as `phone_number`, which
+  // is the only proof the database accepts (claim_verified_phone,
+  // migration 20261118040000). A number already on another Firebase account is
+  // refused by Firebase itself (`credential-already-in-use`).
+  // ---------------------------------------------------------------------------
+
+  /// SMSes a 6-digit code to [phoneE164] for the signed-in account. Same
+  /// callbacks as [sendPhoneCode]; [onAutoVerified] fires when Android read
+  /// the code by itself and the number is already linked.
+  Future<void> sendLinkPhoneCode({
+    required String phoneE164,
+    required void Function(String verificationId, int? resendToken) onCodeSent,
+    required void Function(AuthException) onError,
+    int? resendToken,
+    void Function()? onAutoVerified,
+  }) async {
+    if (_auth.currentUser == null) {
+      onError(const AuthException('Please sign in again to verify your number.'));
+      return;
+    }
+    try {
+      await _auth.verifyPhoneNumber(
+        phoneNumber: phoneE164,
+        timeout: const Duration(seconds: 60),
+        forceResendingToken: resendToken,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          try {
+            await _linkPhoneCredential(credential);
+            onAutoVerified?.call();
+          } on AuthException catch (e) {
+            onError(e);
+          } catch (caughtError, caughtStack) {
+            AppErrors.report(caughtError, caughtStack, 'auth_service:linkPhoneAuto');
+            onError(const AuthException('Something went wrong. Please try again.'));
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) => onError(AuthException(_linkMessageFor(e))),
+        codeSent: (String verificationId, int? token) => onCodeSent(verificationId, token),
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } on FirebaseAuthException catch (e) {
+      onError(AuthException(_linkMessageFor(e)));
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'auth_service:sendLinkPhoneCode');
+      onError(const AuthException('Something went wrong. Please try again.'));
+    }
+  }
+
+  /// Checks the SMS code and links the number to the signed-in account.
+  Future<void> confirmLinkPhoneCode({required String verificationId, required String smsCode}) async {
+    _throwIfBraked(_phoneCodeBrake);
+    final code = smsCode.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      throw const AuthException('Please enter the 6-digit code from the SMS.');
+    }
+    try {
+      await _linkPhoneCredential(PhoneAuthProvider.credential(verificationId: verificationId, smsCode: code));
+      _phoneCodeBrake.reset();
+    } on AuthException {
+      _phoneCodeBrake.recordFailure();
+      rethrow;
+    }
+  }
+
+  Future<void> _linkPhoneCredential(PhoneAuthCredential credential) async {
+    final user = _auth.currentUser;
+    if (user == null) throw const AuthException('Please sign in again to verify your number.');
+    try {
+      final hasPhone = user.providerData.any((p) => p.providerId == PhoneAuthProvider.PROVIDER_ID);
+      if (hasPhone) {
+        await user.updatePhoneNumber(credential);
+      } else {
+        await user.linkWithCredential(credential);
+      }
+      // The new number is in the ID token only after a refresh.
+      await user.getIdToken(true);
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_linkMessageFor(e));
+    }
+  }
+
+  String _linkMessageFor(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'credential-already-in-use':
+      case 'account-exists-with-different-credential':
+        return 'This mobile number is already used by another Melai Nuts account. '
+            'Sign in to that account, or use a different number.';
+      case 'provider-already-linked':
+        return 'This account already has a mobile number. Use "Change number" to replace it.';
+      default:
+        return _messageFor(e);
+    }
+  }
+
   /// Backs out of a phone sign-in that has no profile yet (e.g. "Change
   /// number" on the name step) so nothing stays half signed in.
   Future<void> cancelPhoneSignIn() async {

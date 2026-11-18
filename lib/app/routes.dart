@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/models/user_role.dart';
 import 'route_guard.dart';
+import '../features/auth/screens/reset_password_link_screen.dart';
 import '../data/models/product.dart';
 import '../data/catalog_store.dart';
 import '../data/models/order.dart';
@@ -469,7 +470,20 @@ class AppRoutes {
   /// Dynamic route generator for screens that require complex objects as
   /// arguments (e.g. Product, Order). Wrapped with the same access policy;
   /// invalid/mismatched arguments show a safe screen instead of crashing.
+  /// The password-reset e-mail's link (`/auth/action?mode=…&oobCode=…`), opened in the app
+  /// through an Android App Link. Public: the person is signed out.
+  static bool isAccountActionLink(String? name) =>
+      name != null && (name == accountAction || name.startsWith('$accountAction?'));
+
+  static const String accountAction = '/auth/action';
+
+  static Route<dynamic> accountActionRoute(String name) => MaterialPageRoute<dynamic>(
+        settings: RouteSettings(name: name),
+        builder: (_) => ResetPasswordLinkScreen(link: name),
+      );
+
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
+    if (isAccountActionLink(settings.name)) return accountActionRoute(settings.name!);
     final Route<dynamic>? raw;
     try {
       raw = _rawOnGenerateRoute(settings);

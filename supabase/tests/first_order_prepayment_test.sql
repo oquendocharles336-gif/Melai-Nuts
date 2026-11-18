@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Melai Nuts — the first online order is paid online, 50% or 100%
--- (migration 20261118000000_first_order_prepayment.sql)
+-- (migration 20261118015010_first_order_prepayment.sql)
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/first_order_prepayment_test.sql
 -- DEV / staging only. One transaction, rolled back. Raises if any check fails.
@@ -18,7 +18,7 @@ create function pg_temp.act_as(p_uid text) returns void language plpgsql as $$
 begin
   perform set_config('request.jwt.claims', jsonb_build_object(
     'sub', p_uid, 'role', 'authenticated',
-    'email', p_uid || '@test.local', 'email_verified', true)::text, true);
+    'email', p_uid || '@test.local', 'email_verified', true, 'phone_number', '+639' || lpad((abs(hashtext(p_uid)) % 1000000000)::text, 9, '0'))::text, true);
   execute 'set local role authenticated';
 end $$;
 create function pg_temp.back_to_admin() returns void language plpgsql as $$
@@ -90,6 +90,7 @@ insert into public.customer_profiles (firebase_uid, full_name, email, phone) val
   ('fo-late', 'Late', 'fo-late@test.local', '09170000033'),
   ('fo-pos', 'Pos', 'fo-pos@test.local', '09170000034');
 update public.customer_profiles set first_paid_order_at = now() - interval '30 days' where firebase_uid = 'fo-old';
+-- Since 20261118040000 a returning customer also needs its verified number (claimed here).
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city, latitude, longitude)
 values ('fo-new', 'New', '09170000031', '1 Test St', 'Calamba', 14.205, 121.156);
 insert into fx select 'addr', id::text from public.customer_addresses where firebase_uid = 'fo-new';
@@ -116,6 +117,8 @@ begin
   perform public.hitpay_set_checkout(p_order, 'preq-' || p_key, 'https://pay.example/' || p_key);
   return public.hitpay_apply_payment(p_order, 'success', 'qrph', 'pay-' || p_key, null, 'preq-' || p_key);
 end $$;
+
+select pg_temp.call_as('fo-old', 'select public.claim_verified_phone()::text');
 
 -- 0. Who may call what ------------------------------------------------------------------
 select pg_temp.chk('a customer cannot call is_first_order', 'fo-new', $q$select public.is_first_order('fo-old')$q$, 'error');
@@ -285,7 +288,7 @@ select pg_temp.chk_true('delivery 50%: the cash balance is still open for the ri
   (select o.status = 'pending' and p.status = 'pending' and p.amount = 75
    from public.orders o join public.payments p on p.order_id = o.id where o.id = pg_temp.f('o_dlv')));
 select pg_temp.chk_true('delivery 50%: the customer is told what is left',
-  exists (select 1 from public.notifications where firebase_uid = 'fo-new' and body like '%remaining ₱75.00 is paid in cash on delivery%'));
+  exists (select 1 from public.notifications where firebase_uid = 'fo-new' and body like '%remaining ₱75.00 can be paid online now%or in cash on delivery.%'));
 select pg_temp.chk_true('a paid half also uses up the first order', not pg_temp.first('fo-new'));
 
 -- 10. Paid after it was cancelled: refunded, does NOT use up the first order -------------

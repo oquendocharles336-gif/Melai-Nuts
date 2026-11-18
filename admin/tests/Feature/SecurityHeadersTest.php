@@ -58,7 +58,9 @@ class SecurityHeadersTest extends TestCase
         // The one exception: Cloudflare Turnstile's api.js (the security check of sign-up, of
         // sign-in after repeated failures and of the app's /captcha page). Cloudflare does not
         // allow self-hosting it; the CSP allows only that origin (SecurityHeaders::TURNSTILE).
-        $allowed = '#^https://challenges\.cloudflare\.com/turnstile/v0/api\.js(\?|$)#';
+        // And Google reCAPTCHA's api.js on the shop's "Verify mobile number" page: Firebase phone
+        // verification on the web only accepts a reCAPTCHA token (SecurityHeaders::RECAPTCHA).
+        $allowed = '#^https://(challenges\.cloudflare\.com/turnstile/v0/api\.js|www\.google\.com/recaptcha/api\.js)(\?|$)#';
         $offenders = [];
         foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(resource_path('views'))) as $f) {
             if (! $f->isFile()) {

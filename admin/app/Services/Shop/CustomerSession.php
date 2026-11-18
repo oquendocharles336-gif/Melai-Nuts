@@ -97,6 +97,25 @@ class CustomerSession
     }
 
     /**
+     * New tokens of the SAME account (after linking a verified mobile number, the new ID token
+     * carries `phone_number`). Refused for any other account.
+     */
+    public function replaceTokens(array $t): void
+    {
+        $s = session(self::KEY);
+        if (! is_array($s) || ($t['uid'] ?? null) !== $s['uid'] || ($t['id_token'] ?? '') === '') {
+            throw new ShopException('Your sign-in has ended. Please sign in again.', 'session');
+        }
+        $s['id_token'] = $t['id_token'];
+        if (($t['refresh_token'] ?? '') !== '') {
+            $s['refresh_token'] = Crypt::encryptString($t['refresh_token']);
+        }
+        $s['expires_at'] = time() + max(60, (int) ($t['expires_in'] ?? 3600));
+        session()->put(self::KEY, $s);
+        $this->verified = null;
+    }
+
+    /**
      * A currently valid ID token of the signed-in customer, with `role: authenticated`.
      *
      * @throws ShopException reason "session" when there is no usable sign-in (the session is cleared)

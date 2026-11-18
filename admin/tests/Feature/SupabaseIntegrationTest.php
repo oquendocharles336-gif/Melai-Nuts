@@ -92,7 +92,9 @@ class SupabaseIntegrationTest extends TestCase
     private function asAppUser(string $uid, string $sql, array $bindings = []): mixed
     {
         return $this->db()->transaction(function ($db) use ($uid, $sql, $bindings) {
-            $db->select("select set_config('request.jwt.claims', ?, true)", [json_encode(['sub' => $uid, 'role' => 'authenticated', 'email' => "$uid@test.local", 'email_verified' => true])]);
+            $db->select("select set_config('request.jwt.claims', ?, true)", [json_encode(['sub' => $uid, 'role' => 'authenticated', 'email' => "$uid@test.local", 'email_verified' => true,
+                // A verified mobile number (Firebase phone_number claim), needed at checkout since 20261118040000.
+                'phone_number' => '+639'.str_pad((string) (crc32($uid) % 1000000000), 9, '0', STR_PAD_LEFT)])]);
             $db->statement('set local role authenticated');
             $row = (array) $db->selectOne($sql, $bindings);
 

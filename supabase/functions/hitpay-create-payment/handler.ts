@@ -14,6 +14,11 @@ function json(body: unknown, status = 200): Response {
 }
 
 export type Env = (name: string) => string | undefined;
+
+/** The paid 50% of a first order: the checkout is for the remaining balance (payments row). */
+export function isFirstOrderBalance(downpayment: { kind?: string | null; status?: string | null } | null | undefined): boolean {
+  return !!downpayment && downpayment.kind === "first_order" && downpayment.status === "success";
+}
 export type Sleep = (ms: number) => Promise<void>;
 const realSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // deno-lint-ignore no-explicit-any
@@ -93,7 +98,7 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
     return json({ error: "Could not load your order." }, 500);
   }
   if (!order) return json({ error: "Order not found." }, 404);
-  if (order.status === "cancelled" || order.status === "refunded") {
+  if (order.status === "cancelled" || order.status === "refunded" || order.status === "refundRequested") {
     return json({ error: "This order can no longer be paid." }, 409);
   }
 
@@ -109,19 +114,26 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
   if (!payment) return json({ error: "Payment not found." }, 404);
   // A Cash on Delivery order with a required downpayment: this page pays only that
   // part. Its balance stays cash (public.order_downpayments, migration 20261101083000).
+  // A FIRST order paid 50% online (kind 'first_order'): once that half is paid, this page
+  // pays the remaining balance (the payments row), migration 20261118040000.
   const { data: downpayment, error: downpaymentError } = await userClient
     .from("order_downpayments")
-    .select("amount, status")
+    .select("amount, status, kind")
     .eq("order_id", orderId)
     .maybeSingle();
   if (downpaymentError) {
     console.error("hitpay-create-payment: downpayment lookup failed", downpaymentError.message);
     return json({ error: "Could not load your payment." }, 500);
   }
+  const balance = isFirstOrderBalance(downpayment);
+  if (balance && (order.status === "awaitingDownpayment" || order.status === "completed")) {
+    return json({ error: "This order has no balance to pay online." }, 409);
+  }
   if (!downpayment && payment.method === "cash") {
     return json({ error: "This order is paid in cash." }, 409);
   }
-  if (!["pending", "processing", "failed"].includes((downpayment ?? payment).status)) {
+  const due = balance ? payment : (downpayment ?? payment);
+  if (!["pending", "processing", "failed"].includes(due.status)) {
     return json({ error: "This order is already paid." }, 409);
   }
 
@@ -159,7 +171,9 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
   // From here this call holds the claim; give it back if no link gets stored.
   const release = () => adminClient.rpc("hitpay_release_checkout", { p_order_id: order.id });
 
-  const total = Number(downpayment ? downpayment.amount : order.total);
+  // The amount always comes from the database: the downpayment, the remaining balance
+  // (payments.amount) or the order total.
+  const total = Number(balance ? payment.amount : downpayment ? downpayment.amount : order.total);
   if (!Number.isFinite(total) || total <= 0) {
     await release();
     return json({ error: "This order has nothing to pay." }, 409);
@@ -179,7 +193,7 @@ export function makeHandler(createClient: ClientFactory, env: Env, fetchFn: type
   form.set("amount", total.toFixed(2));
   form.set("currency", "PHP");
   form.set("reference_number", order.id);
-  form.set("purpose", `Melai Nuts order ${order.id}`);
+  form.set("purpose", balance ? `Melai Nuts order ${order.id} (remaining balance)` : `Melai Nuts order ${order.id}`);
   form.set("redirect_url", redirectUrl);
   if (profile?.full_name) form.set("name", profile.full_name);
   if (profile?.email) form.set("email", profile.email);

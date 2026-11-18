@@ -17,8 +17,8 @@ return [
     // lib/features/legal). Bump the version when the wording changes; registration records it.
     // Same versions as the app (lib/core/config/legal_config.dart); bump both together.
     'legal' => [
-        'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-07'),
-        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-17'),
+        'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-18'),
+        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-18'),
     ],
 
     /*
@@ -27,6 +27,15 @@ return [
     | env/supabase.json). Customers act with their own Firebase sign-in; the staff database login
     | above is never used for them.
     */
+    // The app's Android App Link for the password-reset e-mail (https://<APP_URL host>/auth/action,
+    // docs/PASSWORD_RESET.md). ANDROID_APP_LINK_SHA256: the SHA-256 fingerprint(s) of the app's
+    // signing key(s), comma-separated (Play Console > App integrity > App signing). Empty = the
+    // website serves no assetlinks.json and reset links open this website's own reset page.
+    'android' => [
+        'package' => env('ANDROID_APP_PACKAGE', 'ph.melainuts.app'),
+        'app_link_sha256' => env('ANDROID_APP_LINK_SHA256', ''),
+    ],
+
     'shop' => [
         'supabase_url' => env('SUPABASE_URL'),
         'anon_key' => env('SUPABASE_ANON_KEY'),

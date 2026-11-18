@@ -224,6 +224,11 @@ class AppErrors {
     if (code == 'P0001' && msg.contains('first order') && _isSafeToShow(e.message)) {
       return AppError(AppErrorKind.unknown, e.message.trim());
     }
+    // The verified-mobile-number rule (claim_verified_phone / place_order,
+    // migration 20261118040000): also written for the customer, shown as is.
+    if (code == 'P0001' && msg.contains('mobile number') && _isSafeToShow(e.message)) {
+      return AppError(AppErrorKind.unknown, e.message.trim());
+    }
 
     // Business rules raised by the database functions (place_order,
     // request_refund, ...): stock, voucher, points, branch, etc.

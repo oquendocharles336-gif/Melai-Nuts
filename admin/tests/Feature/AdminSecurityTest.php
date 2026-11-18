@@ -56,13 +56,14 @@ class AdminSecurityTest extends TestCase
     {
         $this->get('/terms')->assertOk()->assertSee('Terms and Conditions')->assertSee('Loyalty points');
         $this->get('/privacy')->assertOk()->assertSee('Republic Act No. 10173')->assertSee('National Privacy Commission');
-        // Owner-approved wording (2026-11-07), in English and Filipino (?lang=fil).
-        $this->get('/terms')->assertOk()->assertSee('Pickup and downpayment')->assertSee('within 7 days after you pick up')
+        // In English and Filipino (?lang=fil). Sections changed on 2026-11-18 carry the draft note
+        // until the owner approves them (LegalConfig.ownerReviewSections).
+        $this->get('/terms')->assertOk()->assertSee('Pickup, online payment and downpayment')->assertSee('within 7 days after you pick up')
             ->assertSee('/terms?lang=fil', false)
             ->assertSee('at least 30 days before they apply')->assertSee('on the order details and checkout screens')
-            ->assertDontSee('Draft wording');
+            ->assertSee('Draft wording');
         $this->get('/terms?lang=fil')->assertOk()->assertSee('Mga Tuntunin at Kundisyon')
-            ->assertSee('Pagkuha ng order at downpayment')->assertSee('sa loob ng 7 araw');
+            ->assertSee('Pagkuha ng order, online na bayad at downpayment')->assertSee('sa loob ng 7 araw');
         $this->get('/privacy')->assertOk()->assertSee('Melai Nuts Retailing')->assertSee('melaioraya5&#64;gmail.com', false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('Patakaran sa Privacy')->assertSee('iniingatan nang 5 taon');
         // The website has no staff sign-up any more: staff use the Melai Nuts app only.

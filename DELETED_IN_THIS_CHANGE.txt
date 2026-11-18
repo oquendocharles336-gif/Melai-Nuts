@@ -1,11 +1,4 @@
-Delete these from your copy of the project (removed in this change; unzipping does not remove them):
-Melai-Nuts-master/lib/features/auth/widgets/ole_badge_card.dart
-Melai-Nuts-master/android/app/src/google-services.json.example
-Melai-Nuts-master/android/app/src/main/java/com/example/melai_nuts/MainActivity.java   (moved to android/app/src/main/java/ph/melainuts/app/MainActivity.java)
-
-Then:
-* app: flutter pub get (generates lib/l10n/generated), flutter analyze, flutter test
-* admin/: composer install, npm ci && npm run build (copies OCR into public/vendor/tesseract), php artisan migrate
-* database: apply supabase/migrations/20261017000000 ... 20261024000000 in order (docs/DEPLOYMENT.md §1)
-* env/firebase.json needs the new keys listed in env/firebase.example.json
-Report: docs/PHASES_0-5_REPORT.md
+# Renamed to the versions recorded on the live project (identical SQL):
+#   20261118000000 -> 20261118015010, 20261118010000 -> 20261118015111
+supabase/migrations/20261118000000_first_order_prepayment.sql
+supabase/migrations/20261118010000_auth_email_codes_and_sign_in_guard.sql

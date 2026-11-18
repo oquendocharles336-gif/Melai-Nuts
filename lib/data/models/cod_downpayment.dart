@@ -46,6 +46,20 @@ class FirstOrderQuote {
   final String? pendingOrderId;
   final bool onlinePaymentEnabled;
 
+  /// The account's mobile number is verified (SMS) and is the one in this
+  /// session's sign-in. Checkout needs it (migration 20261118040000).
+  final bool phoneVerified;
+
+  /// The verified number (E.164), when [phoneVerified].
+  final String? verifiedPhone;
+
+  /// The sign-in already holds a verified number the server will take at
+  /// checkout (phone sign-in accounts): nothing to do for the customer.
+  final bool phoneClaimable;
+
+  /// Checkout can go ahead as far as the mobile number is concerned.
+  bool get phoneReady => phoneVerified || phoneClaimable;
+
   const FirstOrderQuote({
     required this.firstOrder,
     this.total = 0,
@@ -55,6 +69,9 @@ class FirstOrderQuote {
     this.expiryMinutes = 30,
     this.pendingOrderId,
     this.onlinePaymentEnabled = false,
+    this.phoneVerified = false,
+    this.verifiedPhone,
+    this.phoneClaimable = false,
   });
 
   static const FirstOrderQuote returning = FirstOrderQuote(firstOrder: false);
@@ -70,6 +87,9 @@ class FirstOrderQuote {
         expiryMinutes: (j['expiry_minutes'] as num?)?.toInt() ?? 30,
         pendingOrderId: _nonEmpty(j['pending_order_id']),
         onlinePaymentEnabled: j['online_payment_enabled'] == true,
+        phoneVerified: j['phone_verified'] == true,
+        verifiedPhone: _nonEmpty(j['verified_phone']),
+        phoneClaimable: j['phone_claimable'] == true,
       );
 }
 

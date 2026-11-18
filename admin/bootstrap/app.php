@@ -94,6 +94,15 @@ return Application::configure(basePath: dirname(__DIR__))
             return redirect()->route('login')->withInput(['email' => $user?->email])->withErrors(['auth' => $e->getMessage()]);
         };
         $exceptions->render(fn (StaffNotLinkedException $e, Request $r) => $signInAgain($e, $r));
+        // Product photos: an ended / missing app sign-in is renewed in place with the app password
+        // (ProductPhotoController::renewAppSession), so the owner is never signed out for it.
+        $exceptions->render(function (\App\Exceptions\FirebaseSessionRequiredException $e, Request $r) use ($signInAgain) {
+            if ($r->expectsJson() && $r->routeIs('ops.products.photos.*') && Auth::check()) {
+                return response()->json(['message' => 'Confirm your Melai Nuts app password to keep changing photos. You stay signed in.', 'reauth' => true], 409);
+            }
+
+            return $signInAgain($e, $r);
+        });
         $exceptions->render(fn (AccountLinkException $e, Request $r) => $signInAgain($e, $r)); // incl. FirebaseSessionRequiredException
         // 419 (expired session / CSRF token): back to the sign-in page with a clear message instead
         // of a bare error page. Nothing was changed.

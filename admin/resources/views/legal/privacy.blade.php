@@ -10,23 +10,28 @@
     <p class="muted">Bersyon {{ config('melai.legal.privacy_version') }} · <a class="link" href="{{ route('legal.privacy', ['lang' => 'en']) }}">English</a></p>
     <section id="privacy-1">
         <h2>1. Sino ang may pananagutan sa iyong datos</h2>
-        <p>Ang Melai Nuts Retailing ang personal information controller ng datos sa app na ito, ayon sa Data Privacy Act of 2012 ng Pilipinas (Republic Act No. 10173). Ang aming Data Protection Officer ay ang may-ari ng Melai Nuts Retailing, at maaabot sa melaioraya5&#64;gmail.com.</p>
+        <p>Ang Melai Nuts Retailing ([PUPUNAN NG MAY-ARI: rehistradong pangalan at address ng negosyo]) ang personal information controller ng datos sa app na ito at sa website ng Melai Nuts, ayon sa Data Privacy Act of 2012 ng Pilipinas (Republic Act No. 10173). Ang aming Data Protection Officer ay ang may-ari ng Melai Nuts Retailing, at maaabot sa melaioraya5&#64;gmail.com.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="privacy-2">
         <h2>2. Datos na kinokolekta namin</h2>
-        <ul><li>Ang iyong pangalan, email address at mobile number.</li><li>Ang iyong mga order, bayad, refund at loyalty points.</li><li>Ang lokasyon ng iyong telepono, ginagamit sa telepono mo para piliin ang pinakamalapit na bukas na branch. Ang branch lang ang iniingatan namin, hindi ang iyong lokasyon.</li><li>Isang notification token para makapagpadala kami ng update ng order sa teleponong ito.</li><li>Mga crash report, na may account ID pero walang pangalan, email o numero mo.</li></ul>
+        <ul><li>Ang iyong pangalan, email address at mobile number. Biniberipika ang iyong mobile number gamit ang SMS code; iniingatan ng database ang beripikadong numero at kung kailan ito naberipika.</li><li>Ang iyong mga order, bayad, refund at loyalty points, kasama kung alin sa iyong mga order ang unang order na nabayaran online, at ang mobile number na ginamit sa bayad na iyon.</li><li>Kapag mano-manong kinumpirma ng may-ari ang isang bayad: ang dahilan, ang reference ng bayad at kung aling account ng may-ari ang kumumpirma.</li><li>Proteksyon sa pag-sign in: ang email na ginamit mo sa pag-sign in, ang IP address ng iyong koneksyon at isang ID ng iyong device, na iniingatan lang bilang one-way hash na may lihim na susi (hindi mababasa bilang address o numero), kasama ang oras ng bawat pagsubok.</li><li>Ang 6-digit na email code na ipinapadala namin kapag gumawa ka ng account, na iniingatan lang bilang one-way hash.</li><li>Ang lokasyon ng iyong telepono, ginagamit sa telepono mo (o sa iyong browser, kapag pumayag ka lang) para piliin ang pinakamalapit na bukas na branch. Ang branch lang ang iniingatan namin, hindi ang iyong lokasyon.</li><li>Isang notification token para makapagpadala kami ng update ng order sa teleponong ito.</li><li>Mga crash report, na may account ID pero walang pangalan, email o numero mo.</li></ul>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="privacy-3">
         <h2>3. Paano namin ito ginagamit</h2>
-        <p>Para gawin ang iyong account, ihanda at i-deliver ang iyong order, tumanggap ng bayad, asikasuhin ang refund, ingatan ang iyong loyalty points, ipadala ang mga update na pinili mo, panatilihing ligtas ang app, at ayusin ang mga problema. Hindi namin ibinebenta ang iyong datos.</p>
+        <p>Para gawin ang iyong account at iberipika ang iyong email at mobile number, ihanda ang iyong order, tumanggap ng bayad, ipatupad ang tuntunin sa bayad ng unang order (para hindi magamit ng bagong account ang numero ng ibang customer para iwasan ito), asikasuhin ang refund, ingatan ang iyong loyalty points, ipadala ang mga update na pinili mo, protektahan ang pag-sign in laban sa panghuhula ng password, panatilihing ligtas ang app, at ayusin ang mga problema. Hindi namin ibinebenta ang iyong datos.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="privacy-4">
         <h2>4. Saan ito nakatago at sino ang makakakita</h2>
-        <p>Ang pag-sign in ay hawak ng Firebase (Google). Ang datos ng negosyo ay nakatago sa aming Supabase database. Ang online na bayad ay hawak ng HitPay. Ang natatanggap lang namin ay ang status at halaga ng bayad, hindi ang detalye ng iyong card o GCash. May kopya ng mga bagong datos sa iyong telepono para gumana ang app kahit offline; binubura ito kapag nag-sign out ka. Nakikita lang ng staff ang kailangan ng kanilang branch.</p>
+        <p>• Firebase (Google): pag-sign in, email para sa pag-reset ng password, ang SMS code na nagbe-beripika ng iyong mobile number, App Check (tinitiyak na galing sa totoong Melai Nuts app ang request), push notification at crash report.</p><p>• Supabase: ang aming database, file storage at server functions, kung saan nakatago ang datos ng negosyo.</p><p>• Resend: nagpapadala ng 6-digit na email code mula sa Melai Nuts.</p><p>• Cloudflare Turnstile: ang security check kapag gumagawa ka ng account at pagkatapos ng paulit-ulit na maling pag-sign in.</p><p>• Google reCAPTCHA: ang security check bago magpadala ang website ng code sa iyong mobile number.</p><p>• HitPay: online na bayad. Ang natatanggap lang namin ay ang status, halaga at paraan ng bayad, hindi ang detalye ng iyong card o GCash.</p><p>• OpenStreetMap: ang mga mapa sa app.</p><p>May kopya ng mga bagong datos sa iyong telepono para gumana ang app kahit offline; binubura ito kapag nag-sign out ka. Nakikita lang ng staff ang kailangan ng kanilang branch.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="privacy-5">
         <h2>5. Gaano katagal namin ito iniingatan</h2>
-        <p>Ang mga order, bayad at refund ay iniingatan nang 5 taon para sa rekord ng buwis at accounting. Ang mga detalye ng iyong account ay iniingatan habang aktibo ito at binubura sa loob ng 30 araw mula sa kahilingang burahin, maliban sa mga rekord na kailangang itago ayon sa batas.</p>
+        <p>Ang mga order, bayad, refund, mano-manong kumpirmasyon ng bayad at ang rekord kung aling mobile number ang nagbayad ng unang order ay iniingatan nang 5 taon para sa rekord ng buwis at accounting at para maipatupad ang tuntunin sa unang order. Nag-e-expire ang email code pagkalipas ng 10 minuto at binubura ang rekord ng mga ipinadalang code pagkalipas ng 1 araw. Binubura ang rekord ng mga pagsubok mag-sign in pagkalipas ng 1 araw, at mas maaga pang nabubura ang para sa iyong email at device kapag matagumpay kang nag-sign in. Ang mga detalye ng iyong account ay iniingatan habang aktibo ito at binubura sa loob ng 30 araw mula sa kahilingang burahin, maliban sa mga rekord na kailangang itago ayon sa batas.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="privacy-6">
         <h2>6. Ang iyong mga karapatan (RA 10173)</h2>
@@ -38,11 +43,22 @@
     </section>
     <section id="privacy-8">
         <h2>8. Mga pahintulot sa iyong telepono</h2>
-        <p>Hinihingi lang ng app ang camera (pag-scan ng barcode), lokasyon (paghanap ng pinakamalapit na branch) at notifications (update ng order) kapag ginagamit mo ang feature na iyon. Mababago mo ang mga ito anumang oras sa Settings &gt; Permissions.</p>
+        <p>Hinihingi lang ng app ang camera (pag-scan ng barcode), lokasyon (paghanap ng pinakamalapit na branch) at notifications (update ng order) kapag ginagamit mo ang feature na iyon. Hindi ito humihingi ng pahintulot na basahin ang iyong SMS: sa Android, maaaring kusang mailagay ang code ng SMS Retriever ng Google, na ibinabahagi lang ang isang mensaheng may code. Mababago mo ang mga pahintulot anumang oras sa Settings &gt; Permissions.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="privacy-9">
         <h2>9. Mga larawan ng produkto at access sa mga file</h2>
         <ul><li>Ang kinokolekta: ang mga larawan ng produkto na pinipili ng may-ari ng Melai Nuts sa admin website, kasama ang uri ng file, laki at oras ng pag-upload ng bawat larawan, ang produktong kinabibilangan nito, at ang account ng may-ari na nag-upload. Ang may-ari lang ang nag-a-upload ng larawan ng produkto; hindi ang mga customer.</li><li>Bakit: para maipakita ang mga produkto sa mga customer sa Melai Nuts app at sa web shop.</li><li>Access sa file: binabasa lang ng website ang mga larawang pinili ng may-ari sa file picker ng browser (o hinila papunta sa page). Hindi nito sinusuri o binabasa ang ibang file o folder sa device. Nagtatanong muna ang website bago unang buksan ang file picker.</li><li>Saan nakatago: sa Supabase Storage, sa pampublikong folder na &quot;product-images&quot;. Makikita ito ng sinumang may link ng larawan, kaya huwag mag-upload ng pribado o personal na larawan.</li><li>Pinaliliit sa browser ang malalaking larawan bago i-upload.</li><li>Maaaring alisin o palitan ng may-ari ang mga larawan anumang oras. Binubura sa storage ang mga inalis at pinalitang larawan.</li><li>Mga tanong tungkol sa larawan ng produkto: mag-email sa melaioraya5&#64;gmail.com.</li></ul>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
+    </section>
+    <section id="privacy-10">
+        <h2>10. Ang iyong mobile number at ang tuntunin sa unang order</h2>
+        <ul><li>Nagpapadala kami ng 6-digit na code sa numerong inilagay mo, sa pamamagitan ng Firebase. Beripikado lang ang numero kapag nailagay mo ang tamang code; hindi binibilang ang numerong itinype mo sa ibang lugar (halimbawa bilang contact number).</li><li>Ang isang beripikadong numero ay maaaring nasa isang Melai Nuts account lang. Kung beripikado na ito sa ibang account, hindi ito tatanggapin.</li><li>Ginagamit namin ang beripikadong numero para ipatupad ang tuntunin sa bayad ng unang order: laging babayaran muna online ng bagong account ang unang order nito, anuman ang numerong gamitin, at itinatala ang numerong nagbayad ng unang order para hindi ito magamit sa ibang account para iwasan ang tuntunin.</li><li>Ginagamit ng staff ang iyong beripikadong numero para makipag-ugnayan sa iyo tungkol sa order na kukunin mo.</li></ul>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
+    </section>
+    <section id="privacy-11">
+        <h2>11. Security check at proteksyon sa pag-sign in</h2>
+        <ul><li>Binibilang ang bawat pagsubok mag-sign in ayon sa email, IP address at device sa loob ng 30 minuto. Pagkatapos ng 15 pagsubok, kailangan ng security check (Cloudflare Turnstile) bago ang susunod. Hindi ka nito kailanman ila-lock out: laging makakasubok ka kapag pumasa ka sa check. Ang email, IP address at device ID ay iniingatan lang bilang one-way hash na ginawa gamit ang lihim na susi.</li><li>Natatanggap ng Cloudflare ang kailangan nito para patakbuhin ang security check (tulad ng iyong IP address at detalye ng browser) ayon sa sarili nitong privacy policy. Ganoon din ang Google para sa reCAPTCHA sa hakbang ng mobile number sa website.</li><li>App Check: pinapatunayan ng app sa aming mga server na ito ang totoong Melai Nuts app sa isang totoong device (Google Play Integrity o Apple App Attest). Walang personal na datos na idinadagdag para dito.</li><li>Pag-reset ng password: isang beses lang gumagana ang link sa email at nag-e-expire ito; pagkatapos ng pagpalit, natatapos ang iba mo pang pag-sign in.</li></ul>
         <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Bumalik</a> · <a class="link" href="{{ route('legal.terms', ['lang' => 'fil']) }}">Mga Tuntunin at Kundisyon</a></p>
@@ -53,23 +69,28 @@
     <p class="muted">Version {{ config('melai.legal.privacy_version') }} · <a class="link" href="{{ route('legal.privacy', ['lang' => 'fil']) }}">Filipino</a></p>
     <section id="privacy-1">
         <h2>1. Who is responsible for your data</h2>
-        <p>Melai Nuts Retailing is the personal information controller for the data in this app, as defined by the Philippine Data Privacy Act of 2012 (Republic Act No. 10173). Our Data Protection Officer is the owner of Melai Nuts Retailing, reachable at melaioraya5&#64;gmail.com.</p>
+        <p>Melai Nuts Retailing ([TO BE FILLED IN BY THE OWNER: registered business name and business address]) is the personal information controller for the data in this app and on the Melai Nuts website, as defined by the Philippine Data Privacy Act of 2012 (Republic Act No. 10173). Our Data Protection Officer is the owner of Melai Nuts Retailing, reachable at melaioraya5&#64;gmail.com.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="privacy-2">
         <h2>2. Data we collect</h2>
-        <ul><li>Your name, email address and mobile number.</li><li>Your orders, payments, refunds and loyalty points.</li><li>Your phone&#x27;s location, used on your phone to choose the nearest open branch. We save only the branch, not your location.</li><li>A notification token so we can send order updates to this phone.</li><li>Crash reports, which carry an account ID but not your name, email or phone.</li></ul>
+        <ul><li>Your name, email address and mobile number. Your mobile number is verified with an SMS code; the database keeps the verified number and when it was verified.</li><li>Your orders, payments, refunds and loyalty points, including which of your orders was your first order paid online, and the mobile number it was paid with.</li><li>When the owner confirms a payment by hand: the reason, the payment reference and which owner account confirmed it.</li><li>Sign-in protection: the email address you sign in with, the IP address of your connection and an ID of your device, each stored only as a keyed one-way hash (not readable as an address or number), with the time of each attempt.</li><li>The 6-digit email codes we send when you create an account, stored only as a keyed one-way hash.</li><li>Your phone&#x27;s location, used on your phone (or in your browser, only after you agree) to choose the nearest open branch. We save only the branch, not your location.</li><li>A notification token so we can send order updates to this phone.</li><li>Crash reports, which carry an account ID but not your name, email or phone.</li></ul>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="privacy-3">
         <h2>3. How we use it</h2>
-        <p>To create your account, prepare and deliver your orders, take payment, handle refunds, keep your loyalty points, send the updates you chose, keep the app secure, and fix problems. We do not sell your data.</p>
+        <p>To create your account and verify your email and mobile number, prepare your orders, take payment, apply the first-order payment rule (so a new account cannot use another customer&#x27;s number to skip it), handle refunds, keep your loyalty points, send the updates you chose, protect sign-in against password guessing, keep the app secure, and fix problems. We do not sell your data.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="privacy-4">
         <h2>4. Where it is stored and who can see it</h2>
-        <p>Sign-in is handled by Firebase (Google). Business data is stored in our Supabase database. Online payments are handled by HitPay. We receive the payment status and amount, not your card or GCash details. A copy of recent data is kept on your phone so the app works offline; it is erased when you sign out. Staff see only what their branch needs.</p>
+        <p>• Firebase (Google): sign-in, password-reset emails, the SMS codes that verify your mobile number, App Check (confirms requests come from the real Melai Nuts app), push notifications and crash reports.</p><p>• Supabase: our database, file storage and server functions, where your business data is kept.</p><p>• Resend: sends the 6-digit email codes from Melai Nuts.</p><p>• Cloudflare Turnstile: the security check shown when you create an account and after repeated failed sign-ins.</p><p>• Google reCAPTCHA: the security check before the website sends a code to your mobile number.</p><p>• HitPay: online payments. We receive the payment status, amount and method, not your card or GCash details.</p><p>• OpenStreetMap: the map tiles in the app.</p><p>A copy of recent data is kept on your phone so the app works offline; it is erased when you sign out. Staff see only what their branch needs.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="privacy-5">
         <h2>5. How long we keep it</h2>
-        <p>Orders, payments and refunds are kept for 5 years for tax and accounting records. Account details are kept while your account is active and are deleted within 30 days of a deletion request, except records we must keep by law.</p>
+        <p>Orders, payments, refunds, manual payment confirmations and the record of which mobile number paid a first order are kept for 5 years for tax and accounting records and to apply the first-order rule. Email codes expire after 10 minutes and the record of sent codes is deleted after 1 day. Sign-in attempt records are deleted after 1 day, and a successful sign-in clears the ones for your email and device sooner. Account details are kept while your account is active and are deleted within 30 days of a deletion request, except records we must keep by law.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="privacy-6">
         <h2>6. Your rights (RA 10173)</h2>
@@ -81,11 +102,22 @@
     </section>
     <section id="privacy-8">
         <h2>8. Permissions on your phone</h2>
-        <p>The app asks for the camera (scan barcodes), location (find your nearest branch) and notifications (order updates) only when you use that feature. You can change them any time in Settings &gt; Permissions.</p>
+        <p>The app asks for the camera (scan barcodes), location (find your nearest branch) and notifications (order updates) only when you use that feature. It does not ask for permission to read your SMS: on Android the code may be filled in for you by Google&#x27;s SMS Retriever, which shares only the one message with the code. You can change permissions any time in Settings &gt; Permissions.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="privacy-9">
         <h2>9. Product photos and file access</h2>
         <ul><li>What we collect: the product photos the Melai Nuts owner chooses on the admin website, with each photo&#x27;s file type, size and upload time, the product it belongs to, and the owner account that uploaded it. Only the owner uploads product photos; customers do not.</li><li>Why: to show the products to customers in the Melai Nuts app and the web shop.</li><li>File access: the website reads only the photo files the owner picks in the browser&#x27;s file picker (or drags onto the page). It does not scan or read any other files or folders on the device. The website asks before the file picker opens for the first time.</li><li>Where they are stored: in Supabase Storage, in the public &quot;product-images&quot; folder. Anyone with a photo&#x27;s link can view it, so private or personal photos must not be uploaded.</li><li>Large photos are resized in the browser before they are uploaded.</li><li>The owner can remove or replace photos at any time. Removed and replaced photos are deleted from storage.</li><li>Questions about product photos: email melaioraya5&#64;gmail.com.</li></ul>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
+    </section>
+    <section id="privacy-10">
+        <h2>10. Your mobile number and the first-order rule</h2>
+        <ul><li>We send a 6-digit code to the number you enter, through Firebase. The number counts as verified only after you enter the right code; a number you type anywhere else (for example as a contact number) does not count.</li><li>A verified number can belong to only one Melai Nuts account at a time. If it is already verified on another account, it is refused.</li><li>We use the verified number to apply the first-order payment rule: a new account always pays its first order online first, whatever number it uses, and the number that paid a first order is recorded so it cannot be used to skip the rule on another account.</li><li>Staff use your verified number to reach you about a pickup order.</li></ul>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
+    </section>
+    <section id="privacy-11">
+        <h2>11. Security checks and sign-in protection</h2>
+        <ul><li>Every sign-in attempt is counted by email address, IP address and device for 30 minutes. After 15 attempts, a security check (Cloudflare Turnstile) is needed before the next one. It never locks you out: a passed check always lets you try. The email, IP address and device ID are stored only as one-way hashes made with a secret key.</li><li>Cloudflare receives what it needs to run the security check (such as your IP address and browser details) under its own privacy policy. Google receives the same for reCAPTCHA on the website&#x27;s mobile-number step.</li><li>App Check: the app proves to our servers that it is the genuine Melai Nuts app on a real device (Google Play Integrity or Apple App Attest). No personal data is added for this.</li><li>Password reset: the reset link in the email works once and expires; after the change, your other sign-ins are ended.</li></ul>
         <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Go back</a> · <a class="link" href="{{ route('legal.terms', ['lang' => 'en']) }}">Terms and Conditions</a></p>

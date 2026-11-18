@@ -12,6 +12,7 @@
 #   DATABASE_URL=postgresql://... bash supabase/tests/receiving_cards_refund_concurrency_test.sh
 # =============================================================================
 set -uo pipefail
+ph() { printf '+639%09d' "$(( $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000000000 ))"; }  # a verified test number per uid
 : "${DATABASE_URL:?set DATABASE_URL}"
 N="${N:-8}"
 PSQL=(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt)
@@ -83,7 +84,7 @@ SUP=$("${PSQL[@]}" -c "select id from public.suppliers where name='CR-Supplier'"
 
 as_user() { # uid, sql -> result or "ERROR: ..."
   local out
-  out=$("${PSQL[@]}" -c "begin; select set_config('request.jwt.claims', '{\"sub\":\"$1\",\"role\":\"authenticated\",\"email\":\"$1@test.local\",\"email_verified\":true}', true); set local role authenticated; $2; commit;" 2>&1)
+  out=$("${PSQL[@]}" -c "begin; select set_config('request.jwt.claims', '{\"sub\":\"$1\",\"role\":\"authenticated\",\"email\":\"$1@test.local\",\"email_verified\":true,\"phone_number\":\"$(ph "$1")\"}', true); set local role authenticated; $2; commit;" 2>&1)
   if grep -q 'ERROR' <<<"$out"; then grep -m1 'ERROR' <<<"$out"; else tail -1 <<<"$out"; fi
 }
 stock() { "${PSQL[@]}" -c "select quantity from public.branch_inventory where branch_id='$BA' and variant_id='$VAR'"; }

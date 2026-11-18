@@ -240,7 +240,7 @@ e-mail is not used anywhere (removed from the app's `EmailVerificationService` a
 website's `FirebaseAuthClient` / `CustomerAccounts` / `WaitingController`).
 
 Backend: Supabase Edge Function `email-verification` (migration
-`20261118010000_auth_email_codes_and_sign_in_guard.sql`), used by the app and the website:
+`20261118015111_auth_email_codes_and_sign_in_guard.sql`), used by the app and the website:
 
 - `POST /functions/v1/email-verification/send-code` — needs a valid **Firebase App Check**
   token (`X-Firebase-AppCheck`, sent by the app) **or** a Cloudflare **Turnstile** token

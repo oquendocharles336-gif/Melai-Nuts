@@ -22,6 +22,9 @@ class FirebaseAuthException extends RuntimeException
     public const CONFIG = 'config';                           // missing or wrong key / project / provider disabled
     public const NETWORK = 'network';                         // Firebase could not be reached
     public const UNEXPECTED = 'unexpected';
+    public const PHONE_CODE = 'phone_code';                   // wrong / expired SMS code, bad number, failed captcha
+    public const PHONE_TAKEN = 'phone_taken';
+    public const LINK_INVALID = 'link_invalid';               // e-mail action link expired / used / wrong                 // the number is on another Firebase account
 
     public function __construct(public readonly string $reason, string $message, public readonly ?string $firebaseCode = null)
     {

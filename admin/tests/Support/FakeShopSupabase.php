@@ -59,6 +59,9 @@ class FakeShopSupabase
     /** first_order_quote answer (first_order = false: a returning customer; null = the call fails). */
     public ?array $firstOrder = ['first_order' => false];
 
+    /** The customer's mobile number is verified (first_order_quote's phone_verified). */
+    public bool $phoneVerified = true;
+
     /** email-verification: uids a code was sent to, and the code the fake accepts. */
     public array $codesSent = [];
 
@@ -102,6 +105,7 @@ class FakeShopSupabase
         $body = $r->data();
         $this->calls[] = ['method' => $r->method(), 'path' => $path, 'token' => $token, 'query' => $query, 'body' => $body];
         $uid = $token === self::ANON ? null : $this->uid($token);
+        $this->lastToken = $token;
 
         if (str_starts_with($path, '/functions/v1/')) {
             return $this->function(substr($path, 14), $body, $uid);
@@ -171,6 +175,31 @@ class FakeShopSupabase
         return Http::response(isset($this->profiles[$uid]) && $filterUid === $uid ? [$this->profiles[$uid]] : []);
     }
 
+    private string $lastToken = '';
+
+    /** Verified numbers per uid (claim_verified_phone). */
+    public array $verifiedPhones = [];
+
+    /** claim_verified_phone: the number comes from the token's phone_number claim, like the database. */
+    private function claimPhone(?string $uid)
+    {
+        $parts = explode('.', $this->lastToken);
+        $claims = json_decode(base64_decode(strtr($parts[1] ?? '', '-_', '+/')), true) ?: [];
+        $phone = (string) ($claims['phone_number'] ?? '');
+        if ($uid === null || $phone === '') {
+            return Http::response(['code' => 'P0001', 'message' => 'Please verify your mobile number with the SMS code first.'], 400);
+        }
+        foreach ($this->verifiedPhones as $other => $p) {
+            if ($p === $phone && $other !== $uid) {
+                return Http::response(['code' => 'P0001', 'message' => 'This mobile number is already verified on another Melai Nuts account. Sign in to that account, or verify a different number.'], 400);
+            }
+        }
+        $this->verifiedPhones[$uid] = $phone;
+        $this->phoneVerified = true;
+
+        return Http::response(['verified_phone' => $phone, 'first_order' => true]);
+    }
+
     private function rpc(string $fn, array $p, ?string $uid)
     {
         return match ($fn) {
@@ -180,10 +209,14 @@ class FakeShopSupabase
             'sync_customer_cart' => $this->sync($uid, $p),
             'register_voucher_attempt' => Http::response(null),
             'cod_downpayment_quote' => Http::response($this->quote),
-            'first_order_quote' => $this->firstOrder === null ? Http::response(['message' => 'unavailable'], 503) : Http::response($this->firstOrder),
+            // A customer whose mobile number is verified unless the test says otherwise (migration 20261118040000).
+            'first_order_quote' => $this->firstOrder === null ? Http::response(['message' => 'unavailable'], 503)
+                : Http::response($this->firstOrder + ['phone_verified' => $this->phoneVerified, 'phone_claimable' => false,
+                    'verified_phone' => $this->phoneVerified ? '+639171234567' : null]),
             'my_legal_acceptance' => Http::response($this->legal[$uid] ?? ['terms_version' => null, 'privacy_version' => null]),
             'accept_legal_terms' => $this->accept($uid, $p),
             'place_order' => $this->place($uid, $p),
+            'claim_verified_phone' => $this->claimPhone($uid),
             default => Http::response(['message' => 'unknown function '.$fn, 'code' => '42883'], 404),
         };
     }

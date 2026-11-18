@@ -46,7 +46,9 @@ begin
       'sub', p_uid,
       'role', 'authenticated',
       'email', coalesce(p_email, p_uid || '@test.local'),
-      'email_verified', p_verified)::text, true);
+      'email_verified', p_verified,
+      -- a verified mobile number (Firebase phone_number claim), required at checkout since 20261118040000
+      'phone_number', '+639' || lpad((abs(hashtext(p_uid)) % 1000000000)::text, 9, '0'))::text, true);
     execute 'set local role authenticated';
   end if;
 end $$;

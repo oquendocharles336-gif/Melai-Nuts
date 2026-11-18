@@ -25,7 +25,7 @@ begin
   else
     perform set_config('request.jwt.claims', jsonb_build_object(
       'sub', p_uid, 'role', 'authenticated',
-      'email', p_uid || '@test.local', 'email_verified', true)::text, true);
+      'email', p_uid || '@test.local', 'email_verified', true, 'phone_number', '+639' || lpad((abs(hashtext(p_uid)) % 1000000000)::text, 9, '0'))::text, true);
     execute 'set local role authenticated';
   end if;
 end $$;

@@ -14,11 +14,13 @@
     </section>
     <section id="terms-2">
         <h2>2. Ang iyong account</h2>
-        <p>Ibigay ang iyong totoong pangalan, isang gumaganang email at mobile number na pag-aari mo. Ilihim ang iyong password at huwag ipagamit ang iyong account. Ikaw ang mananagot sa anumang ginawa gamit ang iyong account. Sabihan agad ang isang branch kung sa tingin mo ay may ibang gumagamit nito. Maaari naming i-deactivate ang account na lumalabag sa mga tuntuning ito.</p>
+        <p>Ibigay ang iyong totoong pangalan, isang gumaganang email at mobile number na pag-aari mo. Bago ang iyong unang order, iberipika mo ang numerong iyon gamit ang 6-digit na code na ipapadala namin sa SMS; ang isang numero ay maaaring nasa isang Melai Nuts account lang. Ilihim ang iyong password at huwag ipagamit ang iyong account. Ikaw ang mananagot sa anumang ginawa gamit ang iyong account. Sabihan agad ang isang branch kung sa tingin mo ay may ibang gumagamit nito. Maaari naming i-deactivate ang account na lumalabag sa mga tuntuning ito.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="terms-3">
         <h2>3. Mga order at bayad</h2>
-        <p>Sinusuri ng aming sistema ang presyo, stock at diskwento kapag nag-order ka; ang total sa iyong kumpirmasyon ang babayaran mo. Ang mga order ay kinukuha sa counter ng branch. Kapag bukas ang online payment, magbabayad ka ng 30% na downpayment online sa HitPay (GCash, QR Ph o card) at ang natitira ay cash pagkuha mo. Kapag sarado ang online payment, buong halaga ang babayaran nang cash pagkuha mo. Maaaring makansela ang order kung maubos ang isang item; hindi ka sisingilin para sa nakanselang item.</p>
+        <p>Sinusuri ng aming sistema ang presyo, stock at diskwento kapag nag-order ka; ang total sa iyong kumpirmasyon ang babayaran mo. Ang mga order ay kinukuha sa counter ng branch.</p><p>• Ang iyong unang order: babayaran mo ang 50% o 100% nito online sa HitPay (GCash, QR Ph o card) bago ito ihanda ng branch. Kung 50% ang binayaran mo, mababayaran mo ang natitirang 50% online sa app o sa website, o nang cash pagkuha mo. Para ito sa bawat bagong account at bawat mobile number na wala pang order na nabayaran online.</p><p>• Mga susunod na order: kapag bukas ang online payment, babayaran mo online ang downpayment na nakasaad sa checkout at ang natitira ay cash pagkuha mo. Kapag sarado ang online payment, buong halaga ang babayaran nang cash pagkuha mo.</p><p>• Ang kumpirmasyon lang mismo ng HitPay ang awtomatikong nagmamarka ng bayad bilang bayad na. Kung hindi umabot sa amin ang kumpirmasyon ng HitPay, maaaring kumpirmahin ng may-ari ang iyong bayad nang mano-mano matapos suriin ang rekord ng HitPay. Tuloy ang iyong order, pero ituturing pa ring unang order ang susunod mong order hangga&#x27;t walang bayad na kinumpirma ng HitPay.</p><p>• Maaaring makansela ang order kung maubusan ng item; hindi ka sisingilin para sa mga nakanselang item.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="terms-4">
         <h2>4. Mga refund</h2>
@@ -29,12 +31,14 @@
         <p>Makakakuha ka ng points kapag nakumpleto ang isang order. Binabawi ang points mula sa order na na-refund. Walang katumbas na pera ang points, hindi maililipat sa ibang tao, at magagamit lamang para sa rewards sa app na ito. Maaaring baguhin ng Melai Nuts ang mga patakaran sa pag-ipon at rewards; ipinapakita muna sa app ang pagbabago nang hindi bababa sa 30 araw bago ito ipatupad.</p>
     </section>
     <section id="terms-6">
-        <h2>6. Pagkuha ng order at downpayment</h2>
-        <ul><li>Bayaran ang downpayment sa loob ng 30 minuto mula nang mag-order. Kung hindi nabayaran sa oras, makakansela ang order at walang sisingilin.</li><li>Kunin ang iyong order sa loob ng 2 araw mula nang ito ay maging &quot;Ready for Pickup&quot;. Kung hindi mo ito nakuha sa oras, makakansela ang order at hindi na ibabalik ang downpayment.</li><li>Kung makansela ang order sa ibang dahilan, kasama na kung ang tindahan ang nagkansela, ibabalik nang buo ang iyong downpayment sa paraan ng pagbayad na ginamit mo.</li><li>Bayaran ang natitira nang cash sa counter pagkuha mo.</li></ul>
+        <h2>6. Pagkuha ng order, online na bayad at downpayment</h2>
+        <ul><li>Bayaran ang online na bahagi ng iyong order (bayad ng unang order o downpayment) sa loob ng oras na nakasaad sa checkout, 30 minuto maliban kung iba ang itinakda ng tindahan. Kung hindi nabayaran sa oras, makakansela ang order at walang sisingilin.</li><li>Kunin ang iyong order sa loob ng 2 araw mula nang ito ay maging &quot;Ready for Pickup&quot;. Kung hindi mo ito nakuha sa oras, makakansela ang order at hindi na ibabalik ang downpayment.</li><li>Kung makansela ang order sa ibang dahilan, kasama na kung ang tindahan ang nagkansela, ibabalik nang buo ang ibinayad mo online sa paraan ng pagbayad na ginamit mo.</li><li>Bayaran ang anumang natitira online sa app o sa website bago kunin, o nang cash sa counter pagkuha mo. Kung nabayaran ang natitira online at cash pa, ibabalik ang online na bayad.</li></ul>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="terms-7">
         <h2>7. Tamang paggamit</h2>
-        <p>Huwag gumawa ng pekeng order, manghula ng voucher code, kopyahin ang catalog gamit ang automated tools, subukang lusutan ang seguridad ng app, o gumamit ng account ng iba. Nililimitahan ng app ang paulit-ulit na pagsubok para protektahan ang bawat customer.</p>
+        <p>Huwag gumawa ng pekeng order, gumamit ng mobile number na hindi sa iyo, gumawa ng ibang account para iwasan ang bayad ng unang order, manghula ng voucher code, kopyahin ang catalog gamit ang automated tools, subukang lusutan ang seguridad ng app, o gumamit ng account ng iba. Nililimitahan ng app ang paulit-ulit na pagsubok para protektahan ang bawat customer: pagkatapos ng maraming maling pag-sign in, hihingi ito ng security check (Cloudflare Turnstile) bago ka makasubok ulit.</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="terms-8">
         <h2>8. Pagbabago sa mga tuntuning ito</h2>
@@ -42,7 +46,8 @@
     </section>
     <section id="terms-9">
         <h2>9. Pakikipag-ugnayan</h2>
-        <p>Para sa tanong tungkol sa iyong account, order o sa mga tuntuning ito, makipag-ugnayan sa alinmang branch ng Melai Nuts. Makikita ang numero ng branch sa app, sa order details at sa checkout.</p>
+        <p>Para sa tanong tungkol sa iyong account, order o sa mga tuntuning ito, makipag-ugnayan sa alinmang branch ng Melai Nuts o mag-email sa melaioraya5&#64;gmail.com. Makikita ang numero ng branch sa app, sa order details at sa checkout. Detalye ng negosyo: [PUPUNAN NG MAY-ARI: rehistradong pangalan at address ng negosyo].</p>
+        <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Bumalik</a> · <a class="link" href="{{ route('legal.privacy', ['lang' => 'fil']) }}">Patakaran sa Privacy</a></p>
 </article>
@@ -56,11 +61,13 @@
     </section>
     <section id="terms-2">
         <h2>2. Your account</h2>
-        <p>Give your real name, a working email and a mobile number you own. Keep your password secret and do not share your account. You are responsible for what is done with your account. Tell a branch right away if you think someone else is using it. We may deactivate an account that breaks these terms.</p>
+        <p>Give your real name, a working email and a mobile number you own. Before your first order you verify that number with a 6-digit code we send by SMS; one number can belong to only one Melai Nuts account. Keep your password secret and do not share your account. You are responsible for what is done with your account. Tell a branch right away if you think someone else is using it. We may deactivate an account that breaks these terms.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="terms-3">
         <h2>3. Orders and payment</h2>
-        <p>Prices, stock and discounts are checked by our system when you place the order; the total on your confirmation is the amount you pay. Orders are for pickup at the branch counter. When online payment is on, you pay a 30% downpayment online through HitPay (GCash, QR Ph or card) and the rest in cash when you pick up. When online payment is off, you pay the full amount in cash at pickup. An order may be cancelled if an item runs out; you are not charged for cancelled items.</p>
+        <p>Prices, stock and discounts are checked by our system when you place the order; the total on your confirmation is the amount you pay. Orders are for pickup at the branch counter.</p><p>• Your first order: you pay 50% or 100% of it online through HitPay (GCash, QR Ph or card) before the branch prepares it. If you pay 50%, you can pay the other 50% online later in the app or on the website, or in cash when you pick up. This rule applies to every new account and every mobile number that has not had an order paid online yet.</p><p>• Later orders: when online payment is on, you pay the downpayment shown at checkout online and the rest in cash when you pick up. When online payment is off, you pay the full amount in cash at pickup.</p><p>• Only HitPay&#x27;s own confirmation marks a payment as paid automatically. If HitPay&#x27;s confirmation does not reach us, the owner may confirm your payment by hand after checking HitPay&#x27;s records. Your order then goes ahead, but your next order still counts as a first order until a payment is confirmed by HitPay.</p><p>• An order may be cancelled if an item runs out; you are not charged for cancelled items.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="terms-4">
         <h2>4. Refunds</h2>
@@ -71,12 +78,14 @@
         <p>You earn points when an order is completed. Points from an order that is refunded are taken back. Points have no cash value, cannot be transferred to another person and are used only for rewards in this app. Melai Nuts may change the earning and reward rules; changes are shown in the app at least 30 days before they apply.</p>
     </section>
     <section id="terms-6">
-        <h2>6. Pickup and downpayment</h2>
-        <ul><li>Pay the downpayment within 30 minutes of placing the order. If it is not paid in time, the order is cancelled and nothing is charged.</li><li>Pick up your order within 2 days after it is marked &quot;Ready for Pickup&quot;. If you do not pick it up in time, the order is cancelled and the shop keeps the downpayment.</li><li>If the order is cancelled for any other reason, including by the shop, your downpayment is refunded in full to the payment method you used.</li><li>Pay the balance in cash at the counter when you pick up.</li></ul>
+        <h2>6. Pickup, online payment and downpayment</h2>
+        <ul><li>Pay the online part of your order (first-order payment or downpayment) within the time shown at checkout, 30 minutes unless the shop sets another limit. If it is not paid in time, the order is cancelled and nothing is charged.</li><li>Pick up your order within 2 days after it is marked &quot;Ready for Pickup&quot;. If you do not pick it up in time, the order is cancelled and the shop keeps the downpayment.</li><li>If the order is cancelled for any other reason, including by the shop, the money you paid online is refunded in full to the payment method you used.</li><li>Pay any balance online in the app or on the website before pickup, or in cash at the counter when you pick up. If a balance is paid both online and in cash, the online payment is refunded.</li></ul>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="terms-7">
         <h2>7. Acceptable use</h2>
-        <p>Do not place orders you do not mean to pay for or collect, guess voucher codes, copy the catalog with automated tools, try to get around the app&#x27;s security, or use another person&#x27;s account. The app limits repeated attempts to protect every customer.</p>
+        <p>Do not place orders you do not mean to pay for or collect, use a mobile number that is not yours, create extra accounts to avoid the first-order payment, guess voucher codes, copy the catalog with automated tools, try to get around the app&#x27;s security, or use another person&#x27;s account. The app limits repeated attempts to protect every customer: after many failed sign-ins it asks for a security check (Cloudflare Turnstile) before you can try again.</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="terms-8">
         <h2>8. Changes to these terms</h2>
@@ -84,7 +93,8 @@
     </section>
     <section id="terms-9">
         <h2>9. Contact</h2>
-        <p>For questions about your account, an order or these terms, contact any Melai Nuts branch. Branch phone numbers are shown in the app on the order details and checkout screens.</p>
+        <p>For questions about your account, an order or these terms, contact any Melai Nuts branch or email melaioraya5&#64;gmail.com. Branch phone numbers are shown in the app on the order details and checkout screens. Business details: [TO BE FILLED IN BY THE OWNER: registered business name and business address].</p>
+        <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <p><a class="link" href="{{ url()->previous() }}">Go back</a> · <a class="link" href="{{ route('legal.privacy', ['lang' => 'en']) }}">Privacy Policy</a></p>
 </article>

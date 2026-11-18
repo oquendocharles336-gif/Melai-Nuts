@@ -53,11 +53,19 @@ class ProductPhotoStorage
         if (! $this->configured()) {
             return 'Photo uploads are not set up yet: add SUPABASE_URL and SUPABASE_ANON_KEY (the same values as the app\'s env/supabase.json) to the website\'s .env file, then restart the website.';
         }
-        if (! $user || ! $user->usesFirebase() || ! $this->firebase->isFor($user)) {
-            return 'Uploading photos needs your Melai Nuts app sign-in. Sign out, then sign in again with the email and password you use in the app.';
+        if (! $user || ! $user->usesFirebase()) {
+            return 'Uploading photos needs your Melai Nuts app account: sign in to this website with the email and password you use in the app.';
         }
 
+        // An app account whose app sign-in is missing or ended is NOT blocked: the page asks for the
+        // app password in place (needsAppSignIn) and carries on, without signing out.
         return null;
+    }
+
+    /** $user is an app account, but this browser session holds no app sign-in for it right now. */
+    public function needsAppSignIn(?User $user): bool
+    {
+        return $user !== null && $user->usesFirebase() && ! $this->firebase->isFor($user);
     }
 
     /**
@@ -177,10 +185,15 @@ class ProductPhotoStorage
     {
         $user = Auth::user();
         $uid = $this->identity->uid($user);   // the linked app account; throws when the link is gone
-        if (! $user || ! $user->usesFirebase() || ! $this->firebase->isFor($user) || $user->firebase_uid !== $uid) {
-            // Signed in with the website's own password: there is no app sign-in to act with, and
-            // Storage only accepts the app account's own token. Say so instead of signing out.
-            throw new BackendActionException('Uploading photos needs your Melai Nuts app sign-in. Sign out, then sign in again with the email and password you use in the app.');
+        if (! $user || ! $user->usesFirebase() || $user->firebase_uid !== $uid) {
+            // Signed in with the website's own password: there is no app account to act with, and
+            // Storage only accepts the app account's own token.
+            throw new BackendActionException('Uploading photos needs your Melai Nuts app account: sign in to this website with the email and password you use in the app.');
+        }
+        if (! $this->firebase->isFor($user)) {
+            // App account without a current app sign-in: the page asks for the app password in
+            // place (409 reauth, bootstrap/app.php), the owner stays signed in.
+            throw new FirebaseSessionRequiredException(\App\Services\Auth\LinkState::NOT_AUTHENTICATED, 'Confirm your Melai Nuts app password to keep changing photos.');
         }
         try {
             // Supabase only applies the owner rules to a token whose `role` claim is "authenticated";
@@ -190,13 +203,14 @@ class ProductPhotoStorage
             if (($this->firebase->claimsFor($user)['claims']['role'] ?? null) !== 'authenticated') {
                 $this->grantRoleClaim($this->firebase->idTokenFor($user));
                 if (($this->firebase->claimsFor($user, true)['claims']['role'] ?? null) !== 'authenticated') {
-                    throw new BackendActionException('Your app account could not get the upload permission yet. Sign out, sign in again, and try once more. If it keeps happening, check the grant-role-claim function in Supabase (supabase/functions/README.md).');
+                    throw new BackendActionException('Your app account could not get the upload permission yet. Try again in a moment. If it keeps happening, check the grant-role-claim function and its FIREBASE_SERVICE_ACCOUNT secret in Supabase (supabase/functions/README.md).');
                 }
             }
 
             return $this->firebase->idTokenFor($user);
         } catch (FirebaseSessionRequiredException $e) {
-            throw new BackendActionException('Your app sign-in has ended. Sign out and sign in again, then upload the photo again.', 0, $e);
+            // Ended (expired refresh token, password changed elsewhere): renewed in place, see above.
+            throw $e;
         }
     }
 
@@ -230,7 +244,7 @@ class ProductPhotoStorage
         Log::warning("[product-photos] storage refused the $what", ['status' => $r->status(), 'message' => $message]);
 
         if (in_array($r->status(), [401, 403], true) || str_contains(strtolower($message), 'row-level security') || str_contains(strtolower($message), 'unauthorized')) {
-            return new BackendActionException('Supabase refused the photo: only an active owner can change product photos. If you are the owner, run supabase/migrations/20261117000000_product_photo_management.sql and sign in again.');
+            return new BackendActionException('Supabase refused the photo: only an active owner can change product photos. If you are the owner, check that the migrations up to 20261118040000_verified_phone_first_order.sql are applied (supabase migration list).');
         }
         if ($r->status() === 413 || str_contains(strtolower($message), 'size')) {
             return new BackendActionException('That photo is too large for the photo storage (5 MB at most).');

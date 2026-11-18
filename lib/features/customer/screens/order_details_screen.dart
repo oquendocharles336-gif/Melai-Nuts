@@ -53,6 +53,23 @@ class OrderDetailsScreen extends StatelessWidget {
       !CustomerDataStore.instance.refunds
           .any((r) => r.orderId == order.id && r.status != RefundStatus.rejected);
 
+  /// A first order paid 50% online, half paid, balance still open: it can be
+  /// paid online too (migration 20261118040000). The server re-checks it.
+  bool get _canPayBalanceOnline {
+    if (!PaymentConfig.onlinePaymentEnabled) return false;
+    final d = order.downpayment;
+    if (d == null || !d.isFirstOrder || d.status != 'success' || order.cashBalance <= 0) return false;
+    if (order.status == OrderStatus.awaitingDownpayment ||
+        order.status == OrderStatus.cancelled ||
+        order.status == OrderStatus.completed ||
+        order.status == OrderStatus.refundRequested ||
+        order.status == OrderStatus.refunded) {
+      return false;
+    }
+    final status = CustomerDataStore.instance.paymentForOrder(order.id)?.status.name ?? order.paymentStatus;
+    return status == null || status == 'pending' || status == 'processing' || status == 'failed';
+  }
+
   bool get _canPayOnline {
     if (!PaymentConfig.onlinePaymentEnabled) return false;
     final downpayment = order.downpayment;
@@ -301,6 +318,23 @@ class OrderDetailsScreen extends StatelessWidget {
             ],
 
             // Action Buttons
+            if (_canPayBalanceOnline) ...[
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => OnlinePaymentScreen(
+                      order: order,
+                      itemCount: order.itemCount,
+                      resume: true,
+                      payBalance: true,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.account_balance_wallet_rounded),
+                label: Text('Pay Remaining Balance (₱${order.cashBalance.toStringAsFixed(2)})'),
+              ),
+              const SizedBox(height: 10),
+            ],
             if (_canPayOnline) ...[
               ElevatedButton.icon(
                 onPressed: () => Navigator.of(context).push(

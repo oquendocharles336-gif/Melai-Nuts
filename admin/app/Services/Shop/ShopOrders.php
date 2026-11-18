@@ -126,6 +126,9 @@ class ShopOrders
             'expiry_minutes' => (int) ($q['expiry_minutes'] ?? 30),
             'pending_order_id' => is_string($q['pending_order_id'] ?? null) && $q['pending_order_id'] !== '' ? $q['pending_order_id'] : null,
             'online_payment_enabled' => ($q['online_payment_enabled'] ?? false) === true,
+            // Checkout needs a verified mobile number (migration 20261118040000).
+            'phone_ready' => ($q['phone_verified'] ?? false) === true || ($q['phone_claimable'] ?? false) === true,
+            'verified_phone' => is_string($q['verified_phone'] ?? null) && $q['verified_phone'] !== '' ? $q['verified_phone'] : null,
         ];
     }
 
@@ -282,6 +285,12 @@ class ShopOrders
                     ? $online && ! in_array($paymentStatus, ['success', 'refunded'], true)
                     : $status === 'awaitingDownpayment' && in_array($down['status'] ?? '', ['pending', 'failed', 'processing'], true)
             ),
+            // A first order paid 50% online: once that half is paid, the rest can be paid online too
+            // (or in cash at pickup), migration 20261118040000. The server re-checks all of it.
+            'can_pay_balance' => $down !== null && ($down['kind'] ?? '') === 'first_order' && ($down['status'] ?? '') === 'success'
+                && ! in_array($status, ['awaitingDownpayment', 'cancelled', 'refunded', 'refundRequested', 'completed'], true)
+                && in_array($paymentStatus, ['pending', 'processing', 'failed'], true)
+                && (float) ($o['total'] ?? 0) - (float) ($down['amount'] ?? 0) > 0,
             // Fully paid online: an online order, or a first order paid 100% online.
             'paid_online' => $down === null
                 ? $online && $paymentStatus === 'success'

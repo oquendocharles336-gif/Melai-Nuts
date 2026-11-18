@@ -47,6 +47,15 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // The website's host (e.g. shop.example.com) for the password-reset App Link
+        // (https://<host>/auth/action, see AndroidManifest.xml and docs/PASSWORD_RESET.md).
+        // Set it with -PmelaiWebHost=shop.example.com or MELAI_WEB_HOST. Until it is set the
+        // link uses the reserved ".invalid" host, so no real link opens the app and the
+        // website's own reset page handles it.
+        manifestPlaceholders["melaiWebHost"] =
+            (project.findProperty("melaiWebHost") as String?)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: System.getenv("MELAI_WEB_HOST")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "app-links-not-configured.invalid"
     }
 
     signingConfigs {

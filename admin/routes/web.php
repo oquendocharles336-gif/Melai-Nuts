@@ -21,6 +21,8 @@ use App\Http\Controllers\PurchaseReceiptController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\Shop\CartController as ShopCartController;
 use App\Http\Controllers\Shop\CheckoutController as ShopCheckoutController;
+use App\Http\Controllers\Shop\PhoneVerificationController as ShopPhoneVerificationController;
+use App\Http\Controllers\Auth\AccountActionController;
 use App\Http\Controllers\Shop\CustomerAuthController;
 use App\Http\Controllers\Shop\OrderController as ShopOrderController;
 use App\Http\Controllers\Shop\StorefrontController;
@@ -68,6 +70,11 @@ Route::name('shop.')->group(function () {
             Route::post('/cart/voucher', [ShopCartController::class, 'voucher'])->name('cart.voucher')->middleware('throttle:10,1');
             Route::delete('/cart/voucher', [ShopCartController::class, 'removeVoucher'])->name('cart.voucher.remove');
             Route::post('/cart/points', [ShopCartController::class, 'points'])->name('cart.points');
+            // Verified mobile number (SMS), needed to check out (migration 20261118040000).
+            Route::get('/verify-phone', [ShopPhoneVerificationController::class, 'show'])->name('phone');
+            Route::post('/verify-phone', [ShopPhoneVerificationController::class, 'send'])->name('phone.send')->middleware('throttle:3,1');
+            Route::post('/verify-phone/code', [ShopPhoneVerificationController::class, 'confirm'])->name('phone.confirm')->middleware('throttle:10,1');
+            Route::post('/verify-phone/restart', [ShopPhoneVerificationController::class, 'restart'])->name('phone.restart');
             Route::get('/checkout', [ShopCheckoutController::class, 'show'])->name('checkout');
             Route::post('/checkout', [ShopCheckoutController::class, 'place'])->name('checkout.place')->middleware('throttle:10,1');
             Route::get('/orders', [ShopOrderController::class, 'index'])->name('orders');
@@ -82,6 +89,23 @@ Route::name('shop.')->group(function () {
         });
     });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Links in Firebase's account e-mails (password reset, ...), for app and website accounts alike.
+// Firebase console > Authentication > Templates > Customize action URL = <APP_URL>/auth/action.
+// ---------------------------------------------------------------------------------------------
+Route::get('/auth/action', [AccountActionController::class, 'show'])->name('account-action')->middleware('throttle:30,1');
+Route::post('/auth/action/reset', [AccountActionController::class, 'reset'])->name('account-action.reset')->middleware('throttle:10,1');
+// Android App Link verification for /auth/action (the app's reset screen), from admin/.env.
+Route::get('/.well-known/assetlinks.json', function () {
+    $fingerprints = array_values(array_filter(array_map('trim', explode(',', (string) config('melai.android.app_link_sha256')))));
+    abort_if($fingerprints === [], 404);
+
+    return response()->json([[
+        'relation' => ['delegate_permission/common.handle_all_urls'],
+        'target' => ['namespace' => 'android_app', 'package_name' => (string) config('melai.android.package'), 'sha256_cert_fingerprints' => $fingerprints],
+    ]])->header('Cache-Control', 'public, max-age=3600');
+})->name('assetlinks');
 
 // ---------------------------------------------------------------------------------------------
 // Admin website (the owner only: staff use the Melai Nuts app). Customers never get past `no.customers` + `auth`.
@@ -160,6 +184,8 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
         Route::post('/products/{product}/photos', [ProductPhotoController::class, 'store'])->name('ops.products.photos.store')->middleware('throttle:30,1');
         Route::delete('/products/{product}/photos', [ProductPhotoController::class, 'destroy'])->name('ops.products.photos.destroy')->middleware('throttle:30,1');
         Route::put('/products/{product}/photos/order', [ProductPhotoController::class, 'order'])->name('ops.products.photos.order')->middleware('throttle:30,1');
+        // The app sign-in for photo uploads, renewed in place (app password), without signing out.
+        Route::post('/products/photos/app-session', [ProductPhotoController::class, 'renewAppSession'])->name('ops.products.photos.session')->middleware('throttle:10,1');
     });
 
     // Needs granted access; new accounts are redirected to /waiting

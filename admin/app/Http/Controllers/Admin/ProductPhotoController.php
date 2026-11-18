@@ -5,7 +5,13 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\ActivityLogger;
 use App\Services\Shop\ShopCatalog;
+use App\Exceptions\BackendUnavailableException;
+use App\Services\Firebase\FirebaseAuthClient;
+use App\Services\Firebase\FirebaseAuthException;
+use App\Services\Firebase\FirebaseSession;
+use App\Services\Firebase\FirebaseTokenVerifier;
 use App\Services\Supabase\ProductPhotoStorage;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -93,6 +99,42 @@ class ProductPhotoController extends Controller
             ['product_id' => $product, 'main' => $r['images'][0] ?? null, 'source' => 'supabase']);
 
         return $this->answer('Main photo updated.', $r['images']);
+    }
+
+    /**
+     * The owner's app sign-in for photo uploads, renewed in place: the app password is checked by
+     * Firebase for THIS login's app account (same UID) and the new tokens go into this browser
+     * session. The owner is never signed out of the website for it. The password is not stored.
+     */
+    public function renewAppSession(Request $request, FirebaseAuthClient $client, FirebaseTokenVerifier $verifier, FirebaseSession $session): JsonResponse
+    {
+        $v = $request->validate(['current_password' => ['required', 'string', 'max:128']],
+            ['current_password.required' => 'Enter your Melai Nuts app password.']);
+        $user = $request->user();
+        abort_unless($user && $user->usesFirebase(), 403, 'This login has no Melai Nuts app account.');
+        $key = 'photo-app-session:'.$user->getAuthIdentifier();
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            throw ValidationException::withMessages(['current_password' => 'Too many wrong passwords. Try again in '.RateLimiter::availableIn($key).' seconds.']);
+        }
+        try {
+            $tokens = $client->signIn((string) $user->email, $v['current_password']);
+            $claims = $verifier->verify($tokens['id_token']);
+        } catch (FirebaseAuthException $e) {
+            if ($e->isTemporary() || $e->reason === FirebaseAuthException::NETWORK || $e->reason === FirebaseAuthException::CONFIG) {
+                throw new BackendUnavailableException($e->getMessage());
+            }
+            RateLimiter::hit($key, 300);
+            ActivityLogger::log('auth.password_confirm_failed', 'Wrong app password when renewing the photo sign-in', $user);
+            throw ValidationException::withMessages(['current_password' => $e->isCredentialError() ? 'That password is not correct.' : $e->getMessage()]);
+        }
+        if (! hash_equals((string) $user->firebase_uid, (string) ($claims['sub'] ?? ''))) {
+            throw ValidationException::withMessages(['current_password' => 'That sign-in belongs to another app account.']);
+        }
+        RateLimiter::clear($key);
+        $session->store($tokens, $claims);
+        ActivityLogger::log('auth.app_session_renewed', 'Renewed the app sign-in for product photos', $user);
+
+        return response()->json(['message' => 'App sign-in confirmed. You can save your photos now.']);
     }
 
     // ------------------------------------------------------------------------------------------

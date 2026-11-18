@@ -20,6 +20,7 @@
 # the append-only/immutability triggers for the test's own rows only.
 # =============================================================================
 set -u
+ph() { printf '+639%09d' "$(( $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000000000 ))"; }  # a verified test number per uid
 : "${DATABASE_URL:?Set DATABASE_URL to a DEV/STAGING database}"
 
 PSQL=(psql "$DATABASE_URL" -X -q -At -v ON_ERROR_STOP=0)
@@ -33,7 +34,7 @@ val()  { "${PSQL[@]}" -c "$1" 2>/dev/null | head -1; }
 as_user() {
   local uid="$1"; shift
   "${PSQL[@]}" <<EOF 2>&1
-select set_config('request.jwt.claims', '{"sub":"$uid","role":"authenticated","email":"$uid@conc.local","email_verified":true}', false) \g /dev/null
+select set_config('request.jwt.claims', '{"sub":"$uid","role":"authenticated","email":"$uid@conc.local","email_verified":true,"phone_number":"$(ph "$uid")"}', false) \g /dev/null
 set role authenticated;
 $*
 EOF

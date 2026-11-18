@@ -15,6 +15,7 @@
 #   DATABASE_URL=postgresql://... bash supabase/tests/first_order_concurrency_test.sh
 # =============================================================================
 set -uo pipefail
+ph() { printf '+639%09d' "$(( $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000000000 ))"; }  # a verified test number per uid
 : "${DATABASE_URL:?set DATABASE_URL}"
 N="${N:-6}"
 PSQL=(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt)
@@ -54,7 +55,7 @@ cleanup
 as_user() { # uid sql
   "${PSQL[@]}" <<SQL
 begin;
-select set_config('request.jwt.claims', '{"sub":"$1","role":"authenticated","email":"$1@test.local","email_verified":true}', true);
+select set_config('request.jwt.claims', '{"sub":"$1","role":"authenticated","email":"$1@test.local","email_verified":true,"phone_number":"$(ph "$1")"}', true);
 set local role authenticated;
 $2;
 commit;

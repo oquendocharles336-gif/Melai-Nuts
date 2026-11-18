@@ -22,6 +22,9 @@ class SecurityHeaders
 {
     private const TURNSTILE = 'https://challenges.cloudflare.com';
 
+    /** Google reCAPTCHA: Firebase phone verification on the shop's "Verify mobile number" page. */
+    private const RECAPTCHA = 'https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/';
+
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
@@ -29,7 +32,10 @@ class SecurityHeaders
 
         $h->set('X-Content-Type-Options', 'nosniff');
         $h->set('X-Frame-Options', 'DENY');
-        $h->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        // A page may ask for less (the e-mail action page sends no Referer: its URL holds a code).
+        if (! $h->has('Referrer-Policy')) {
+            $h->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        }
         $h->set('Cross-Origin-Opener-Policy', 'same-origin');
         // Web Serial is used by the RFID card reader page; geolocation by the shop's "Use my location"
         // (nearest pickup branch, only after the customer agrees). Both only for this site, never embeds.
@@ -53,12 +59,12 @@ class SecurityHeaders
 
         return implode('; ', [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' ".self::TURNSTILE,
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' ".self::TURNSTILE.' '.self::RECAPTCHA,
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: blob:".$images,
-            "connect-src 'self' blob: data: ".self::TURNSTILE,
-            "frame-src ".self::TURNSTILE,
+            "connect-src 'self' blob: data: ".self::TURNSTILE.' '.self::RECAPTCHA,
+            "frame-src ".self::TURNSTILE.' '.self::RECAPTCHA,
             "worker-src 'self' blob:",
             "object-src 'none'",
             "base-uri 'self'",

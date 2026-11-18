@@ -52,7 +52,7 @@
                     <div class="s-flash note" style="justify-content:space-between;flex-wrap:wrap;align-items:center">
                         <span>
                             @if ($order['status'] === 'awaitingDownpayment' && $order['downpayment'] && $order['downpayment']['kind'] === 'first_order')
-                                Pay {{ \App\Support\Format::peso($order['downpayment']['amount']) }} online to confirm your first order{{ $order['downpayment']['balance'] > 0 ? ' (the other '.\App\Support\Format::peso($order['downpayment']['balance']).' is paid in cash at pickup)' : '' }}.
+                                Pay {{ \App\Support\Format::peso($order['downpayment']['amount']) }} online to confirm your first order{{ $order['downpayment']['balance'] > 0 ? ' (the other '.\App\Support\Format::peso($order['downpayment']['balance']).' can be paid online once this is paid, or in cash at pickup)' : '' }}.
                                 @if ($order['downpayment']['expires_at']) It must be paid by {{ $when($order['downpayment']['expires_at']) }}. @endif
                             @elseif ($order['status'] === 'awaitingDownpayment' && $order['downpayment'])
                                 Pay the {{ \App\Support\Format::peso($order['downpayment']['amount']) }} downpayment online to confirm this order.
@@ -63,6 +63,15 @@
                         </span>
                         <form method="POST" action="{{ route('shop.orders.pay', $order['id']) }}">@csrf
                             <button class="s-btn primary sm"><x-icon name="wallet" :size="15" />Pay now</button>
+                        </form>
+                    </div>
+                @endif
+
+                @if ($order['can_pay_balance'] ?? false)
+                    <div class="s-flash note" style="justify-content:space-between;flex-wrap:wrap;align-items:center">
+                        <span>Your first {{ \App\Support\Format::peso($order['downpayment']['amount']) }} is paid. Pay the remaining {{ \App\Support\Format::peso($order['downpayment']['balance']) }} online now, or in cash when you pick up your order.</span>
+                        <form method="POST" action="{{ route('shop.orders.pay', $order['id']) }}">@csrf
+                            <button class="s-btn primary sm"><x-icon name="wallet" :size="15" />Pay remaining balance</button>
                         </form>
                     </div>
                 @endif

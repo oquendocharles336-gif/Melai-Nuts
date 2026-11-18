@@ -6,6 +6,7 @@
     $photoMax = \App\Services\Supabase\ProductPhotoStorage::MAX_PHOTOS;
     // Checked now (no network) so the owner is told what to fix BEFORE choosing a photo.
     $photoBlocker = $canEditPhotos ? app(\App\Services\Supabase\ProductPhotoStorage::class)->blocker(auth()->user()) : null;
+    $photoReauth = $canEditPhotos && $photoBlocker === null && app(\App\Services\Supabase\ProductPhotoStorage::class)->needsAppSignIn(auth()->user());
     $photoMaxBytes = \App\Services\Supabase\ProductPhotoStorage::uploadLimitBytes();
     // id => {name, images}: the photos each product has now (products.images, main photo first).
     $photoRows = collect($products)->mapWithKeys(fn ($p) => [$p['id'] => [
@@ -23,7 +24,8 @@
         destroyUrl: @js(route('ops.products.photos.destroy', '__ID__')),
         orderUrl: @js(route('ops.products.photos.order', '__ID__')),
         max: {{ $photoMax }}, canEdit: @js($canEditPhotos),
-        maxBytes: {{ $photoMaxBytes }}, blocker: @js($photoBlocker),
+        maxBytes: {{ $photoMaxBytes }}, blocker: @js($photoBlocker), reauth: @js($photoReauth),
+        sessionUrl: @js(route('ops.products.photos.session')),
      })">
 @if ($canEditPhotos)
     {{-- Shown only when the page's photo script did not start (an old public/build): then nothing on this
@@ -110,6 +112,19 @@
                 <x-icon name="shield" :size="16" />
                 <p x-text="blocker"></p>
             </div>
+
+            {{-- The app sign-in for uploads is missing or ended: confirm the app password here. Nothing is lost, no sign-out. --}}
+            <form class="pp-blocked" role="alert" x-show="reauth" x-cloak x-on:submit.prevent="renewSession()">
+                <x-icon name="shield" :size="16" />
+                <div style="flex:1">
+                    <p>Confirm your Melai Nuts app password to upload or change photos. You stay signed in, and photos you picked are kept.</p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+                        <input type="password" x-ref="reauthInput" x-model="reauthPassword" autocomplete="current-password" maxlength="128" aria-label="Melai Nuts app password" class="input" style="max-width:260px">
+                        <button type="submit" class="btn sm" :disabled="reauthBusy" x-text="reauthBusy ? 'Checking…' : 'Confirm'">Confirm</button>
+                    </div>
+                    <p class="form-error" x-show="reauthError" x-text="reauthError"></p>
+                </div>
+            </form>
 
             <input type="file" id="pp-picker" class="sr-only" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                    x-on:change="picked($event)" :multiple="!replacing" tabindex="-1" aria-hidden="true">

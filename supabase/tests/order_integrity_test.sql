@@ -33,7 +33,7 @@ create temp table fx (k text primary key, v text);
 create function pg_temp.act_as(p_uid text) returns void language plpgsql as $$
 begin
   perform set_config('request.jwt.claims', jsonb_build_object('sub', p_uid, 'role', 'authenticated',
-    'email', p_uid || '@test.local', 'email_verified', true)::text, true);
+    'email', p_uid || '@test.local', 'email_verified', true, 'phone_number', '+639' || lpad((abs(hashtext(p_uid)) % 1000000000)::text, 9, '0'))::text, true);
   execute 'set local role authenticated';
 end $$;
 

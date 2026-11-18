@@ -166,12 +166,34 @@ class ProductPhotosTest extends TestCase
         $this->assertSame([], $this->images());
     }
 
-    public function test_a_website_password_session_is_told_to_sign_in_with_the_app_account(): void
+    public function test_no_app_sign_in_in_this_session_asks_for_the_app_password_and_never_signs_out(): void
     {
-        // Signed in to the website without an app (Firebase) sign-in: Storage cannot be called as the owner.
-        $this->actingAs($this->owner())->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])
-            ->assertStatus(403)->assertJsonPath('message', fn ($m) => str_contains($m, 'needs your Melai Nuts app sign-in'));
+        // Signed in to the website, but this session holds no app (Firebase) sign-in (it expired,
+        // or the owner came in before it was kept): Storage cannot be called as the owner yet.
+        $owner = $this->owner();
+        $this->actingAs($owner)->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])
+            ->assertStatus(409)->assertJsonPath('reauth', true)
+            ->assertJsonPath('message', fn ($m) => str_contains($m, 'Confirm your Melai Nuts app password') && str_contains($m, 'You stay signed in'));
+        $this->assertAuthenticatedAs($owner);
         $this->assertSame([], $this->storage);
+    }
+
+    public function test_the_app_password_renews_the_sign_in_in_place_and_the_upload_then_works(): void
+    {
+        $owner = $this->owner();
+        $this->actingAs($owner)->postJson(route('ops.products.photos.session'), ['current_password' => 'wrong'])
+            ->assertStatus(422)->assertJsonValidationErrors('current_password');
+        $this->actingAs($owner)->postJson(route('ops.products.photos.session'), ['current_password' => 'uid-owner#Pass1'])
+            ->assertOk()->assertJsonPath('message', fn ($m) => str_contains($m, 'App sign-in confirmed'));
+        $this->assertAuthenticatedAs($owner);
+        $this->actingAs($owner)->postJson(route('ops.products.photos.store', self::PRODUCT), ['photo' => $this->photo()])->assertOk();
+        $this->assertCount(1, $this->images());
+    }
+
+    public function test_a_login_without_an_app_account_is_told_to_use_the_app_account(): void
+    {
+        $u = \App\Models\User::factory()->create(['role' => 'admin', 'has_access' => true]);
+        $this->actingAs($u)->postJson(route('ops.products.photos.session'), ['current_password' => 'x'])->assertForbidden();
     }
 
     public function test_the_upload_card_and_the_allow_step_are_on_the_page(): void
@@ -192,11 +214,13 @@ class ProductPhotosTest extends TestCase
             ->assertSee('x-on:click="askSave()"', false);
     }
 
-    public function test_the_page_says_up_front_when_the_owner_has_no_app_sign_in(): void
+    public function test_the_page_asks_up_front_for_the_app_password_when_the_session_has_no_app_sign_in(): void
     {
-        // Website session without the app (Firebase) sign-in: told before choosing a photo, not after.
+        // Website session without the app (Firebase) sign-in: asked in place, before choosing a photo.
         $this->actingAs($this->owner())->get('/s/products')->assertOk()
-            ->assertSee('Uploading photos needs your Melai Nuts app sign-in.', false);
+            ->assertSee('reauth: true', false)
+            ->assertSee('Confirm your Melai Nuts app password to upload or change photos. You stay signed in', false)
+            ->assertSee('photos\\/app-session', false);
     }
 
     public function test_the_page_says_up_front_when_the_supabase_keys_are_missing(): void
@@ -232,7 +256,17 @@ class ProductPhotosTest extends TestCase
             ->assertSee('public &quot;product-images&quot; folder', false)
             ->assertSee('Version '.config('melai.legal.privacy_version'), false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('9. Mga larawan ng produkto at access sa mga file');
-        $this->assertSame('2026-11-17', config('melai.legal.privacy_version'));
+        $this->assertSame('2026-11-18', config('melai.legal.privacy_version'));
+    }
+
+    public function test_the_privacy_policy_describes_phone_verification_and_sign_in_protection(): void
+    {
+        $this->get('/privacy')->assertOk()
+            ->assertSee('id="privacy-10"', false)->assertSee('10. Your mobile number and the first-order rule')
+            ->assertSee('id="privacy-11"', false)->assertSee('Cloudflare Turnstile')->assertSee('Resend')
+            ->assertSee('TO BE FILLED IN BY THE OWNER');
+        $this->get('/terms')->assertOk()->assertSee('50% or 100%')->assertSee('confirm your payment by hand');
+        $this->get('/privacy?lang=fil')->assertOk()->assertSee('10. Ang iyong mobile number at ang tuntunin sa unang order');
     }
 
     public function test_a_token_without_the_role_claim_gets_it_from_grant_role_claim_before_uploading(): void

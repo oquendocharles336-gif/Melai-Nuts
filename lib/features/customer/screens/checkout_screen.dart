@@ -35,6 +35,7 @@ import '../../../data/repositories/customer_profile_repository.dart';
 import '../../../data/repositories/payment_settings_repository.dart';
 import '../../../data/repositories/payments_repository.dart';
 import '../../../data/repositories/products_repository.dart';
+import '../../auth/screens/verify_phone_screen.dart';
 import '../../payments/screens/online_payment_screen.dart';
 import '../cart_controller.dart';
 import '../widgets/branch_stock_notice.dart';
@@ -273,6 +274,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   /// Asks the server once per (cart, fulfilment, total). Runs from build: it only starts a
   /// request and redraws when the answer for the current key arrives.
+  /// Opens the SMS verification; afterwards the quote is loaded again (the
+  /// first-order answer can change once the number is known). True when the
+  /// number is verified now.
+  Future<bool> _verifyPhone() async {
+    final verified = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => VerifyPhoneScreen(initialNumber: CustomerDataStore.instance.profile?.phone),
+      ),
+    );
+    if (verified != true || !mounted) return false;
+    setState(() => _firstQuoteKey = null);   // the next build reloads the quote
+    return true;
+  }
+
   void _loadFirstOrderQuote({required bool isDelivery, required double total, bool retry = false}) {
     final cart = CartController.instance;
     final key = '${cart.cartId}|$isDelivery|$total|${cart.lines.length}';
@@ -364,7 +379,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     // validated. (The RPC still enforces this itself — this is just a
     // faster, friendlier failure for the common case of an incomplete
     // profile.)
-    if (_fulfillment == _FulfillmentMethod.pickup) {
+    // A verified mobile number is needed for every checkout (the database
+    // checks it too, migration 20261118040000). It is also the pickup contact
+    // number, so the typed profile number below is only asked for without it.
+    final phoneQuote = _firstQuote;
+    if (phoneQuote != null && !phoneQuote.phoneReady) {
+      final verified = await _verifyPhone();
+      if (!verified || !mounted) return;
+    }
+    final phoneReady = _firstQuote?.phoneReady ?? false;
+    if (_fulfillment == _FulfillmentMethod.pickup && !phoneReady) {
       final profilePhone = CustomerDataStore.instance.profile?.phone.trim() ?? '';
       if (profilePhone.isEmpty) {
         // Let the customer add it right here instead of leaving checkout.
@@ -990,6 +1014,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       child: Text(t.firstOrderRetry),
                     ),
                   ]),
+                )
+              else if (firstQuote != null && !firstQuote.phoneReady)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.warningBg,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Verify your mobile number to place orders. We will text you a 6-digit code.',
+                        style: AppTextStyles.bodySm,
+                      ),
+                      const SizedBox(height: 8),
+                      PrimaryButton(
+                        label: 'Verify mobile number',
+                        icon: Icons.sms_outlined,
+                        onPressed: _verifyPhone,
+                      ),
+                    ],
+                  ),
                 )
               else if (firstOrder != null) ...[
                 if (firstOrder.pendingOrderId != null)
