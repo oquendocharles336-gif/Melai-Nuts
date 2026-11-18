@@ -9,6 +9,7 @@ import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../core/widgets/turnstile_captcha.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/utils/form_utils.dart';
@@ -40,6 +41,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  /// The server asked for a security check (15+ recent sign-in attempts). Stays on for
+  /// this screen: every further attempt needs a fresh token.
+  bool _captchaNeeded = false;
+  String? _captchaToken;
+  final _captchaKey = GlobalKey<TurnstileCaptchaState>();
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -49,11 +56,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _signIn() async {
     setState(() => _submitting = true);
+    // A token is good for one attempt only.
+    final token = _captchaToken;
+    _captchaToken = null;
     try {
       final user = await AuthService.instance.signIn(
         email: _emailController.text,
         password: _passwordController.text,
         allowVerificationResume: true,
+        captchaToken: token,
       );
 
       if (!mounted) return;
@@ -68,9 +79,21 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       _openVerification();
+    } on CaptchaNeededException catch (e) {
+      if (!mounted) return;
+      final wasShown = _captchaNeeded;
+      setState(() {
+        _submitting = false;
+        _captchaNeeded = true;
+      });
+      if (wasShown) _captchaKey.currentState?.reset();
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(e.rejected ? e.message : AppLocalizations.of(context).signInCaptchaNeeded)));
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
+      if (_captchaNeeded) _captchaKey.currentState?.reset();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'login_screen:85');
@@ -85,6 +108,12 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _submit() async {
     if (_submitting) return; // no double submit
     if (!FormUtils.validateAndFocus(_formKey)) return;
+    if (_captchaNeeded && _captchaToken == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).signInCaptchaNeeded)));
+      return;
+    }
     await _signIn();
   }
 
@@ -161,6 +190,14 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
+            if (_captchaNeeded) ...[
+              TurnstileCaptcha(
+                key: _captchaKey,
+                action: 'sign_in',
+                onToken: (token) => setState(() => _captchaToken = token),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
             PrimaryButton(label: 'Sign In', loading: _submitting, onPressed: _submit),
             if (_showPhoneLogin) ...[
               const SizedBox(height: AppSpacing.sm),

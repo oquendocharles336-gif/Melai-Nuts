@@ -77,6 +77,11 @@
                                 <label class="s-check"><input type="checkbox" name="remember" value="1" @checked($val($panel, 'remember'))><span>Remember me</span></label>
                                 <a href="{{ AuthPanel::url(AuthPanel::RESET_PASSWORD) }}" data-panel-open="{{ AuthPanel::RESET_PASSWORD }}">Forgot password?</a>
                             </div>
+                            {{-- After 15 sign-in attempts (this email or this network, 30 minutes) the
+                                 server asks for a security check. A gate, never a lockout. --}}
+                            @if (session('auth_captcha_required'))
+                                @include('shop.partials.turnstile', ['action' => 'sign_in'])
+                            @endif
                             <button type="submit" class="s-btn primary block">Sign in</button>
                         </form>
                         <div class="s-dlg-foot">
@@ -136,6 +141,8 @@
                                 <input type="checkbox" name="order_updates" value="1" @checked($mine($panel) ? old('order_updates') : true)>
                                 <span>Send me updates about my orders.</span>
                             </label>
+                            {{-- We email a 6-digit code next: the check keeps bots from sending emails. --}}
+                            @include('shop.partials.turnstile', ['action' => 'send_code'])
                             <button type="submit" class="s-btn primary block">Create account</button>
                         </form>
                         <div class="s-dlg-foot">

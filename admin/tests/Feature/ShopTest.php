@@ -137,17 +137,25 @@ class ShopTest extends TestCase
         $this->post('/shop/register', [
             'name' => 'Bea Santos', 'email' => 'bea@example.com', 'phone' => '0917 123 4567',
             'password' => 'Pili#Nut2026', 'password_confirmation' => 'Pili#Nut2026', 'terms' => '1', 'order_updates' => '1',
+            'cf-turnstile-response' => 'turnstile-token-1',
         ])->assertRedirect(route('shop.verify'));
         $uid = $this->fb->accounts['bea@example.com']['uid'];
-        $this->assertSame([$uid], $this->fb->verificationEmails);
+        // The 6-digit code comes from Melai Nuts' own e-mail function; Firebase sends nothing.
+        $this->assertSame([$uid], $this->shop->codesSent);
+        $this->assertSame([], $this->fb->verificationEmails);
+        $this->shop->onEmailVerified = fn (string $verifiedUid) => $this->fb->set($verifiedUid, 'verified', true);
 
-        // Not verified yet: nothing is created, the customer is asked to open the link.
-        $this->post('/shop/verify-email')->assertRedirect(route('shop.verify'))->assertSessionHas('shop_error');
+        // A wrong code: nothing is created.
+        $this->post('/shop/verify-email', ['code' => '000000', 'cf-turnstile-response' => 'turnstile-token-2'])
+            ->assertRedirect(route('shop.verify'))->assertSessionHas('shop_error');
         $this->assertArrayNotHasKey($uid, $this->fb->profiles);
 
-        // The link was opened.
-        $this->fb->set($uid, 'verified', true);
-        $this->post('/shop/verify-email')->assertRedirect(route('shop.home'));
+        // No security check: refused, nothing is created.
+        $this->post('/shop/verify-email', ['code' => '123456'])->assertRedirect(route('shop.verify'))->assertSessionHas('shop_error');
+        $this->assertArrayNotHasKey($uid, $this->fb->profiles);
+
+        // The right code with a security check.
+        $this->post('/shop/verify-email', ['code' => '123 456', 'cf-turnstile-response' => 'turnstile-token-3'])->assertRedirect(route('shop.home'));
 
         $this->assertSame('customer', $this->fb->profiles[$uid]['role']);
         $this->assertSame('+639171234567', $this->fb->profiles[$uid]['phone']);
@@ -206,6 +214,43 @@ class ShopTest extends TestCase
         // HitPay sends the customer back here; the page checks the order, it never trusts the URL.
         $this->get('/shop/payment/return?reference=abc&status=completed')
             ->assertRedirect(route('shop.orders.show', ['order' => 'ORD-1001', 'checking' => 1]));
+    }
+
+    public function test_a_first_order_offers_50_or_100_percent_online_and_sends_the_choice(): void
+    {
+        $this->shop->firstOrder = ['first_order' => true, 'total' => 220, 'half_amount' => 110, 'half_balance' => 110,
+            'full_amount' => 220, 'expiry_minutes' => 30, 'pending_order_id' => null, 'online_payment_enabled' => true];
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 2])->assertOk();
+        $this->get('/shop/checkout')->assertOk()
+            ->assertSee('Your first order.')->assertSee('Pay 50% now')->assertSee('Pay 100% now')
+            ->assertSee('₱110.00 online now, then ₱110.00 in cash when you pick it up.', false)
+            ->assertDontSee('Cash on counter pickup');
+
+        $this->post('/shop/checkout', ['payment' => 'half'])->assertRedirect();
+        $params = $this->shop->orders[0]['_params'];
+        $this->assertSame('Online Payment (GCash, QR Ph, Card)', $params['p_payment_method']);
+        $this->assertSame('half', $params['p_first_order_payment']);
+    }
+
+    public function test_a_first_order_waiting_for_its_payment_blocks_a_second_one(): void
+    {
+        $this->shop->firstOrder = ['first_order' => true, 'total' => 110, 'half_amount' => 55, 'half_balance' => 55,
+            'full_amount' => 110, 'expiry_minutes' => 30, 'pending_order_id' => 'ORD-0999', 'online_payment_enabled' => true];
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1'])->assertOk();
+        $this->get('/shop/checkout')->assertOk()->assertSee('ORD-0999')->assertSee('Pay for this order')->assertDontSee('Pay 50% now');
+    }
+
+    public function test_checkout_does_not_guess_when_the_first_order_check_cannot_be_loaded(): void
+    {
+        $this->shop->firstOrder = null;   // the server cannot answer
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1'])->assertOk();
+        $this->get('/shop/checkout')->assertOk()
+            ->assertSee('We couldn\'t load your payment options.', false)
+            ->assertSee('disabled', false)
+            ->assertDontSee('Cash on counter pickup');
     }
 
     public function test_online_payment_is_refused_while_it_is_switched_off(): void

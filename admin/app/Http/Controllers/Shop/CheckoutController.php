@@ -36,7 +36,9 @@ class CheckoutController extends ShopController
                 return redirect()->route('shop.cart')->with('shop_error', 'Choose your pickup branch first: allow location, and we\'ll pick the nearest one.');
             }
             $online = $this->orders->onlinePayment();
-            $quote = $this->orders->downpaymentQuote($cart['total']);
+            // First order (50% or 100% online first): decided by the server for this cart.
+            $first = $this->orders->firstOrderQuote($cart);
+            $quote = $first !== null && ! $first['first_order'] ? $this->orders->downpaymentQuote($cart['total']) : null;
         } catch (ShopException $e) {
             return $this->failed($e, $request, route('shop.cart'));
         }
@@ -45,6 +47,8 @@ class CheckoutController extends ShopController
             'cart' => $cart,
             'online' => $online,
             'quote' => $quote !== null && $quote['required'] ? $quote : null,
+            // null = could not be loaded (the page offers a retry and does not let the order go).
+            'first' => $first,
             'phone' => $this->customer->phone(),
         ]);
     }
@@ -53,7 +57,8 @@ class CheckoutController extends ShopController
     {
         $needsPhone = trim($this->customer->phone()) === '';
         $data = $request->validate([
-            'payment' => ['required', 'in:online,counter'],
+            // half / full = the first-order choice (paid online); the server checks it is allowed.
+            'payment' => ['required', 'in:online,counter,half,full'],
             'notes' => ['nullable', 'string', 'max:'.Rules::NOTE_MAX],
             'phone' => $needsPhone ? Rules::phone(true) : ['nullable'],
         ]);
@@ -68,11 +73,13 @@ class CheckoutController extends ShopController
             if ($cart['lines'] === [] || $cart['cart_id'] === null) {
                 return redirect()->route('shop.cart')->with('shop_error', 'Your cart is empty.');
             }
-            $payOnline = $data['payment'] === 'online';
+            $firstChoice = in_array($data['payment'], ['half', 'full'], true) ? $data['payment'] : null;
+            $payOnline = $data['payment'] === 'online' || $firstChoice !== null;
             if ($payOnline && ! $this->orders->onlinePayment()['enabled']) {
                 return back()->with('shop_error', $this->orders->onlinePayment()['message']);
             }
-            $orderId = $this->orders->place($cart, $payOnline ? ShopOrders::PAY_ONLINE : ShopOrders::PAY_AT_COUNTER, trim((string) ($data['notes'] ?? '')));
+            $orderId = $this->orders->place($cart, $payOnline ? ShopOrders::PAY_ONLINE : ShopOrders::PAY_AT_COUNTER,
+                trim((string) ($data['notes'] ?? '')), $firstChoice);
         } catch (ShopException $e) {
             return $this->failed($e, $request);
         }

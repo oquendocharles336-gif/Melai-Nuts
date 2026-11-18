@@ -30,8 +30,61 @@ class CodDownpaymentQuote {
       );
 }
 
-/// The online part of a pickup order (`public.order_downpayments`). The rest is the
-/// order's `payments` row, paid in cash at the counter.
+/// The checkout preview of a FIRST order (`first_order_quote`, migration 20261118000000):
+/// a customer with no paid online order yet pays 50% or 100% online first. The amounts come
+/// from the server; `place_order` works them out again for itself.
+class FirstOrderQuote {
+  /// False for a returning customer (normal checkout).
+  final bool firstOrder;
+  final double total;
+  final double halfAmount;
+  final double halfBalance;
+  final double fullAmount;
+  final int expiryMinutes;
+
+  /// An earlier first order still waiting for its online payment (only one at a time).
+  final String? pendingOrderId;
+  final bool onlinePaymentEnabled;
+
+  const FirstOrderQuote({
+    required this.firstOrder,
+    this.total = 0,
+    this.halfAmount = 0,
+    this.halfBalance = 0,
+    this.fullAmount = 0,
+    this.expiryMinutes = 30,
+    this.pendingOrderId,
+    this.onlinePaymentEnabled = false,
+  });
+
+  static const FirstOrderQuote returning = FirstOrderQuote(firstOrder: false);
+
+  static String? _nonEmpty(Object? v) => v is String && v.trim().isNotEmpty ? v.trim() : null;
+
+  factory FirstOrderQuote.fromJson(Map<String, dynamic> j) => FirstOrderQuote(
+        firstOrder: j['first_order'] == true,
+        total: (j['total'] as num?)?.toDouble() ?? 0,
+        halfAmount: (j['half_amount'] as num?)?.toDouble() ?? 0,
+        halfBalance: (j['half_balance'] as num?)?.toDouble() ?? 0,
+        fullAmount: (j['full_amount'] as num?)?.toDouble() ?? 0,
+        expiryMinutes: (j['expiry_minutes'] as num?)?.toInt() ?? 30,
+        pendingOrderId: _nonEmpty(j['pending_order_id']),
+        onlinePaymentEnabled: j['online_payment_enabled'] == true,
+      );
+}
+
+/// The two first-order choices, as the server knows them (`p_first_order_payment`).
+enum FirstOrderChoice {
+  half('half'),
+  full('full');
+
+  final String wire;
+  const FirstOrderChoice(this.wire);
+}
+
+/// The online part of an order (`public.order_downpayments`): a pickup downpayment, or the
+/// 50% / 100% a first order pays online. The rest is the order's `payments` row, paid in
+/// cash at the counter / on delivery.
 class OrderDownpayment {
   final double amount;
 
@@ -43,13 +96,23 @@ class OrderDownpayment {
   final double? percent;
   final int? pickupDays;
 
+  /// 'cod' (pickup downpayment setting) or 'first_order'.
+  final String kind;
+
+  /// First orders: 'half' or 'full'.
+  final String? choice;
+
   const OrderDownpayment({
     required this.amount,
     required this.status,
     this.expiresAt,
     this.percent,
     this.pickupDays,
+    this.kind = 'cod',
+    this.choice,
   });
+
+  bool get isFirstOrder => kind == 'first_order';
 
   bool get isPaid => status == 'success' || status == 'refunded' || status == 'forfeited';
 
@@ -69,5 +132,7 @@ class OrderDownpayment {
         expiresAt: DateTime.tryParse(row['expires_at'] as String? ?? '')?.toLocal(),
         percent: (row['percent'] as num?)?.toDouble(),
         pickupDays: (row['pickup_days'] as num?)?.toInt(),
+        kind: (row['kind'] as String?) ?? 'cod',
+        choice: row['choice'] as String?,
       );
 }

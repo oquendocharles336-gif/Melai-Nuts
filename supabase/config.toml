@@ -14,3 +14,10 @@ project_id = "melai-nuts"
 # Must match the hosted project's Postgres major version
 # (Dashboard > Project Settings > Infrastructure). Change it if yours differs.
 major_version = 17
+
+# Edge Functions that verify Firebase tokens themselves (deploy with --no-verify-jwt too).
+[functions.email-verification]
+verify_jwt = false
+
+[functions.auth-guard]
+verify_jwt = false

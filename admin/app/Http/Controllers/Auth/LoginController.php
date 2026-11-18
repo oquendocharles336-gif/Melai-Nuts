@@ -11,6 +11,7 @@ use App\Http\Controllers\Shop\CustomerAuthController;
 use App\Services\Auth\AccountKind;
 use App\Services\Auth\AutoLinker;
 use App\Services\Auth\FirebaseLogin;
+use App\Services\Auth\SignInGuard;
 use App\Services\Firebase\FirebaseAuthClient;
 use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseConfig;
@@ -69,8 +70,22 @@ class LoginController extends Controller
         $firebaseProblem = null;
 
         if ($config->ready()) {
+            // Server-side sign-in counter (shared with the app): after 15 attempts for this email
+            // or this visitor's IP in 30 minutes, a security check is needed. A gate, not a lockout.
+            $guard = app(SignInGuard::class);
+            $gate = $guard->precheck($email, $request->ip(), $this->captchaToken($request));
+            if ($gate !== SignInGuard::PROCEED) {
+                session()->flash('auth_captcha_required', true);
+                throw AuthPanel::back(ValidationException::withMessages(['auth' => $gate === SignInGuard::CAPTCHA_REQUIRED
+                    ? 'For your security, please complete the security check, then sign in again.'
+                    : 'The security check expired or failed. Please do it again, then sign in.']), AuthPanel::SIGN_IN);
+            }
+            if ($guard->captchaWasNeeded) {
+                session()->flash('auth_captcha_required', true);   // a wrong password now: the check stays shown
+            }
             try {
                 $tokens = $client->signIn($email, (string) $request->input('password'));
+                $guard->succeeded($tokens['id_token']);
                 $claims = $verifier->verify($tokens['id_token']);
                 [$kind, $profile] = $kinds->of($tokens['id_token'], $claims);
                 if ($kind === AccountKind::RIDER) {
@@ -117,6 +132,14 @@ class LoginController extends Controller
         $request->failed('Invalid email or password. Use your Melai Nuts app email and password.');
     }
 
+    /** The Turnstile token of the sign-in form, if the widget was shown. */
+    private function captchaToken(Request $request): ?string
+    {
+        $t = $request->input('cf-turnstile-response');
+
+        return is_string($t) && $t !== '' && strlen($t) <= 2048 ? $t : null;
+    }
+
     /** A customer account: the shop (guest cart added, Terms checked), with its own shop session. */
     private function customerLogin(LoginRequest $request, array $tokens, array $claims, ?array $profile, CustomerAccounts $customers)
     {
@@ -127,7 +150,7 @@ class LoginController extends Controller
         }
         $request->succeeded();
         if ($result === 'verify') {
-            return redirect()->route('shop.verify')->with('shop_status', "Please verify your email first. We've sent you a new link.");
+            return redirect()->route('shop.verify')->with('shop_status', 'Please verify your email first: complete the security check and we\'ll email you a 6-digit code.');
         }
 
         return app(CustomerAuthController::class)->afterSignIn($request, 'Welcome back, '.app(CustomerSession::class)->firstName().'!');

@@ -39,6 +39,7 @@ import '../../payments/screens/online_payment_screen.dart';
 import '../cart_controller.dart';
 import '../widgets/branch_stock_notice.dart';
 import '../widgets/downpayment_note.dart';
+import '../widgets/first_order_payment_choice.dart';
 import '../widgets/storefront_widgets.dart';
 import '../../../core/widgets/page_transitions.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
@@ -112,6 +113,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// could not be read: `place_order` decides either way.
   CodDownpaymentQuote? _codQuote;
   double? _codQuoteTotal;
+
+  /// First order (migration 20261118000000): the server's answer for the cart on screen.
+  /// Null while loading or after an error ([_firstQuoteFailed]). Place Order waits for it,
+  /// because a first order has its own payment step; `place_order` decides either way.
+  FirstOrderQuote? _firstQuote;
+  String? _firstQuoteKey;
+  bool _firstQuoteFailed = false;
+  FirstOrderChoice? _firstChoice;
+  bool _openingPending = false;
   String? _deliveryAddressId;
 
   /// The delivery pin the customer confirms here. It is saved on the address
@@ -261,6 +271,54 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }());
   }
 
+  /// Asks the server once per (cart, fulfilment, total). Runs from build: it only starts a
+  /// request and redraws when the answer for the current key arrives.
+  void _loadFirstOrderQuote({required bool isDelivery, required double total, bool retry = false}) {
+    final cart = CartController.instance;
+    final key = '${cart.cartId}|$isDelivery|$total|${cart.lines.length}';
+    if (!retry && _firstQuoteKey == key) return;
+    _firstQuoteKey = key;
+    _firstQuote = null;
+    _firstQuoteFailed = false;
+    if (retry && mounted) setState(() {});
+    unawaited(() async {
+      try {
+        // The quote prices the cart the SERVER holds: send unsaved edits first.
+        if (cart.hasUnsyncedChanges) await cart.flush();
+        final cartId = cart.cartId;
+        if (cartId == null) throw const AppError(AppErrorKind.orderFailed, 'Your cart is not synced yet.');
+        final quote = await PaymentsRepository.instance.fetchFirstOrderQuote(cartId: cartId, isDelivery: isDelivery);
+        if (!mounted || _firstQuoteKey != key) return;
+        setState(() => _firstQuote = quote);
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'checkout_screen:firstOrderQuote');
+        if (mounted && _firstQuoteKey == key) setState(() => _firstQuoteFailed = true);
+      }
+    }());
+  }
+
+  /// The first order still waiting for its payment: open its payment screen.
+  Future<void> _openPendingFirstOrder(String orderId) async {
+    if (_openingPending) return;
+    setState(() => _openingPending = true);
+    try {
+      final order = await OrdersRepository.instance.refetch(orderId);
+      if (!mounted) return;
+      await Navigator.of(context).push(FadeSlideRoute(
+        builder: (_) => OnlinePaymentScreen(order: order, itemCount: order.items.length, resume: true),
+      ));
+      // Paid or expired meanwhile: ask again (the next build fetches a fresh quote).
+      if (mounted) setState(() => _firstQuoteKey = null);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(AppErrors.from(e, scope: ErrorScope.order).message)));
+    } finally {
+      if (mounted) setState(() => _openingPending = false);
+    }
+  }
+
   Future<void> _placeOrder() async {
     final cart = CartController.instance;
     if (cart.lines.isEmpty) {
@@ -315,8 +373,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
 
+    // First order: the 50% / 100% choice replaces the payment method.
+    final firstQuote = _firstQuote;
+    if (firstQuote == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).firstOrderLoadError)));
+      return;
+    }
+    final isFirstOrder = firstQuote.firstOrder;
+    if (isFirstOrder && (firstQuote.pendingOrderId != null || !firstQuote.onlinePaymentEnabled)) return;
+    if (isFirstOrder && _firstChoice == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).firstOrderChooseFirst)));
+      return;
+    }
+    final firstChoice = isFirstOrder ? _firstChoice : null;
+
     // Online payment is switched off (the database refuses it too).
-    if (_payment == _PaymentMethod.online && !_onlineAllowed) {
+    if (!isFirstOrder && _payment == _PaymentMethod.online && !_onlineAllowed) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(_paymentSettings.unavailableMessage)));
@@ -343,12 +419,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     BranchController.instance.pauseRefresh = true;
     setState(() => _placingOrder = true);
 
-    final payOnline = _payment == _PaymentMethod.online;
-    final paymentLabel = switch (_payment) {
-      _PaymentMethod.online => 'Online Payment (GCash, QR Ph, Card)',
-      _PaymentMethod.cod => 'Cash on Delivery',
-      _PaymentMethod.cash => 'Cash on Counter Pickup',
-    };
+    final payOnline = isFirstOrder || _payment == _PaymentMethod.online;
+    final paymentLabel = isFirstOrder
+        ? 'Online Payment (GCash, QR Ph, Card)'
+        : switch (_payment) {
+            _PaymentMethod.online => 'Online Payment (GCash, QR Ph, Card)',
+            _PaymentMethod.cod => 'Cash on Delivery',
+            _PaymentMethod.cash => 'Cash on Counter Pickup',
+          };
 
     try {
       // `place_order` charges for the cart the SERVER holds. Make sure that
@@ -458,7 +536,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         deliveryAddressId: deliveryAddressId,
         pinLat: _pinLat,
         pinLng: _pinLng,
-        paymentLabel: paymentLabel,
+        // The first-order choice is part of the request: a different choice is a new key.
+        paymentLabel: firstChoice == null ? paymentLabel : '$paymentLabel|first:${firstChoice.wire}',
         notes: notes,
       );
       final CheckoutAttempt attempt;
@@ -510,6 +589,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         paymentMethod: paymentLabel,
         customerNotes: notes,
         idempotencyKey: attempt.key,
+        firstOrderPayment: firstChoice?.wire,
       );
 
       // The server accepted the order — only now is it real, so only now is
@@ -663,9 +743,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       (cart.subtotal - cart.voucherDiscount - cart.loyaltyDiscount + deliveryFee)
           .clamp(0.0, double.infinity),
     );
+    final isDelivery = _fulfillment == _FulfillmentMethod.delivery;
+    if (cart.lines.isNotEmpty) _loadFirstOrderQuote(isDelivery: isDelivery, total: total);
+    final firstQuote = _firstQuote;
+    final firstOrder = firstQuote != null && firstQuote.firstOrder ? firstQuote : null;
+    final firstBlocked = firstOrder != null && (firstOrder.pendingOrderId != null || !firstOrder.onlinePaymentEnabled);
+    final firstPayNow = firstOrder == null || _firstChoice == null
+        ? null
+        : (_firstChoice == FirstOrderChoice.full ? firstOrder.fullAmount : firstOrder.halfAmount);
     if (_fulfillment == _FulfillmentMethod.pickup) _loadCodQuote(total);
-    final codQuote = _codQuoteTotal == total && _codQuote?.required == true ? _codQuote : null;
-    final payingDownpayment = _payment == _PaymentMethod.cash && codQuote != null;
+    final codQuote = firstOrder == null && _codQuoteTotal == total && _codQuote?.required == true ? _codQuote : null;
+    final payingDownpayment = firstOrder == null && _payment == _PaymentMethod.cash && codQuote != null;
+    final t = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -876,6 +965,65 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: AppSpacing.lg),
               Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
               const SizedBox(height: AppSpacing.sm),
+              if (firstQuote == null && !_firstQuoteFailed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(children: [
+                    const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(t.firstOrderLoading, style: AppTextStyles.bodySm)),
+                  ]),
+                )
+              else if (_firstQuoteFailed)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.errorBg,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.error_outline_rounded, color: AppColors.error),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(t.firstOrderLoadError, style: AppTextStyles.bodySm)),
+                    TextButton(
+                      onPressed: () => _loadFirstOrderQuote(isDelivery: isDelivery, total: total, retry: true),
+                      child: Text(t.firstOrderRetry),
+                    ),
+                  ]),
+                )
+              else if (firstOrder != null) ...[
+                if (firstOrder.pendingOrderId != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.warningBg,
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(t.firstOrderPending(firstOrder.pendingOrderId!), style: AppTextStyles.bodySm),
+                        const SizedBox(height: 8),
+                        PrimaryButton(
+                          label: t.firstOrderPayPending,
+                          icon: Icons.account_balance_wallet_rounded,
+                          loading: _openingPending,
+                          onPressed: () => _openPendingFirstOrder(firstOrder.pendingOrderId!),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (!firstOrder.onlinePaymentEnabled)
+                  OnlinePaymentUnavailableNotice(message: t.firstOrderOnlineOff)
+                else
+                  FirstOrderPaymentChoice(
+                    quote: firstOrder,
+                    selected: _firstChoice,
+                    isDelivery: isDelivery,
+                    onChanged: (choice) => setState(() => _firstChoice = choice),
+                  ),
+              ] else ...[
               // Online payment (HitPay) is shown when both switches are on; while
               // it is off the notice text comes from
               // payment_settings.online_payment_disabled_message.
@@ -918,6 +1066,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   amount: codQuote.amount,
                   pickupDays: codQuote.pickupDays!,
                 ),
+              ],
               ],
               const SizedBox(height: AppSpacing.lg),
               Text('Special Instructions (Pasalubong / Packing)', style: AppTextStyles.titleMd),
@@ -989,6 +1138,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                       ],
                     ),
+                    if (firstOrder != null && firstPayNow != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(t.firstOrderPayNow, style: AppTextStyles.labelLg),
+                          Text(peso(firstPayNow), style: AppTextStyles.labelLg),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _firstChoice == FirstOrderChoice.full
+                                ? t.firstOrderPaidInFull
+                                : (isDelivery ? t.firstOrderBalanceDelivery : t.firstOrderBalancePickup),
+                            style: AppTextStyles.bodyMd,
+                          ),
+                          Text(
+                            _firstChoice == FirstOrderChoice.full ? peso(0) : peso(firstOrder.halfBalance),
+                            style: AppTextStyles.bodyMd,
+                          ),
+                        ],
+                      ),
+                    ],
                     if (payingDownpayment) ...[
                       const SizedBox(height: 10),
                       Row(
@@ -1043,9 +1218,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(payingDownpayment ? 'PAY ONLINE NOW' : 'TOTAL PAYABLE', style: AppTextStyles.bodySm),
+                      Text(payingDownpayment || firstPayNow != null ? 'PAY ONLINE NOW' : 'TOTAL PAYABLE', style: AppTextStyles.bodySm),
                       Text(
-                        payingDownpayment ? peso(codQuote.amount) : '₱${total.toStringAsFixed(0)}',
+                        firstPayNow != null
+                            ? peso(firstPayNow)
+                            : (payingDownpayment ? peso(codQuote.amount) : '₱${total.toStringAsFixed(0)}'),
                         style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary),
                       ),
                     ],
@@ -1053,10 +1230,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
                 Expanded(
                   child: PrimaryButton(
-                    label: _payment == _PaymentMethod.online || payingDownpayment ? 'Place Order & Pay' : 'Place Order',
+                    label: firstOrder != null || _payment == _PaymentMethod.online || payingDownpayment
+                        ? 'Place Order & Pay'
+                        : 'Place Order',
                     icon: Icons.arrow_forward_rounded,
                     loading: _placingOrder,
-                    onPressed: cart.lines.isEmpty || locating || branch == null ? null : _placeOrder,
+                    // Waits for the first-order answer; a blocked first order cannot be placed.
+                    onPressed: cart.lines.isEmpty || locating || branch == null || firstQuote == null || firstBlocked
+                        ? null
+                        : _placeOrder,
                   ),
                 ),
               ],

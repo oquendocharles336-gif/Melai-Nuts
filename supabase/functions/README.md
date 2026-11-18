@@ -17,6 +17,12 @@
 | `hitpay-refund` | the staff app | Sends an approved online refund back through the HitPay Refund API (`POST /v1/refund`), or re-checks a pending one. The amount and HitPay payment id come from the database; `staff_begin_gateway_refund` refuses a second send, so a refund cannot go out twice. Deploy with `--no-verify-jwt` (Firebase tokens); uses `HITPAY_API_KEY` / `HITPAY_ENV`. |
 | `grant-role-claim` | the app (any signed-in user) | Gives the caller's Firebase account the `role: authenticated` claim that Supabase needs to apply RLS (no Firebase Blaze plan needed). See the next section. |
 
+| `email-verification` | the app and the website | Sign-up e-mail code: `/send-code` (needs App Check or a Turnstile token) and `/verify-code` (Turnstile checked first). Uid/e-mail from the verified Firebase ID token only; code stored as an HMAC, 10 min, 5 tries, 60 s cooldown, hourly limits; on success sets `emailVerified` in Firebase. Branded e-mail (`_shared/email-template.ts`, no link) through Resend. Deploy with `--no-verify-jwt`. |
+| `auth-guard` | the app and the website server | Server-side sign-in counter: captcha (Turnstile) after 15 attempts per e-mail / IP / device in 30 min; a gate, never a lockout. Deploy with `--no-verify-jwt`. |
+
+Setup (Turnstile, Resend domain with SPF/DKIM/DMARC, secrets, deploy): `docs/EMAIL_CODES_AND_CAPTCHA_SETUP.md`.
+Tests: `deno test supabase/functions/email-verification supabase/functions/auth-guard supabase/functions/_shared`.
+
 Cash on Delivery and Cash on Counter Pickup do not use these functions.
 
 ## 0. `grant-role-claim` (required for orders, cart, profile, addresses)

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -13,6 +15,7 @@ import 'customer_data_store.dart';
 import 'customer_session_binder.dart';
 import 'data_sync_service.dart';
 import 'email_verification_service.dart';
+import 'sign_in_guard_service.dart';
 import 'staff_session_store.dart';
 import 'staff_store.dart';
 import 'sync_service.dart';
@@ -43,6 +46,18 @@ class EmailVerificationRequiredException extends AuthException {
       : super('Please verify your email address to finish creating your account.');
 }
 
+/// The server needs a solved captcha before it goes on: before a sign-in (15+ recent
+/// attempts for this e-mail, network or device) or for an e-mail code step. [rejected] =
+/// a token was sent and refused (wrong, expired or used): show a fresh check.
+/// It is a gate, never a lockout.
+class CaptchaNeededException extends AuthException {
+  final bool rejected;
+  const CaptchaNeededException({this.rejected = false})
+      : super(rejected
+            ? 'The security check expired or failed. Please complete it again.'
+            : 'For your security, please complete the security check to continue.');
+}
+
 /// Thrown by [AuthService.confirmPhoneCode] when the SMS code was valid and the
 /// person is signed in with Firebase, but no customer profile exists yet for
 /// this phone number. The UI must ask for a full name and then call
@@ -54,8 +69,10 @@ class PhoneNameRequiredException extends AuthException {
 
 /// In-memory brake on repeated failures (exponential back-off after a few
 /// free attempts). This is a UX / accidental-hammering brake only — it lives
-/// on the device and can be bypassed by a modified client. The real
-/// enforcement is Firebase Auth's server-side throttling
+/// on the device and can be bypassed by a modified client or a reinstall. The
+/// real enforcement is server-side: the `auth-guard` counter (captcha after 15
+/// failed sign-ins per e-mail / IP / device in 30 minutes, see
+/// [SignInGuardService]) and Firebase Auth's own throttling
 /// (`too-many-requests`); see SECURITY.md.
 class _FailureBrake {
   static const int freeAttempts = 5;
@@ -194,12 +211,20 @@ class AuthService {
     return _loadAndValidateProfile(user.uid, allowVerificationResume: allowVerificationResume);
   }
 
+  /// [captchaToken]: a solved Turnstile token, when the previous call threw
+  /// [CaptchaNeededException].
   Future<AppUser> signIn({
     required String email,
     required String password,
     bool allowVerificationResume = false,
+    String? captchaToken,
   }) async {
     _throwIfBraked(_signInBrake);
+    // Server-side counter first (it counts this attempt; a captcha is needed after 15).
+    final gate = await SignInGuardService.instance.precheck(email: email, captchaToken: captchaToken);
+    if (gate != GuardOutcome.proceed) {
+      throw CaptchaNeededException(rejected: gate == GuardOutcome.captchaRejected);
+    }
     StaffSessionStore.instance.beginAuthentication();
     try {
       final credential = await _auth.signInWithEmailAndPassword(
@@ -209,6 +234,13 @@ class AuthService {
       final uid = credential.user?.uid;
       if (uid == null) {
         throw const AuthException('Sign-in failed. Please try again.');
+      }
+      // The password was right: the server clears this e-mail's counter (proof: the ID token).
+      try {
+        final idToken = await credential.user?.getIdToken();
+        if (idToken != null) unawaited(SignInGuardService.instance.reportSuccess(idToken));
+      } catch (caughtError, caughtStack) {
+        AppErrors.report(caughtError, caughtStack, 'auth_service:guardSuccess');
       }
       final profile = await _loadAndValidateProfile(
         uid,
@@ -265,35 +297,38 @@ class AuthService {
     }
   }
 
-  /// Emails the verification code (or Firebase link) to the signed-in
-  /// account's own address. Safe to call again to resend.
-  Future<void> sendVerification() async {
+  /// Emails the 6-digit code to the signed-in account's own address. Safe to call
+  /// again to resend. Throws [CaptchaNeededException] when the server wants a captcha
+  /// (no App Check token on this device): call again with [captchaToken].
+  Future<void> sendVerification({String? captchaToken}) async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AuthException('Your sign-up session expired. Please register again.');
     }
     try {
-      await EmailVerificationService.instance.sendCode(user);
+      await EmailVerificationService.instance.sendCode(user, captchaToken: captchaToken);
     } on EmailVerificationException catch (e) {
+      if (e.needsCaptcha) throw CaptchaNeededException(rejected: e.code != 'captcha_required');
       throw AuthException(e.message);
     }
   }
 
-  /// STEP 2 of 2: checks the code (or that the link was tapped), refreshes the
-  /// session so Firebase's `email_verified` claim is current, then creates the
-  /// customer profile. Firestore rules independently require
+  /// STEP 2 of 2: checks the code (with a solved captcha, which the server checks
+  /// first), refreshes the session so Firebase's `email_verified` claim is current,
+  /// then creates the customer profile. Firestore rules independently require
   /// `email_verified == true` for this write.
-  Future<AppUser> completeCustomerRegistration({String? code}) async {
+  Future<AppUser> completeCustomerRegistration({required String? code, required String? captchaToken}) async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AuthException('Your sign-up session expired. Please register again.');
     }
     _throwIfBraked(_emailCodeBrake);
     try {
-      await EmailVerificationService.instance.verify(user, code: code);
+      await EmailVerificationService.instance.verify(user, code: code, captchaToken: captchaToken);
       _emailCodeBrake.reset();
     } on EmailVerificationException catch (e) {
-      if (code != null) _emailCodeBrake.recordFailure();
+      if (e.code == 'wrong_code') _emailCodeBrake.recordFailure();
+      if (e.needsCaptcha) throw CaptchaNeededException(rejected: e.code != 'captcha_required');
       throw AuthException(e.message);
     }
 

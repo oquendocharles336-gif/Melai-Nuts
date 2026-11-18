@@ -56,6 +56,17 @@ class FakeShopSupabase
     /** cod_downpayment_quote answer (required = false: no downpayment). */
     public array $quote = ['required' => false, 'amount' => 0, 'balance' => 0];
 
+    /** first_order_quote answer (first_order = false: a returning customer; null = the call fails). */
+    public ?array $firstOrder = ['first_order' => false];
+
+    /** email-verification: uids a code was sent to, and the code the fake accepts. */
+    public array $codesSent = [];
+
+    public string $acceptedCode = '123456';
+
+    /** Called with the uid when the right code is entered (the test marks the Firebase account verified). */
+    public ?\Closure $onEmailVerified = null;
+
     public array $legal = [];
 
     public array $paymentRequests = [];
@@ -169,6 +180,7 @@ class FakeShopSupabase
             'sync_customer_cart' => $this->sync($uid, $p),
             'register_voucher_attempt' => Http::response(null),
             'cod_downpayment_quote' => Http::response($this->quote),
+            'first_order_quote' => $this->firstOrder === null ? Http::response(['message' => 'unavailable'], 503) : Http::response($this->firstOrder),
             'my_legal_acceptance' => Http::response($this->legal[$uid] ?? ['terms_version' => null, 'privacy_version' => null]),
             'accept_legal_terms' => $this->accept($uid, $p),
             'place_order' => $this->place($uid, $p),
@@ -247,6 +259,32 @@ class FakeShopSupabase
         return Http::response(json_encode($id), 200, ['Content-Type' => 'application/json']);
     }
 
+    /** Like the Edge Function: a captcha token is required (the website has no App Check). */
+    private function sendCode(string $uid, array $body)
+    {
+        if (($body['captcha_token'] ?? '') === '') {
+            return Http::response(['error' => 'Please complete the security check.', 'code' => 'captcha_required'], 428);
+        }
+        $this->codesSent[] = $uid;
+
+        return Http::response(['sent' => true, 'expires_in' => 600, 'resend_after' => 60]);
+    }
+
+    private function verifyCode(string $uid, array $body)
+    {
+        if (($body['captcha_token'] ?? '') === '') {
+            return Http::response(['error' => 'Please complete the security check.', 'code' => 'captcha_required'], 428);
+        }
+        if (($body['code'] ?? '') !== $this->acceptedCode) {
+            return Http::response(['error' => 'That code is incorrect.', 'code' => 'wrong_code', 'attempts_left' => 4], 400);
+        }
+        if ($this->onEmailVerified !== null) {
+            ($this->onEmailVerified)($uid);
+        }
+
+        return Http::response(['verified' => true]);
+    }
+
     private function function(string $name, array $body, ?string $uid)
     {
         if ($uid === null) {
@@ -256,6 +294,8 @@ class FakeShopSupabase
         return match ($name) {
             'grant-role-claim' => Http::response(['ok' => true]),
             'hitpay-create-payment' => $this->paymentRequest($body),
+            'email-verification/send-code' => $this->sendCode($uid, $body),
+            'email-verification/verify-code' => $this->verifyCode($uid, $body),
             default => Http::response(['error' => 'unknown function'], 404),
         };
     }

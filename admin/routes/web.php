@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\CaptchaController;
 use App\Http\Controllers\Admin\BusinessSettingsController;
 use App\Http\Controllers\Admin\ProfitReportController;
 use App\Http\Controllers\Auth\TwoFactorController;
@@ -29,6 +30,9 @@ use Illuminate\Support\Facades\Route;
 // Terms and Privacy Policy: readable by everyone, signed in or not (same text as the app).
 Route::view('/terms', 'legal.terms')->name('legal.terms');
 Route::view('/privacy', 'legal.privacy')->name('legal.privacy');
+
+// The app's Cloudflare Turnstile page (CAPTCHA_PAGE_URL): public, renders the widget only.
+Route::get('/captcha', [CaptchaController::class, 'show'])->name('captcha')->middleware('throttle:30,1');
 
 // ---------------------------------------------------------------------------------------------
 // Customer shop: public at "/". Customers sign in with their Melai Nuts app account (Firebase) and
@@ -104,6 +108,7 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
 
     Route::get('/waiting', [WaitingController::class, 'waiting'])->name('waiting');
     Route::post('/waiting/verify-email', [WaitingController::class, 'resendVerification'])->name('waiting.verify-email')->middleware('throttle:3,1');
+    Route::post('/waiting/verify-email/code', [WaitingController::class, 'verifyCode'])->name('waiting.verify-email.code')->middleware('throttle:10,1');
 
     // Admin-only: staff get 403, even without access
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {

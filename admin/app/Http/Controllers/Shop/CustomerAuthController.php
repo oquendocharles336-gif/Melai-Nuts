@@ -49,13 +49,24 @@ class CustomerAuthController extends ShopController
             throw AuthPanel::back($e, AuthPanel::CREATE_ACCOUNT);
         }
         try {
-            $this->accounts->startSignUp(trim($data['name']), $data['email'], $data['phone'], $data['password'], $request->boolean('order_updates'));
+            $note = $this->accounts->startSignUp(trim($data['name']), $data['email'], $data['phone'], $data['password'],
+                $request->boolean('order_updates'), $this->captchaToken($request));
         } catch (ShopException $e) {
             return redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT))
-                ->withInput($request->except(['password', 'password_confirmation']))->with('shop_error', $e->getMessage());
+                ->withInput($request->except(['password', 'password_confirmation', 'cf-turnstile-response']))->with('shop_error', $e->getMessage());
         }
 
-        return redirect()->route('shop.verify');
+        return $note === null
+            ? redirect()->route('shop.verify')->with('shop_status', 'We emailed you a 6-digit code.')
+            : redirect()->route('shop.verify')->with('shop_note', $note);
+    }
+
+    /** The Turnstile token the widget put in the form (checked only by the Edge Functions). */
+    private function captchaToken(Request $request): ?string
+    {
+        $t = $request->input('cf-turnstile-response');
+
+        return is_string($t) && $t !== '' && strlen($t) <= 2048 ? $t : null;
     }
 
     private function validateSignUp(Request $request): array
@@ -80,13 +91,17 @@ class CustomerAuthController extends ShopController
             return $this->customer->check() ? redirect()->route('shop.home') : redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT));
         }
 
-        return view('shop.auth.verify', ['email' => $email]);
+        return view('shop.auth.verify', ['email' => $email, 'codeSent' => $this->accounts->pendingCodeSent()]);
     }
 
     public function checkVerified(Request $request)
     {
+        $data = $request->validate(
+            ['code' => ['required', 'string', 'regex:/^\s*\d{3}\s?\d{3}\s*$/']],
+            ['code.required' => 'Enter the 6-digit code from the email.', 'code.regex' => 'The code must be exactly 6 digits.'],
+        );
         try {
-            $this->accounts->completeSignUp();
+            $this->accounts->completeSignUp(preg_replace('/\D/', '', $data['code']), $this->captchaToken($request));
         } catch (ShopException $e) {
             return redirect()->route($e->sessionEnded() ? 'login' : 'shop.verify')->with('shop_error', $e->getMessage());
         }
@@ -94,15 +109,15 @@ class CustomerAuthController extends ShopController
         return $this->afterSignIn($request, 'Welcome to Melai Nuts, '.$this->customer->firstName().'! Your account is ready.');
     }
 
-    public function resend()
+    public function resend(Request $request)
     {
         try {
-            $this->accounts->resendVerification();
+            $this->accounts->resendVerification($this->captchaToken($request));
         } catch (ShopException $e) {
             return redirect()->route($e->sessionEnded() ? 'login' : 'shop.verify')->with('shop_error', $e->getMessage());
         }
 
-        return redirect()->route('shop.verify')->with('shop_status', 'We sent you a new verification link.');
+        return redirect()->route('shop.verify')->with('shop_status', 'We emailed you a new 6-digit code.');
     }
 
     public function cancelSignUp()

@@ -109,6 +109,9 @@ insert into fx select 'other_variant', id::text from public.product_variants
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values
   ('i_a', 'Ann', 'i_a@test.local', '09170000001'),
   ('i_b', 'Ben', 'i_b@test.local', '09170000002');
+-- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- not the first-order prepayment (first_order_prepayment_test.sql covers that).
+update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city)
 values ('i_b', 'Ben', '09170000002', '2 Test St', 'Calamba');
 insert into fx select 'addr_b', id::text from public.customer_addresses where firebase_uid = 'i_b';

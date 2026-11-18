@@ -14,6 +14,7 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
+import '../../../core/widgets/turnstile_captcha.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/models/user_role.dart';
 import 'email_verification_screen.dart';
@@ -39,6 +40,11 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
   bool _orderUpdates = false;
   bool _submitting = false;
 
+  /// Sign-in only: the server asked for a security check (15+ recent attempts).
+  bool _captchaNeeded = false;
+  String? _captchaToken;
+  final _captchaKey = GlobalKey<TurnstileCaptchaState>();
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -54,6 +60,12 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
     // first invalid field is focused.
     if (!FormUtils.validateAndFocus(_formKey)) return;
     if (!_isSignIn && !_agreed) return;
+    if (_isSignIn && _captchaNeeded && _captchaToken == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).signInCaptchaNeeded)));
+      return;
+    }
 
     setState(() => _submitting = true);
     try {
@@ -72,10 +84,13 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
         return;
       }
 
+      final token = _captchaToken;
+      _captchaToken = null; // one attempt per token
       final user = await AuthService.instance.signIn(
         email: _emailController.text,
         password: _passwordController.text,
         allowVerificationResume: true,
+        captchaToken: token,
       );
 
       if (user.role != UserRole.customer) {
@@ -105,9 +120,21 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
       if (!mounted) return;
       setState(() => _submitting = false);
       _openVerification();
+    } on CaptchaNeededException catch (e) {
+      if (!mounted) return;
+      final wasShown = _captchaNeeded;
+      setState(() {
+        _submitting = false;
+        _captchaNeeded = true;
+      });
+      if (wasShown) _captchaKey.currentState?.reset();
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(e.rejected ? e.message : AppLocalizations.of(context).signInCaptchaNeeded)));
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
+      if (_captchaNeeded) _captchaKey.currentState?.reset();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (caughtError, caughtStack) {
       AppErrors.report(caughtError, caughtStack, 'customer_access_screen:98');
@@ -285,6 +312,14 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       ),
                     ],
                     const SizedBox(height: 6),
+                    if (_isSignIn && _captchaNeeded) ...[
+                      TurnstileCaptcha(
+                        key: _captchaKey,
+                        action: 'sign_in',
+                        onToken: (token) => setState(() => _captchaToken = token),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     PrimaryButton(
                       label: _isSignIn
                           ? 'Sign In & Start Ordering'

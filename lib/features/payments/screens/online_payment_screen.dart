@@ -60,6 +60,9 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
   late bool _pageOpened;
 
   bool get _paysDownpayment => widget.order.downpayment != null;
+
+  /// A first order paying 50% / 100% online (migration 20261118000000).
+  bool get _isFirstOrder => widget.order.downpayment?.isFirstOrder ?? false;
   bool get _isExpired => _downpayment?.isExpired ?? false;
 
   PaymentStatus? get _status {
@@ -198,17 +201,19 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
       accentBg = AppColors.error.withValues(alpha: 0.1);
       icon = Icons.timer_off_rounded;
       title = 'Time to pay has ended';
-      body = 'Order ${widget.order.id} was cancelled because its downpayment was not paid in time. '
+      body = 'Order ${widget.order.id} was cancelled because its '
+          '${_isFirstOrder ? 'online payment' : 'downpayment'} was not paid in time. '
           'Nothing was charged. If you did pay, we will refund it.';
     } else if (_isSuccess) {
       accent = AppColors.success;
       accentBg = AppColors.successBg;
       icon = Icons.check_rounded;
-      title = _paysDownpayment ? 'Downpayment received' : 'Payment received';
-      body = _paysDownpayment
-          ? 'Thank you! We are preparing order ${widget.order.id}. '
-              'Please bring ${_money(widget.order.cashBalance)} in cash when you pick it up.'
-          : 'Thank you! Your payment for order ${widget.order.id} is confirmed.';
+      title = _paysDownpayment && !_isFirstOrder ? 'Downpayment received' : 'Payment received';
+      body = !_paysDownpayment || widget.order.cashBalance <= 0
+          ? 'Thank you! Your payment for order ${widget.order.id} is confirmed.'
+          : 'Thank you! We are preparing order ${widget.order.id}. '
+              'Please bring ${_money(widget.order.cashBalance)} in cash '
+              '${widget.order.isDelivery ? 'for the rider.' : 'when you pick it up.'}';
     } else if (_isFailed) {
       accent = AppColors.error;
       accentBg = AppColors.error.withValues(alpha: 0.1);
@@ -267,8 +272,9 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
                   children: [
                     _InfoLine('Order', widget.order.id),
                     if (_paysDownpayment) ...[
-                      _InfoLine('Downpayment', _money(_downpayment?.amount ?? widget.order.downpayment!.amount)),
-                      _InfoLine('Cash at pickup', _money(widget.order.cashBalance)),
+                      _InfoLine(_isFirstOrder ? 'Pay online now' : 'Downpayment',
+                          _money(_downpayment?.amount ?? widget.order.downpayment!.amount)),
+                      _InfoLine(widget.order.isDelivery ? 'Cash on delivery' : 'Cash at pickup', _money(widget.order.cashBalance)),
                     ] else
                       _InfoLine('Amount', '₱${widget.order.total.toStringAsFixed(2)}'),
                     _InfoLine('Status', _status?.label ?? 'Pending', valueColor: accent),

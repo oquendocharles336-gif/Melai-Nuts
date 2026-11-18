@@ -88,6 +88,9 @@ values ('dp-sa', 'Staff A', 'dp-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 
        ('dp-own', 'Owner', 'dp-own@test.local', 'owner', null, 'active', false);
 insert into public.customer_profiles (firebase_uid, full_name, email, phone)
 values ('dp-c1', 'Cust One', 'dp-c1@test.local', '09170000011'), ('dp-c2', 'Cust Two', 'dp-c2@test.local', '09170000012');
+-- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- not the first-order prepayment (first_order_prepayment_test.sql covers that).
+update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city, latitude, longitude)
 values ('dp-c1', 'Cust One', '09170000011', '1 Test St', 'Calamba', 14.205, 121.156);
 insert into fx select 'addr', id::text from public.customer_addresses where firebase_uid = 'dp-c1';

@@ -85,6 +85,7 @@ insert into public.staff_members (firebase_uid, full_name, email, role, branch_i
   select 'cc-mgr', 'CC Manager', 'cc-mgr@test.local', 'staff', id, 'active', true, true from public.branches where name = 'CC-A';
 insert into public.staff_permission_grants (firebase_uid, permission) values ('cc-mgr', 'void_pos_sales');
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('cc-cust', 'CC Cust', 'cc-cust@test.local', '0917');
+update public.customer_profiles set first_paid_order_at = now() where firebase_uid = 'cc-cust';  -- returning customer (20261118000000)
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city) values ('cc-cust', 'CC', '0917', '1 St', 'Calamba');
 insert into public.drivers (firebase_uid, full_name, branch_id) select 'cc-drv', 'CC Driver', id from public.branches where name = 'CC-A';
 SQL

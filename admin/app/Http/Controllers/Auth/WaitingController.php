@@ -6,8 +6,9 @@ use App\Exceptions\BackendUnavailableException;
 use App\Exceptions\FirebaseSessionRequiredException;
 use App\Http\Controllers\Controller;
 use App\Services\Auth\AccountLinkStatus;
+use App\Services\Auth\EmailCodeException;
+use App\Services\Auth\EmailCodes;
 use App\Services\Auth\LinkState;
-use App\Services\Firebase\FirebaseAuthClient;
 use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseConfig;
 use App\Services\Firebase\FirebaseSession;
@@ -49,16 +50,43 @@ class WaitingController extends Controller
         return view('auth.waiting', ['user' => $user->fresh(), 'state' => $state]);
     }
 
-    public function resendVerification(Request $request, FirebaseConfig $config, FirebaseSession $session, FirebaseAuthClient $client)
+    /** Emails a 6-digit code (Melai Nuts' own e-mail; Firebase's link is not used). Needs the security check. */
+    public function resendVerification(Request $request, FirebaseConfig $config, FirebaseSession $session, EmailCodes $codes)
     {
         $user = $request->user();
         abort_unless($user->usesFirebase() && $config->ready(), 404);
         try {
-            $client->sendEmailVerification($session->idTokenFor($user));
-        } catch (FirebaseSessionRequiredException|FirebaseAuthException $e) {
+            $codes->send($session->idTokenFor($user), $this->captchaToken($request));
+        } catch (FirebaseSessionRequiredException|FirebaseAuthException|EmailCodeException $e) {
             return back()->with('error', $e->getMessage());
         }
+        session()->put('waiting_code_sent', true);
 
-        return back()->with('status', "Verification link sent to {$user->email}.");
+        return back()->with('status', "We emailed a 6-digit code to {$user->email}.");
+    }
+
+    /** Checks the code (the server checks the security check first), then re-reads the account. */
+    public function verifyCode(Request $request, FirebaseConfig $config, FirebaseSession $session, EmailCodes $codes)
+    {
+        $user = $request->user();
+        abort_unless($user->usesFirebase() && $config->ready(), 404);
+        $data = $request->validate(['code' => ['required', 'string', 'regex:/^\s*\d{3}\s?\d{3}\s*$/']],
+            ['code.required' => 'Enter the 6-digit code from the email.', 'code.regex' => 'The code must be exactly 6 digits.']);
+        try {
+            $codes->verify($session->idTokenFor($user), preg_replace('/\D/', '', $data['code']), $this->captchaToken($request));
+        } catch (FirebaseSessionRequiredException|FirebaseAuthException|EmailCodeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+        session()->forget('waiting_code_sent');
+
+        // "Check again" re-reads the account with a fresh token (email_verified is now true).
+        return redirect()->route('waiting')->with('status', 'Your email is verified.');
+    }
+
+    private function captchaToken(Request $request): ?string
+    {
+        $t = $request->input('cf-turnstile-response');
+
+        return is_string($t) && $t !== '' && strlen($t) <= 2048 ? $t : null;
     }
 }

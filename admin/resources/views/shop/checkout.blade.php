@@ -42,6 +42,41 @@
 
             <section class="s-panel" aria-labelledby="pay-title">
                 <h2 id="pay-title">Payment</h2>
+                @php($isFirst = $first !== null && $first['first_order'])
+                @php($firstBlocked = $isFirst && ($first['pending_order_id'] !== null || ! $first['online_payment_enabled']))
+                @if ($first === null)
+                    {{-- The first-order check could not be loaded: never guess, offer a retry. --}}
+                    <div class="s-flash bad" role="alert"><x-icon name="alert" :size="18" />
+                        <span>We couldn't load your payment options. <a href="{{ route('shop.checkout') }}">Try again</a>.</span>
+                    </div>
+                @elseif ($isFirst && $first['pending_order_id'] !== null)
+                    <div class="s-flash note" role="status"><x-icon name="clock" :size="18" />
+                        <span>Your first order {{ $first['pending_order_id'] }} is still waiting for its online payment. Pay for it, or wait for it to expire, before placing another order.
+                            <a href="{{ route('shop.orders.show', $first['pending_order_id']) }}">Pay for this order</a></span>
+                    </div>
+                @elseif ($isFirst && ! $first['online_payment_enabled'])
+                    <div class="s-flash note" role="status"><x-icon name="alert" :size="18" />
+                        <span>Your first order is paid online, and online payment is unavailable right now. Please try again later.</span>
+                    </div>
+                @elseif ($isFirst)
+                    <div class="s-flash note" role="note"><x-icon name="gift" :size="18" />
+                        <span><b>Your first order.</b> Welcome to Melai Nuts! Your first order is paid online, half or in full, before we prepare it. This is a one-time step: from your next order you can also pay in cash. Pay within {{ $first['expiry_minutes'] }} minutes, or the order is cancelled and nothing is charged.</span>
+                    </div>
+                    <div style="display:grid;gap:10px" role="radiogroup" aria-labelledby="pay-title">
+                        <label class="s-option">
+                            <input type="radio" name="payment" value="half" @checked(old('payment') === 'half') required>
+                            <span><x-icon name="wallet" :size="20" /><b>Pay 50% now</b>
+                                <small>{{ \App\Support\Format::peso($first['half_amount']) }} online now, then {{ \App\Support\Format::peso($first['half_balance']) }} in cash when you pick it up.</small>
+                            </span>
+                        </label>
+                        <label class="s-option">
+                            <input type="radio" name="payment" value="full" @checked(old('payment') === 'full') required>
+                            <span><x-icon name="wallet" :size="20" /><b>Pay 100% now</b>
+                                <small>{{ \App\Support\Format::peso($first['full_amount']) }} online now, nothing left to pay later.</small>
+                            </span>
+                        </label>
+                    </div>
+                @else
                 <div style="display:grid;gap:10px" role="radiogroup" aria-labelledby="pay-title">
                     <label class="s-option">
                         <input type="radio" name="payment" value="counter" @checked(old('payment', 'counter') === 'counter')>
@@ -62,6 +97,7 @@
                         </span>
                     </label>
                 </div>
+                @endif
                 @if ($quote)
                     <div class="s-flash note"><x-icon name="clock" :size="18" />
                         <span>Pickup orders need the online downpayment{{ $quote['expiry_minutes'] ? ' within '.$quote['expiry_minutes'].' minutes' : '' }}, or the order is cancelled and the stock goes back on the shelf.{{ $quote['pickup_days'] ? ' Please pick up within '.$quote['pickup_days'].' '.\Illuminate\Support\Str::plural('day', $quote['pickup_days']).' of "Ready for pickup".' : '' }}</span>
@@ -94,8 +130,12 @@
                     <div><span>Pay online now</span><b>{{ \App\Support\Format::peso($quote['amount']) }}</b></div>
                     <div><span>Cash at pickup</span><span>{{ \App\Support\Format::peso($quote['balance']) }}</span></div>
                 @endif
+                @if ($isFirst && ! $firstBlocked)
+                    <div><span>Pay 50% now</span><span>{{ \App\Support\Format::peso($first['half_amount']) }} + {{ \App\Support\Format::peso($first['half_balance']) }} cash</span></div>
+                    <div><span>Pay 100% now</span><span>{{ \App\Support\Format::peso($first['full_amount']) }}</span></div>
+                @endif
             </div>
-            <button type="submit" class="s-btn primary block" form="checkout">{{ $quote || old('payment') === 'online' ? 'Place order & pay' : 'Place order' }}</button>
+            <button type="submit" class="s-btn primary block" form="checkout" @disabled($first === null || $firstBlocked)>{{ $isFirst || $quote || old('payment') === 'online' ? 'Place order & pay' : 'Place order' }}</button>
             <p class="s-note">By placing your order you agree to our <a href="{{ route('legal.terms') }}" target="_blank" rel="noopener">Terms</a>. Online payments are processed by HitPay.</p>
         </aside>
     </form>

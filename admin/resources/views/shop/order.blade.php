@@ -27,7 +27,7 @@
             <h1>Salamat po! Your order is in.</h1>
             <p>Order <b>{{ $order['id'] }}</b> was sent to {{ $order['branch_name'] }}.
                 @if ($order['status'] === 'awaitingDownpayment')
-                    Pay the downpayment to confirm it.
+                    {{ ($order['downpayment']['kind'] ?? '') === 'first_order' ? 'Pay online to confirm your first order.' : 'Pay the downpayment to confirm it.' }}
                 @elseif ($order['paid_online'])
                     Your payment is confirmed.
                 @else
@@ -51,7 +51,10 @@
                 @if ($order['can_pay'])
                     <div class="s-flash note" style="justify-content:space-between;flex-wrap:wrap;align-items:center">
                         <span>
-                            @if ($order['status'] === 'awaitingDownpayment' && $order['downpayment'])
+                            @if ($order['status'] === 'awaitingDownpayment' && $order['downpayment'] && $order['downpayment']['kind'] === 'first_order')
+                                Pay {{ \App\Support\Format::peso($order['downpayment']['amount']) }} online to confirm your first order{{ $order['downpayment']['balance'] > 0 ? ' (the other '.\App\Support\Format::peso($order['downpayment']['balance']).' is paid in cash at pickup)' : '' }}.
+                                @if ($order['downpayment']['expires_at']) It must be paid by {{ $when($order['downpayment']['expires_at']) }}. @endif
+                            @elseif ($order['status'] === 'awaitingDownpayment' && $order['downpayment'])
                                 Pay the {{ \App\Support\Format::peso($order['downpayment']['amount']) }} downpayment online to confirm this order.
                                 @if ($order['downpayment']['expires_at']) It must be paid by {{ $when($order['downpayment']['expires_at']) }}. @endif
                             @else
@@ -77,8 +80,8 @@
                     @if ($order['discount'] > 0)<div class="good"><span>Discounts</span><span>−{{ \App\Support\Format::peso($order['discount']) }}</span></div>@endif
                     <div class="total"><span>Total</span><span>{{ \App\Support\Format::peso($order['total']) }}</span></div>
                     @if ($order['downpayment'])
-                        <div><span>Downpayment ({{ $order['downpayment']['status'] === 'success' ? 'paid' : 'due online' }})</span><span>{{ \App\Support\Format::peso($order['downpayment']['amount']) }}</span></div>
-                        <div><span>Cash at pickup</span><span>{{ \App\Support\Format::peso(max(0, $order['total'] - $order['downpayment']['amount'])) }}</span></div>
+                        <div><span>{{ $order['downpayment']['kind'] === 'first_order' ? 'Online' : 'Downpayment' }} ({{ in_array($order['downpayment']['status'], ['success', 'refunded'], true) ? 'paid' : 'due online' }})</span><span>{{ \App\Support\Format::peso($order['downpayment']['amount']) }}</span></div>
+                        <div><span>Cash at pickup</span><span>{{ \App\Support\Format::peso($order['downpayment']['balance']) }}</span></div>
                     @endif
                 </div>
                 @if ($order['notes'] !== '')<p class="s-note">Your note: {{ $order['notes'] }}</p>@endif

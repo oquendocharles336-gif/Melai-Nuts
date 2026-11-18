@@ -61,11 +61,9 @@ class FirebaseAuthClient
         ];
     }
 
-    /** Emails the user a verification link (Firebase's own template). */
-    public function sendEmailVerification(string $idToken): void
-    {
-        $this->identity('accounts:sendOobCode', ['requestType' => 'VERIFY_EMAIL', 'idToken' => $idToken]);
-    }
+    // No sendEmailVerification here on purpose: Firebase's verification-link e-mail is not used.
+    // The 6-digit code comes from the Supabase Edge Function email-verification
+    // (App\Services\Auth\EmailCodes).
 
     /** Emails a password-reset link. Unknown emails are not reported (no account enumeration). */
     public function sendPasswordReset(string $email): void

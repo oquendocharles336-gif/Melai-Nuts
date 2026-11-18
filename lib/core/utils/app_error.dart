@@ -218,6 +218,13 @@ class AppErrors {
       return _database(scope);
     }
 
+    // The first-order prepayment rule (place_order, migration 20261118000000) is
+    // written for the customer and mentions "payment": shown as is, never as
+    // "your payment didn't go through".
+    if (code == 'P0001' && msg.contains('first order') && _isSafeToShow(e.message)) {
+      return AppError(AppErrorKind.unknown, e.message.trim());
+    }
+
     // Business rules raised by the database functions (place_order,
     // request_refund, ...): stock, voucher, points, branch, etc.
     final byMessage = _fromMessage(msg, scope);

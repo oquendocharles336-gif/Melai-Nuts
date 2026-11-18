@@ -3,6 +3,8 @@
 namespace App\Services\Shop;
 
 use App\Http\Requests\Rules;
+use App\Services\Auth\EmailCodeException;
+use App\Services\Auth\EmailCodes;
 use App\Services\Firebase\FirebaseAuthClient;
 use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseTokenVerifier;
@@ -15,7 +17,9 @@ use Illuminate\Support\Facades\Log;
  *
  * It follows the app's own steps (lib/core/services/auth_service.dart), so an account made in
  * either place works in the other:
- *   sign-up  = Firebase account -> email verification link -> Firestore users/{uid} with
+ *   sign-up  = Firebase account -> 6-digit email code (Melai Nuts' own e-mail, sent and checked by
+ *              the Supabase Edge Function email-verification, with a Turnstile check; Firebase's
+ *              verification link is never used) -> Firestore users/{uid} with
  *              role "customer" (allowed by firestore.rules only once the email is verified)
  *              -> Supabase customer_profiles row -> Terms accepted (accept_legal_terms).
  *   sign-in  = Firebase password check -> Firestore users/{uid} must say role "customer" and
@@ -23,7 +27,7 @@ use Illuminate\Support\Facades\Log;
  */
 class CustomerAccounts
 {
-    /** A sign-up waiting for the email link, kept in the session between pages. */
+    /** A sign-up waiting for its email code, kept in the session between pages. */
     public const PENDING = 'shop_pending_signup';
 
     public function __construct(
@@ -32,6 +36,7 @@ class CustomerAccounts
         private FirestoreProfiles $firestore,
         private SupabaseRest $rest,
         private CustomerSession $session,
+        private EmailCodes $codes,
     ) {}
 
     /**
@@ -61,8 +66,7 @@ class CustomerAccounts
             // Created a Firebase account (app or website) but never finished the email step.
             $this->keepPending($tokens, $claims, (string) ($claims['claims']['name'] ?? ''), '');
             if (! $claims['email_verified']) {
-                $this->firebase(fn () => $this->firebase->sendEmailVerification($tokens['id_token']));
-
+                // The code is sent from the verify page, after its security check.
                 return 'verify';
             }
 
@@ -81,16 +85,34 @@ class CustomerAccounts
     }
 
     /**
-     * Step 1 of sign-up: create the Firebase account and email the verification link.
+     * Step 1 of sign-up: create the Firebase account and email the 6-digit code (with the sign-up
+     * form's security-check token). The account exists from here on, so a code that could not be
+     * sent is not an error of the form: the returned note is shown on the verify page, where the
+     * customer can send it again. Null = the code is on its way.
      *
-     * @throws ShopException
+     * @throws ShopException when the account itself could not be created
      */
-    public function startSignUp(string $name, string $email, string $phone, string $password, bool $orderUpdates): void
+    public function startSignUp(string $name, string $email, string $phone, string $password, bool $orderUpdates, ?string $captchaToken = null): ?string
     {
         $tokens = $this->firebase(fn () => $this->firebase->signUp(trim($email), $password, $name));
         $claims = $this->verify($tokens['id_token']);
         $this->keepPending($tokens, $claims, $name, (string) Rules::normalizePhone($phone), $orderUpdates);
-        $this->firebase(fn () => $this->firebase->sendEmailVerification($tokens['id_token']));
+        try {
+            $this->codes->send($tokens['id_token'], $captchaToken);
+            $this->markCodeSent();
+
+            return null;
+        } catch (EmailCodeException $e) {
+            return $e->needsCaptcha() ? 'Complete the security check below and we\'ll email you a 6-digit code.' : $e->getMessage();
+        }
+    }
+
+    /** True once a code was emailed for the pending sign-up. */
+    public function pendingCodeSent(): bool
+    {
+        $p = session(self::PENDING);
+
+        return is_array($p) && ($p['code_sent'] ?? false) === true;
     }
 
     public function pendingEmail(): ?string
@@ -100,28 +122,39 @@ class CustomerAccounts
         return is_array($p) ? (string) $p['email'] : null;
     }
 
-    /** Resend the verification email for the pending sign-up. @throws ShopException */
-    public function resendVerification(): void
+    /** (Re)send the 6-digit code for the pending sign-up; needs a security-check token. @throws ShopException */
+    public function resendVerification(?string $captchaToken): void
     {
         $p = $this->pending();
         $s = $this->refreshPending($p);
-        $this->firebase(fn () => $this->firebase->sendEmailVerification($s['id_token']));
+        $this->code(fn () => $this->codes->send($s['id_token'], $captchaToken));
+        $this->markCodeSent();
     }
 
     /**
-     * Step 2 of sign-up, after the customer opened the emailed link: refresh the token so it says
-     * email_verified, then create the Firestore profile, the Supabase profile and the Terms record,
-     * and sign the customer in.
+     * Step 2 of sign-up: check the 6-digit code (with its security check, verified by the server
+     * FIRST), refresh the token so it says email_verified, then create the Firestore profile, the
+     * Supabase profile and the Terms record, and sign the customer in. Without a code, only an
+     * account that is already verified goes through (sign-in of an unfinished sign-up).
      *
-     * @throws ShopException reason "unverified" when the link has not been opened yet
+     * @throws ShopException reason "unverified" when no code was given and the email is not verified
      */
-    public function completeSignUp(): void
+    public function completeSignUp(?string $code = null, ?string $captchaToken = null): void
     {
         $p = $this->pending();
         $p = $this->refreshPending($p);
         $claims = $this->verify($p['id_token']);
         if (! $claims['email_verified']) {
-            throw new ShopException('Your email isn\'t verified yet. Open the link we emailed you, then try again.', 'unverified');
+            if ($code === null) {
+                throw new ShopException('Your email isn\'t verified yet. Enter the 6-digit code we emailed you.', 'unverified');
+            }
+            $this->code(fn () => $this->codes->verify($p['id_token'], $code, $captchaToken));
+            // email_verified only changes in a NEW token.
+            $p = $this->refreshPending($p);
+            $claims = $this->verify($p['id_token']);
+            if (! $claims['email_verified']) {
+                throw new ShopException('We couldn\'t confirm your email yet. Please try again in a moment.', 'unverified');
+            }
         }
 
         $name = trim($p['name']) !== '' ? trim($p['name']) : 'Customer';
@@ -239,6 +272,24 @@ class CustomerAccounts
         }
         if (($profile['isActive'] ?? true) === false) {
             throw new ShopException('This account has been deactivated. Please contact Melai Nuts for help.', 'not_customer');
+        }
+    }
+
+    private function markCodeSent(): void
+    {
+        $p = session(self::PENDING);
+        if (is_array($p)) {
+            session()->put(self::PENDING, array_merge($p, ['code_sent' => true]));
+        }
+    }
+
+    /** E-mail code errors become customer-facing ShopExceptions (reason "captcha" = redo the check). */
+    private function code(\Closure $call): mixed
+    {
+        try {
+            return $call();
+        } catch (EmailCodeException $e) {
+            throw new ShopException($e->getMessage(), $e->sessionEnded() ? 'session' : ($e->needsCaptcha() ? 'captcha' : 'refused'), previous: $e);
         }
     }
 

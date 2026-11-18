@@ -7,7 +7,8 @@ use Illuminate\Support\Str;
 /**
  * Checkout, orders, payment and points for the signed-in customer, through the same database
  * functions and tables as the app: place_order (store pickup only), cod_downpayment_quote (the
- * downpayment rule decided by the server), hitpay-create-payment (HitPay checkout), orders,
+ * downpayment rule decided by the server), first_order_quote (a first order pays 50% or 100%
+ * online first, migration 20261118000000), hitpay-create-payment (HitPay checkout), orders,
  * loyalty_accounts and loyalty_transactions. Orders land in the same tables as app orders, so
  * staff and owners see them like any other order.
  */
@@ -24,7 +25,7 @@ class ShopOrders
         .'order_items(id,product_name,variant_label,quantity,unit_price,product_id,variant_id),'
         .'order_status_events(id,status,note,created_at),'
         .'payments(id,method,status,amount,reference_number,gateway,created_at,updated_at),'
-        .'order_downpayments(amount,status,expires_at,percent,pickup_days)';
+        .'order_downpayments(amount,status,expires_at,percent,pickup_days,kind,choice)';
 
     public const STATUS_LABELS = [
         'awaitingDownpayment' => 'Awaiting downpayment',
@@ -92,19 +93,64 @@ class ShopOrders
     }
 
     /**
+     * Whether this is the customer's FIRST order (50% or 100% paid online first) and what each
+     * choice costs for the server cart. Preview only: place_order decides again. Null when it
+     * cannot be loaded (the checkout then offers a retry instead of guessing).
+     *
+     * @return array{first_order: bool, total: float, half_amount: float, half_balance: float, full_amount: float, expiry_minutes: int, pending_order_id: ?string, online_payment_enabled: bool}|null
+     */
+    public function firstOrderQuote(array $cart): ?array
+    {
+        if (($cart['cart_id'] ?? null) === null) {
+            return null;
+        }
+        try {
+            $q = $this->rest->rpc('first_order_quote', ['p_cart_id' => $cart['cart_id'], 'p_is_delivery' => false], $this->customer->idToken());
+        } catch (ShopException $e) {
+            if ($e->sessionEnded()) {
+                throw $e;
+            }
+
+            return null;
+        }
+        if (! is_array($q)) {
+            return null;
+        }
+
+        return [
+            'first_order' => ($q['first_order'] ?? false) === true,
+            'total' => (float) ($q['total'] ?? 0),
+            'half_amount' => (float) ($q['half_amount'] ?? 0),
+            'half_balance' => (float) ($q['half_balance'] ?? 0),
+            'full_amount' => (float) ($q['full_amount'] ?? 0),
+            'expiry_minutes' => (int) ($q['expiry_minutes'] ?? 30),
+            'pending_order_id' => is_string($q['pending_order_id'] ?? null) && $q['pending_order_id'] !== '' ? $q['pending_order_id'] : null,
+            'online_payment_enabled' => ($q['online_payment_enabled'] ?? false) === true,
+        ];
+    }
+
+    /**
      * Place a store-pickup order from the server cart. A retry of the identical request (double
      * click, refresh) reuses the same key, so the server returns the first order instead of a second
-     * one; any change to the cart or choices makes a new key.
+     * one; any change to the cart or choices makes a new key. $firstOrderPayment ('half' | 'full')
+     * is the first-order choice; the server validates it and works the amount out itself.
      */
-    public function place(array $cart, string $paymentMethod, string $notes): string
+    public function place(array $cart, string $paymentMethod, string $notes, ?string $firstOrderPayment = null): string
     {
         if (! in_array($paymentMethod, [self::PAY_ONLINE, self::PAY_AT_COUNTER], true)) {
             throw new ShopException('Please choose how you\'ll pay.');
         }
-        $fingerprint = hash('sha256', json_encode([
+        if ($firstOrderPayment !== null && ! in_array($firstOrderPayment, ['half', 'full'], true)) {
+            throw new ShopException('Choose to pay 50% or 100% of your first order now.');
+        }
+        $parts = [
             $cart['cart_id'], $paymentMethod, $notes, $cart['voucher_code'], $cart['redeem_points'],
             array_map(fn ($l) => $l['variant_id'].'x'.$l['qty'], $cart['lines']),
-        ]));
+        ];
+        if ($firstOrderPayment !== null) {
+            $parts[] = 'first:'.$firstOrderPayment;   // another choice = another request
+        }
+        $fingerprint = hash('sha256', json_encode($parts));
         $attempt = session(self::ATTEMPT);
         $key = is_array($attempt) && ($attempt['fingerprint'] ?? null) === $fingerprint ? $attempt['key'] : (string) Str::uuid();
         session()->put(self::ATTEMPT, ['fingerprint' => $fingerprint, 'key' => $key]);
@@ -116,7 +162,7 @@ class ShopOrders
             'p_payment_method' => $paymentMethod,
             'p_customer_notes' => $notes,
             'p_idempotency_key' => $key,
-        ], $this->customer->idToken());
+        ] + ($firstOrderPayment !== null ? ['p_first_order_payment' => $firstOrderPayment] : []), $this->customer->idToken());
         if (! is_string($orderId) || $orderId === '') {
             throw new ShopException('We couldn\'t confirm your order. Please check My orders before trying again.', 'server');
         }
@@ -223,14 +269,23 @@ class ShopOrders
                 'amount' => (float) ($down['amount'] ?? 0),
                 'status' => (string) ($down['status'] ?? ''),
                 'expires_at' => $down['expires_at'] ?? null,
+                // 'first_order' = the 50% / 100% a first order pays online (choice 'half' | 'full').
+                'kind' => (string) ($down['kind'] ?? 'cod'),
+                'choice' => $down['choice'] ?? null,
+                'balance' => max(0, (float) ($o['total'] ?? 0) - (float) ($down['amount'] ?? 0)),
             ],
-            // What the customer can still pay online: a full online order not paid yet, or a pickup
-            // downpayment still due. Only the HitPay webhook marks it paid.
+            // What the customer can still pay online: a full online order not paid yet, or the online
+            // part (pickup downpayment / first order) still due. With an online part, the rest is
+            // cash and is never paid here. Only the HitPay webhook marks it paid.
             'can_pay' => ! in_array($status, ['cancelled', 'refunded', 'refundRequested', 'completed'], true) && (
-                ($online && ! in_array($paymentStatus, ['success', 'refunded'], true))
-                || ($status === 'awaitingDownpayment' && $down !== null && in_array($down['status'] ?? '', ['pending', 'failed', 'processing'], true))
+                $down === null
+                    ? $online && ! in_array($paymentStatus, ['success', 'refunded'], true)
+                    : $status === 'awaitingDownpayment' && in_array($down['status'] ?? '', ['pending', 'failed', 'processing'], true)
             ),
-            'paid_online' => $online && $paymentStatus === 'success',
+            // Fully paid online: an online order, or a first order paid 100% online.
+            'paid_online' => $down === null
+                ? $online && $paymentStatus === 'success'
+                : in_array($down['status'] ?? '', ['success', 'refunded'], true) && (float) ($down['amount'] ?? 0) >= (float) ($o['total'] ?? 0),
         ];
     }
 }

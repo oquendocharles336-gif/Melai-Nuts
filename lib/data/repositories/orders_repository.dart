@@ -36,6 +36,7 @@ class OrdersRepository {
     required String paymentMethod,
     String customerNotes = '',
     String? idempotencyKey,
+    String? firstOrderPayment,
   }) async {
     final String orderId;
     try {
@@ -46,6 +47,9 @@ class OrdersRepository {
         'p_payment_method': paymentMethod,
         'p_customer_notes': customerNotes,
         'p_idempotency_key': idempotencyKey,
+        // A first order's 50% / 100% choice ('half' | 'full'); validated by the server.
+        // Only sent when set, so a database without migration 20261118000000 still works.
+        'p_first_order_payment': ?firstOrderPayment,
       }).timeout(AppErrors.rpcTimeout);
       orderId = result as String;
     } catch (e, st) {
@@ -99,7 +103,7 @@ class OrdersRepository {
       ' order_status_events(id,order_id,status,note,created_at),'
       ' payments(id,order_id,firebase_uid,method,status,amount,reference_number,created_at,updated_at,'
       'gateway,gateway_payment_id,gateway_checkout_url),'
-      ' order_downpayments(amount,status,expires_at,percent,pickup_days)';
+      ' order_downpayments(amount,status,expires_at,percent,pickup_days,kind,choice)';
 
   /// The customer's most recent orders kept in memory (dashboard, active
   /// order, loyalty). Older ones are read page by page ([fetchOrdersPage]).

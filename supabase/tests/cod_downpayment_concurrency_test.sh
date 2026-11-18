@@ -82,6 +82,7 @@ where b.name = 'DPC-A' and p.name = 'DPC-Nut';
 insert into public.staff_members (firebase_uid, full_name, email, role, branch_id, account_status)
 select 'dpc-staff', 'Staff', 'dpc-staff@test.local', 'staff', id, 'active' from public.branches where name = 'DPC-A';
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('dpc-cust', 'Cust', 'dpc-cust@test.local', '09170000021');
+update public.customer_profiles set first_paid_order_at = now() where firebase_uid = 'dpc-cust';  -- returning customer (20261118000000)
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city, latitude, longitude)
 values ('dpc-cust', 'Cust', '09170000021', '1 Test St', 'Calamba', 14.205, 121.156);
 update public.payment_settings set online_payment_enabled = true where id = 'default';

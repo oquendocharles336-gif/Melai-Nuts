@@ -65,6 +65,10 @@ dependencies:
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.1
 
+  # Cloudflare Turnstile security check (sign-in after repeated failures, e-mail code step),
+  # shown from the website's captcha page — see lib/core/widgets/turnstile_captcha.dart.
+  webview_flutter: ^4.13.0
+
   # Driver live location while a delivery run is out (foreground only) —
   # see lib/core/services/driver_location_tracker.dart. Needs the location
   # permissions declared in AndroidManifest.xml / Info.plist.

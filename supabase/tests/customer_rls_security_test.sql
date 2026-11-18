@@ -152,6 +152,9 @@ insert into fx select 'variant', id::text from public.product_variants
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values
   ('uid_rls_a', 'Alice Test', 'uid_rls_a@test.local', '09170000001'),
   ('uid_rls_b', 'Bob Test',   'uid_rls_b@test.local', '09170000002');
+-- Returning customers (migration 20261118000000): this suite tests the normal checkout,
+-- not the first-order prepayment (first_order_prepayment_test.sql covers that).
+update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city)
 values ('uid_rls_a', 'Alice Test', '09170000001', '1 Test St', 'Calamba'),
        ('uid_rls_b', 'Bob Test',   '09170000002', '2 Test St', 'Calamba');
@@ -527,9 +530,9 @@ select pg_temp.chk_true('authenticated cannot execute notify_customer',
 select pg_temp.chk_true('authenticated cannot execute the 5-arg place_order (idempotency bypass)',
   not pg_temp.can_exec('authenticated', 'public.place_order(uuid,boolean,uuid,text,text)'));
 select pg_temp.chk_true('anon cannot execute place_order',
-  not pg_temp.can_exec('anon', 'public.place_order(uuid,boolean,uuid,text,text,text)'));
-select pg_temp.chk_true('authenticated CAN execute the 6-arg place_order',
-  pg_temp.can_exec('authenticated', 'public.place_order(uuid,boolean,uuid,text,text,text)'));
+  not pg_temp.can_exec('anon', 'public.place_order(uuid,boolean,uuid,text,text,text,text)'));
+select pg_temp.chk_true('authenticated CAN execute the 7-arg place_order',
+  pg_temp.can_exec('authenticated', 'public.place_order(uuid,boolean,uuid,text,text,text,text)'));
 select pg_temp.chk_true('anon cannot execute redeem_reward',
   not pg_temp.can_exec('anon', 'public.redeem_reward(uuid)'));
 select pg_temp.chk_true('anon cannot execute request_refund',

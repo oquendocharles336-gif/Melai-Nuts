@@ -235,37 +235,65 @@ unless the caller's token has `email_verified == true`. A client cannot set that
 flag, so a modified app cannot skip verification. Unverified accounts have no
 profile and therefore no access to anything.
 
-Two modes (`lib/core/services/email_verification_service.dart`):
+One mode: a **6-digit code e-mailed by Melai Nuts** (no link). Firebase's verification-link
+e-mail is not used anywhere (removed from the app's `EmailVerificationService` and from the
+website's `FirebaseAuthClient` / `CustomerAccounts` / `WaitingController`).
 
-| Mode | When | How |
-|---|---|---|
-| Link | `EMAIL_API_BASE_URL` not set (works today) | Firebase emails a verification link |
-| Code | `--dart-define=EMAIL_API_BASE_URL=https://your-api/auth` | Your API emails a 6-digit code |
+Backend: Supabase Edge Function `email-verification` (migration
+`20261118010000_auth_email_codes_and_sign_in_guard.sql`), used by the app and the website:
 
-**Your API contract** (both calls send `Authorization: Bearer <Firebase ID token>`):
+- `POST /functions/v1/email-verification/send-code` — needs a valid **Firebase App Check**
+  token (`X-Firebase-AppCheck`, sent by the app) **or** a Cloudflare **Turnstile** token
+  (`captcha_token`; the website always uses this). 428 when neither, 429 on cooldown/limits.
+- `POST /functions/v1/email-verification/verify-code` — `{"code","captcha_token"}`. The captcha
+  is verified (siteverify, single use, 5 minutes) **before** the code is looked at: a
+  missing / invalid / expired / reused token never uses up a try.
 
-- `POST {base}/send-code`, body `{}` -> 200 sent, 429 rate-limited.
-- `POST {base}/verify-code`, body `{"code":"123456"}` -> 200 correct, 400/401/403
-  wrong/expired, 429 too many attempts.
+What the function enforces (all server-side):
+1. The uid and e-mail come **only from the Firebase ID token**, verified against Google's
+   public keys with issuer/audience pinned to `FIREBASE_PROJECT_ID`.
+2. Codes are 6 digits from the CSPRNG (no modulo bias), stored as an **HMAC** (secret pepper
+   `AUTH_CODE_PEPPER`), never in plain text; compared in constant time.
+3. 10-minute expiry, 5 tries (counted atomically before the compare), single use, one active
+   code per account, 60 s resend cooldown, hourly send limits per account (5), per e-mail
+   address (5) and per IP (20). 429 + `Retry-After` on limits.
+4. On the right code it calls Identity Toolkit `accounts:update {emailVerified: true}` (the
+   Admin SDK's `updateUser`) with the service account in the function secrets only, so
+   `firestore.rules` / RLS that read `email_verified` keep working.
+5. The tables (`auth_email_codes`, `auth_email_code_sends`, `auth_captcha_redemptions`) have
+   RLS on and no privileges for `anon` / `authenticated`; only the service role (the function)
+   reaches them, through security-definer functions.
 
-**The API MUST:**
-1. Verify the ID token with the Admin SDK (`verifyIdToken`) and take the **uid and
-   email from the token, never from the request body** (otherwise anyone can make
-   your API email arbitrary addresses).
-2. On a correct code call `admin.auth().updateUser(uid, { emailVerified: true })`.
-   Without this step the Firestore rule blocks every registration.
-3. Store only a **hash** of the code; expire it in ~10 minutes; allow ~5 wrong
-   attempts then invalidate; single use.
-4. Rate-limit send-code per uid/email/IP (e.g. 1 per 60s, ~5 per hour) and
-   verify-code per uid. Consider App Check on these endpoints.
-5. Be HTTPS only (the app refuses non-HTTPS URLs outside debug builds).
-6. Keep the Admin SDK key on the server only — never in Flutter.
+Password reset (`forgot_password_screen.dart`, website "Reset password") **still sends
+Firebase's reset link**; see the report for the proposed branded replacement (not changed).
 
 **Housekeeping:** abandoned unverified accounts keep their email address tied up.
 The app deletes them when the person taps "Use a different email", but run a
 scheduled job that deletes Auth users with `emailVerified == false` and no
 `users/{uid}` document older than ~24h. Existing customers who registered before
 this change already have profiles and are unaffected.
+
+## Sign-in: captcha after 15 failed attempts (server-side)
+
+Supabase Edge Function `auth-guard` + table `auth_sign_in_attempts` (same migration):
+
+- Every password sign-in is announced first (`/sign-in/precheck`): one attempt is counted per
+  normalized e-mail, per IP and per device id (all stored as HMACs), rolling 30 minutes.
+- A successful sign-in (`/sign-in/success`, proven by the Firebase ID token) clears that
+  e-mail's and device's counters (not the IP's, so one working account cannot hide a spray).
+- From 15 attempts on any key the next sign-in needs a **Turnstile** token, verified by the
+  function (siteverify + single-use table). It is a **gate, never a lockout**: a solved check
+  always lets the attempt through, so nobody can lock a victim out by failing on purpose.
+- Wrong e-mail and wrong password give the same message (app and website).
+- Reinstalling the app or clearing its data does not reset the counter (it lives on the server).
+  `AuthService._FailureBrake` stays as an on-device UX brake only.
+
+**Enforced server-side:** for the **website** fully (the Laravel server calls the guard before
+every Firebase password sign-in and passes the visitor IP with `AUTH_GUARD_SERVER_KEY`).
+For the **app**, the guard is called by the app; a script that talks to Firebase Auth directly
+skips it **unless Firebase App Check is enforced for Authentication** (Firebase console >
+Security > App Check > APIs > Authentication > Enforce). See the report for what that needs
+for the website's server-side sign-in.
 
 ## Staff foundation (Batch 1): identity, offline and audit
 

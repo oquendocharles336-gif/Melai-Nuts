@@ -33,6 +33,18 @@ return [
         'catalog_cache_seconds' => (int) env('SHOP_CATALOG_CACHE_SECONDS', 60),
     ],
 
+    /*
+    | Cloudflare Turnstile (the one captcha of the app and the website) and the Supabase Edge
+    | Functions behind it. The SITE key is public (it is in the page); the SECRET key is NOT
+    | here: it lives only in the Supabase function secrets, where every token is verified.
+    | guard_server_key lets this server pass the visitor's IP to auth-guard (same value as the
+    | function secret AUTH_GUARD_SERVER_KEY, 32+ characters).
+    */
+    'captcha' => [
+        'turnstile_site_key' => env('TURNSTILE_SITE_KEY'),
+        'guard_server_key' => env('AUTH_GUARD_SERVER_KEY'),
+    ],
+
     // Login rate limit (per email + IP): after max_attempts failures the login is locked for
     // decay_seconds ("Too many attempts, try again in N seconds").
     'login' => ['max_attempts' => 5, 'decay_seconds' => 60],

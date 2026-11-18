@@ -15,9 +15,13 @@ use Symfony\Component\HttpFoundation\Response;
  * (moving them to files + Alpine's CSP build is the next hardening step); everything else
  * (other script origins, framing, plugins, form posts elsewhere) is blocked.
  * OCR (Tesseract.js) is self-hosted under /vendor/tesseract, so no CDN is allowed.
+ * Cloudflare Turnstile (the sign-up code step, sign-in after repeated failures, the app's
+ * /captcha page) needs its script, frame and connections from challenges.cloudflare.com.
  */
 class SecurityHeaders
 {
+    private const TURNSTILE = 'https://challenges.cloudflare.com';
+
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
@@ -48,11 +52,12 @@ class SecurityHeaders
 
         return implode('; ', [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' ".self::TURNSTILE,
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: blob:".$images,
-            "connect-src 'self' blob: data:",
+            "connect-src 'self' blob: data: ".self::TURNSTILE,
+            "frame-src ".self::TURNSTILE,
             "worker-src 'self' blob:",
             "object-src 'none'",
             "base-uri 'self'",

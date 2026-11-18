@@ -70,11 +70,20 @@ class PaymentsRepository {
     return CodDownpaymentQuote.fromJson(Map<String, dynamic>.from(raw as Map));
   }
 
+  /// Whether the signed-in customer's next order is a first order (50% / 100% online
+  /// first) and what each choice costs for the cart the server holds. Preview only.
+  Future<FirstOrderQuote> fetchFirstOrderQuote({required String cartId, required bool isDelivery}) async {
+    final raw = await _client
+        .rpc('first_order_quote', params: {'p_cart_id': cartId, 'p_is_delivery': isDelivery})
+        .timeout(AppErrors.rpcTimeout);
+    return FirstOrderQuote.fromJson(Map<String, dynamic>.from(raw as Map));
+  }
+
   /// The downpayment of [orderId], or null if it has none / it is not yours.
   Future<OrderDownpayment?> fetchDownpayment(String orderId) async {
     final row = await _client
         .from('order_downpayments')
-        .select('amount,status,expires_at,percent,pickup_days')
+        .select('amount,status,expires_at,percent,pickup_days,kind,choice')
         .eq('order_id', orderId)
         .maybeSingle();
     return row == null ? null : OrderDownpayment.fromRow(row);
