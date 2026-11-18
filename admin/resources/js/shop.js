@@ -112,8 +112,13 @@ function locate(button, { quiet = false } = {}) {
             if (!quiet) toast(err.message, { tone: 'bad' });
             if (button) { button.disabled = false; button.textContent = 'Use my location'; }
         }
-    }, () => {
-        if (!quiet) toast('Location is off. Allow location for this site to find your nearest branch.', { tone: 'bad' });
+    }, (err) => {
+        const msg = err && err.code === 1
+            ? 'Location is blocked for this site. Click the icon next to the address bar, allow Location, then try again.'
+            : err && err.code === 3
+                ? 'Finding your location took too long. Please try again.'
+                : 'Your device could not find your location. Turn on location (GPS / Wi-Fi) and try again.';
+        if (!quiet) toast(msg, { tone: 'bad' });
         if (button) { button.disabled = false; button.textContent = 'Use my location'; }
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
 }

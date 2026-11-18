@@ -31,8 +31,9 @@ class SecurityHeaders
         $h->set('X-Frame-Options', 'DENY');
         $h->set('Referrer-Policy', 'strict-origin-when-cross-origin');
         $h->set('Cross-Origin-Opener-Policy', 'same-origin');
-        // Web Serial is used by the RFID card reader page; nothing else needs device access.
-        $h->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(self)');
+        // Web Serial is used by the RFID card reader page; geolocation by the shop's "Use my location"
+        // (nearest pickup branch, only after the customer agrees). Both only for this site, never embeds.
+        $h->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=(), usb=(), serial=(self)');
 
         if (config('melai.security.hsts') && $request->isSecure()) {
             $h->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
