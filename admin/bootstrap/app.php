@@ -24,6 +24,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Hosted behind a proxy that ends HTTPS (e.g. Railway): trust its X-Forwarded-* headers so links,
+        // redirects and CSS/JS URLs use https:// instead of being blocked as mixed content.
+        $middleware->trustProxies(at: '*');
         $middleware->prepend(ResetRequestScope::class);
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class); // CSP, nosniff, frame, HSTS (config/melai.php)
         // Set by resources/js/ui.js (plain "1", no secret): lets heavy pages answer with an instant shell.
