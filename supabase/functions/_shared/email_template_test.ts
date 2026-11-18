@@ -2,6 +2,7 @@
 // The shared layout of all four account e-mails: structure that real inboxes need, one primary
 // action each, plain-text versions, no Firebase wording. Preview them with scripts/preview-emails.ts.
 import {
+  greetingName,
   renderEmailChangeConfirmEmail,
   renderEmailChangeNoticeEmail,
   renderMfaEnrolledEmail,
@@ -19,6 +20,7 @@ const brand = {
   businessAddress: "Calamba, Laguna",
   supportContact: "help@shop.example.com",
   siteUrl: "https://shop.example.com",
+  name: "Maria Santos",
 };
 const link = "https://shop.example.com/auth/action?mode=resetPassword&token=" + "a".repeat(43);
 const all: Array<[string, RenderedEmail]> = [
@@ -31,7 +33,13 @@ const all: Array<[string, RenderedEmail]> = [
 
 Deno.test("every e-mail: table layout, inline CSS, 600 px, preheader, logo with alt, footer with Privacy / Terms", () => {
   for (const [name, m] of all) {
-    assert(/<table role="presentation"/.test(m.html) && !/<style/i.test(m.html), `${name}: tables + inline CSS`);
+    // Inline CSS is the base; the only <style> is the progressive dark-mode / phone block.
+    assert(/<table role="presentation"/.test(m.html) && (m.html.match(/<style/gi) ?? []).length === 1, `${name}: tables + inline CSS`);
+    assert(/style="[^"]*color:#1F120B/.test(m.html), `${name}: inline base colours`);
+    assert(m.html.includes("prefers-color-scheme:dark") && m.html.includes('content="light dark"'), `${name}: dark mode`);
+    assert(m.html.includes("[data-ogsc]"), `${name}: Outlook.com dark mode`);
+    assert(m.html.includes("Hi Maria,") && m.text.includes("Hi Maria,"), `${name}: greeting by name`);
+    assert(!/melai-nuts-app|oobCode|apiKey/i.test(m.subject + m.html + m.text), `${name}: no project id or Firebase params`);
     assert(m.html.includes("max-width:600px"), `${name}: 600 px`);
     assert(/display:none;max-height:0/.test(m.html), `${name}: hidden preheader`);
     assert(m.html.includes('alt="Melai Nuts logo"'), `${name}: logo alt text`);
@@ -67,4 +75,21 @@ Deno.test("links must be https", () => {
   let threw = false;
   try { renderPasswordResetEmail({ url: "http://x.test/reset", expiresMinutes: 30 }); } catch (_) { threw = true; }
   assert(threw, "plain http refused");
+});
+
+Deno.test("button labels the person sees", () => {
+  assert(all[1][1].html.includes(">Change your password here</a>"), "reset button");
+  assert(all[1][1].subject === "Reset your Melai Nuts password", "reset subject");
+  assert(all[2][1].html.includes(">Confirm email change</a>"), "change-confirm button");
+});
+
+Deno.test("greeting: first name only, cleaned, 'Hi there' without one", () => {
+  assert(greetingName("Maria Santos") === "Maria", "first name");
+  assert(greetingName("  josé  ") === "josé", "trimmed, accents kept");
+  assert(greetingName("<b>Bob</b>") === null, "markup never reaches the greeting");
+  assert(greetingName("Ana<script>") === "Ana", "symbols stripped");
+  assert(greetingName("http://evil.test") === "http", "no link survives (':' and '/' are dropped)");
+  assert(greetingName("") === null && greetingName(null) === null && greetingName("1234") === null, "nothing usable");
+  const m = renderPasswordResetEmail({ url: link, expiresMinutes: 30 });
+  assert(m.html.includes("Hi there,") && m.text.includes("Hi there,"), "fallback greeting");
 });

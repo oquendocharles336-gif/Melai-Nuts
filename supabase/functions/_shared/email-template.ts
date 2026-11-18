@@ -1,17 +1,21 @@
 // Every Melai Nuts account e-mail, on one shared layout (HTML + plain text):
 //   renderVerificationEmail       6-digit sign-up code
-//   renderPasswordResetEmail      "Reset your password" button
-//   renderEmailChangeConfirmEmail to the NEW address: "Confirm new email" button
+//   renderPasswordResetEmail      "Change your password here" button
+//   renderEmailChangeConfirmEmail to the NEW address: "Confirm email change" button
 //   renderEmailChangeNoticeEmail  to the OLD address: "Was this you?" + cancel / secure buttons
 //   renderMfaEnrolledEmail        "A second sign-in step was added" security notice
 //
 // Built for real inboxes (Gmail, Outlook desktop + web, Apple Mail):
-//   * table layout, inline CSS only (no <style>: Gmail drops it in many clients), 600 px max
-//     width that shrinks on phones, web-safe font stack;
+//   * table layout with inline CSS as the base (works with no <style> at all), 600 px max
+//     width that shrinks on phones, web-safe font stack. A small <style> in <head> adds two
+//     progressive extras where the client supports them: tighter padding on phones and a
+//     dark palette under prefers-color-scheme (Apple Mail, iOS Mail, Outlook.com via
+//     [data-ogsc], Thunderbird). Gmail ignores the dark block and auto-inverts instead;
 //   * one primary action: a "bulletproof" button (VML for Outlook desktop) or a large, spaced,
 //     copyable code. Long URLs are never printed in the HTML; the text part has the link;
-//   * dark-mode safe: every block has a solid bgcolor and text meets 4.5:1 on it, so clients that
-//     invert colours (Gmail app, Outlook.com) keep it readable;
+//   * dark-mode safe either way: every block has a solid bgcolor and text meets 4.5:1 on it, so
+//     clients that invert colours themselves keep it readable;
+//   * a greeting by first name when the account has one ("Hi Maria,"), otherwise "Hi there,";
 //   * hidden preheader, a calm subject without spam words, no Firebase wording.
 //
 // Brand: lib/core/theme/app_colors.dart — cream canvas #FFF9F0, warm brown ink #3B2114 / #1F120B,
@@ -25,6 +29,8 @@ export type Brand = {
   supportContact?: string;
   /** The website (PUBLIC_SITE_URL): Privacy / Terms links in the footer. */
   siteUrl?: string;
+  /** The recipient's display name (Firebase displayName). Greeting only; cleaned below. */
+  name?: string | null;
 };
 
 export type VerificationEmailInput = Brand & { code: string; expiresMinutes: number };
@@ -42,10 +48,23 @@ export const BRAND = {
   codeBg: "#FFE6C2",
   noteBg: "#FFF6E8",
 };
+// Dark palette (prefers-color-scheme): same hues, text >= 7:1 on its background.
+const DARK = { canvas: "#15100C", card: "#211812", border: "#3B2C20", ink: "#F6EEE6", muted: "#CDBBAA", codeBg: "#3A2614", noteBg: "#2A1E15", btn2: "#2A1E15" };
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
 export function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/**
+ * "Maria" from "Maria Santos": letters, spaces, apostrophes, dots and hyphens only (no links or
+ * markup can ride in on a display name), at most 30 characters. Null when nothing is left.
+ */
+export function greetingName(name: string | null | undefined): string | null {
+  if (typeof name !== "string") return null;
+  const clean = name.normalize("NFC").replace(/[^\p{L}\p{M}' .-]/gu, " ").replace(/\s+/g, " ").trim();
+  const first = clean.split(" ")[0]?.replace(/^[.'-]+|[.'-]+$/g, "") ?? "";
+  return first.length >= 2 ? first.slice(0, 30) : null;
 }
 
 const httpsUrl = (u: string | undefined): string | null => (u && /^https:\/\/[^\s"'<>]+$/.test(u.trim()) ? u.trim() : null);
@@ -84,9 +103,11 @@ function button(label: string, url: string, primary: boolean): string {
   const fg = primary ? "#FFFFFF" : BRAND.brown;
   const border = primary ? BRAND.primary : BRAND.border;
   const href = esc(url);
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto"><tr><td align="center" bgcolor="${bg}" style="border-radius:999px;background:${bg};border:1px solid ${border}">
-<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:260px" arcsize="50%" strokecolor="${border}" fillcolor="${bg}"><w:anchorlock/><center style="color:${fg};font-family:Arial,sans-serif;font-size:16px;font-weight:bold">${esc(label)}</center></v:roundrect><![endif]-->
-<!--[if !mso]><!--><a href="${href}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 32px;font-family:${FONT};font-size:16px;line-height:20px;font-weight:700;color:${fg};text-decoration:none;border-radius:999px;mso-hide:all">${esc(label)}</a><!--<![endif]-->
+  const cls = primary ? "" : ` class="mn-btn2"`;
+  const width = Math.max(220, Math.min(340, 80 + label.length * 10)); // Outlook needs a fixed width
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto"><tr><td align="center" bgcolor="${bg}"${cls} style="border-radius:999px;background:${bg};border:1px solid ${border}">
+<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:${width}px" arcsize="50%" strokecolor="${border}" fillcolor="${bg}"><w:anchorlock/><center style="color:${fg};font-family:Arial,sans-serif;font-size:16px;font-weight:bold">${esc(label)}</center></v:roundrect><![endif]-->
+<!--[if !mso]><!--><a href="${href}" target="_blank" rel="noopener"${primary ? "" : ` class="mn-btn2-text"`} style="display:inline-block;padding:14px 32px;font-family:${FONT};font-size:16px;line-height:20px;font-weight:700;color:${fg};text-decoration:none;border-radius:999px;mso-hide:all">${esc(label)}</a><!--<![endif]-->
 </td></tr></table>`;
 }
 
@@ -96,30 +117,33 @@ function renderLayout(l: Layout): RenderedEmail {
   const logo = logoUrl
     ? `<img src="${esc(logoUrl)}" width="56" height="56" alt="${BRAND.name} logo" style="display:block;border:0;outline:none;width:56px;height:56px;border-radius:14px;margin:0 auto">`
     : `<div role="img" aria-label="${BRAND.name}" style="width:56px;height:56px;line-height:56px;margin:0 auto;border-radius:28px;background:${BRAND.primary};color:#FFFFFF;font-family:${FONT};font-size:24px;font-weight:700;text-align:center">M</div>`;
-  const p = (t: string) => `<p style="margin:0 0 12px 0;font-family:${FONT};font-size:16px;line-height:24px;color:${BRAND.ink};text-align:center">${esc(t)}</p>`;
+  const p = (t: string) => `<p class="mn-ink" style="margin:0 0 12px 0;font-family:${FONT};font-size:16px;line-height:24px;color:${BRAND.ink};text-align:center">${esc(t)}</p>`;
+  const first = greetingName(l.name);
+  const greeting = first ? `Hi ${first},` : "Hi there,";
 
   let action = "";
   if (l.action.kind === "code") {
     const c = l.action.code;
     action = `<tr><td align="center" style="padding:12px 32px 20px 32px">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.codeBg};border-radius:12px" bgcolor="${BRAND.codeBg}">
-<tr><td align="center" style="padding:16px 28px;font-family:'Courier New',Courier,monospace;font-size:36px;line-height:44px;font-weight:700;letter-spacing:8px;color:${BRAND.ink}">${esc(c.slice(0, 3))} ${esc(c.slice(3))}</td></tr>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="mn-code" style="background:${BRAND.codeBg};border-radius:12px" bgcolor="${BRAND.codeBg}">
+<tr><td align="center" class="mn-ink" style="padding:16px 28px;font-family:'Courier New',Courier,monospace;font-size:36px;line-height:44px;font-weight:700;letter-spacing:8px;color:${BRAND.ink}">${esc(c.slice(0, 3))} ${esc(c.slice(3))}</td></tr>
 </table></td></tr>`;
   } else if (l.action.kind === "button") {
     action = `<tr><td align="center" style="padding:12px 32px 20px 32px">${button(l.action.label, l.action.url, true)}</td></tr>`;
   }
   const facts = l.facts?.length
-    ? `<tr><td style="padding:0 32px 16px 32px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.noteBg}" style="background:${BRAND.noteBg};border-radius:12px">${
-      l.facts.map(([k, v]) => `<tr><td style="padding:10px 16px 0 16px;font-family:${FONT};font-size:13px;line-height:18px;color:${BRAND.muted}">${esc(k)}</td></tr><tr><td style="padding:2px 16px 10px 16px;font-family:${FONT};font-size:15px;line-height:22px;color:${BRAND.ink};font-weight:600">${esc(v)}</td></tr>`).join("")
+    ? `<tr><td style="padding:0 32px 16px 32px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.noteBg}" class="mn-note" style="background:${BRAND.noteBg};border-radius:12px">${
+      l.facts.map(([k, v]) => `<tr><td class="mn-muted" style="padding:10px 16px 0 16px;font-family:${FONT};font-size:13px;line-height:18px;color:${BRAND.muted}">${esc(k)}</td></tr><tr><td class="mn-ink" style="padding:2px 16px 10px 16px;font-family:${FONT};font-size:15px;line-height:22px;color:${BRAND.ink};font-weight:600">${esc(v)}</td></tr>`).join("")
     }</table></td></tr>`
     : "";
   const secondary = l.secondary
-    ? `<tr><td align="center" style="padding:0 32px 20px 32px">${l.secondary.lead ? `<p style="margin:0 0 10px 0;font-family:${FONT};font-size:14px;line-height:21px;color:${BRAND.muted};text-align:center">${esc(l.secondary.lead)}</p>` : ""}${button(l.secondary.label, l.secondary.url, false)}</td></tr>`
+    ? `<tr><td align="center" style="padding:0 32px 20px 32px">${l.secondary.lead ? `<p class="mn-muted" style="margin:0 0 10px 0;font-family:${FONT};font-size:14px;line-height:21px;color:${BRAND.muted};text-align:center">${esc(l.secondary.lead)}</p>` : ""}${button(l.secondary.label, l.secondary.url, false)}</td></tr>`
     : "";
-  const footerLines = [BRAND.name, l.businessAddress, l.supportContact]
+  const support = l.supportContact?.trim() ? `Need help? Contact us at ${l.supportContact.trim()}` : "";
+  const footerLines = [BRAND.name, l.businessAddress, support]
     .filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => esc(x.trim()));
   const legal = site
-    ? `<br><a href="${esc(site)}/privacy" style="color:${BRAND.muted};text-decoration:underline">Privacy Policy</a> &nbsp;·&nbsp; <a href="${esc(site)}/terms" style="color:${BRAND.muted};text-decoration:underline">Terms</a>`
+    ? `<br><a href="${esc(site)}/privacy" class="mn-muted" style="color:${BRAND.muted};text-decoration:underline">Privacy Policy</a> &nbsp;·&nbsp; <a href="${esc(site)}/terms" class="mn-muted" style="color:${BRAND.muted};text-decoration:underline">Terms</a>`
     : "";
 
   const html = `<!DOCTYPE html>
@@ -129,30 +153,41 @@ function renderLayout(l: Layout): RenderedEmail {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
 <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
-<meta name="color-scheme" content="light">
-<meta name="supported-color-schemes" content="light">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>${esc(l.subject)}</title>
 <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+@media only screen and (max-width:620px){.mn-pad{padding-left:20px!important;padding-right:20px!important}.mn-outer{padding:16px 8px!important}.mn-h1{font-size:22px!important;line-height:28px!important}}
+@media (prefers-color-scheme:dark){
+.mn-canvas{background:${DARK.canvas}!important}.mn-card{background:${DARK.card}!important;border-color:${DARK.border}!important}
+.mn-ink{color:${DARK.ink}!important}.mn-muted{color:${DARK.muted}!important}.mn-brand{color:${DARK.ink}!important}
+.mn-code{background:${DARK.codeBg}!important}.mn-note{background:${DARK.noteBg}!important}.mn-rule{border-color:${DARK.border}!important}
+.mn-btn2{background:${DARK.btn2}!important;border-color:${DARK.border}!important}.mn-btn2-text{color:${DARK.ink}!important}}
+[data-ogsc] .mn-ink,[data-ogsc] .mn-brand,[data-ogsc] .mn-btn2-text{color:${DARK.ink}!important}[data-ogsc] .mn-muted{color:${DARK.muted}!important}
+[data-ogsb] .mn-canvas{background:${DARK.canvas}!important}[data-ogsb] .mn-card,[data-ogsb] .mn-btn2{background:${DARK.card}!important}[data-ogsb] .mn-code{background:${DARK.codeBg}!important}[data-ogsb] .mn-note{background:${DARK.noteBg}!important}
+</style>
 </head>
-<body style="margin:0;padding:0;background:${BRAND.canvas};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
+<body class="mn-canvas" style="margin:0;padding:0;background:${BRAND.canvas};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
 <div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${BRAND.canvas}">${esc(l.preheader)}&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.canvas}" bgcolor="${BRAND.canvas}">
-<tr><td align="center" style="padding:32px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="mn-canvas" style="background:${BRAND.canvas}" bgcolor="${BRAND.canvas}">
+<tr><td align="center" class="mn-outer" style="padding:32px 12px">
 <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:20px" bgcolor="${BRAND.card}">
-<tr><td align="center" style="padding:32px 32px 4px 32px">${logo}
-<div style="margin-top:10px;font-family:${FONT};font-size:15px;font-weight:700;letter-spacing:.04em;color:${BRAND.brown}">${BRAND.name}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="mn-card" style="max-width:600px;background:${BRAND.card};border:1px solid ${BRAND.border};border-radius:20px" bgcolor="${BRAND.card}">
+<tr><td align="center" class="mn-pad" style="padding:32px 32px 4px 32px">${logo}
+<div class="mn-brand" style="margin-top:10px;font-family:${FONT};font-size:15px;font-weight:700;letter-spacing:.04em;color:${BRAND.brown}">${BRAND.name}</div>
 </td></tr>
-<tr><td style="padding:20px 32px 4px 32px">
-<h1 style="margin:0 0 14px 0;font-family:${FONT};font-size:24px;line-height:30px;font-weight:700;color:${BRAND.ink};text-align:center">${esc(l.heading)}</h1>
-${l.intro.map(p).join("\n")}
+<tr><td class="mn-pad" style="padding:20px 32px 4px 32px">
+<h1 class="mn-ink mn-h1" style="margin:0 0 14px 0;font-family:${FONT};font-size:24px;line-height:30px;font-weight:700;color:${BRAND.ink};text-align:center">${esc(l.heading)}</h1>
+${[greeting, ...l.intro].map(p).join("\n")}
 </td></tr>
 ${action}
-${l.expiry ? `<tr><td style="padding:0 32px 16px 32px;font-family:${FONT};font-size:15px;line-height:22px;color:${BRAND.ink};text-align:center"><strong>${esc(l.expiry)}</strong></td></tr>` : ""}
+${l.expiry ? `<tr><td class="mn-pad mn-ink" style="padding:0 32px 16px 32px;font-family:${FONT};font-size:15px;line-height:22px;color:${BRAND.ink};text-align:center"><strong>${esc(l.expiry)}</strong></td></tr>` : ""}
 ${facts}
 ${secondary}
-<tr><td style="padding:4px 32px 28px 32px;font-family:${FONT};font-size:14px;line-height:21px;color:${BRAND.muted};text-align:center">${esc(l.ignore ?? "If you didn't request this, you can safely ignore this email.")}<br>${BRAND.name} will never ask for your password or a code by phone, chat or text message.</td></tr>
-<tr><td style="padding:20px 32px;border-top:1px solid ${BRAND.border};font-family:${FONT};font-size:12px;line-height:18px;color:${BRAND.muted};text-align:center">${footerLines.join("<br>")}<br>${esc(l.reason)}${legal}</td></tr>
+<tr><td class="mn-pad mn-muted" style="padding:4px 32px 28px 32px;font-family:${FONT};font-size:14px;line-height:21px;color:${BRAND.muted};text-align:center">${esc(l.ignore ?? "If you didn't request this, you can safely ignore this email.")}<br>${BRAND.name} will never ask for your password or a code by phone, chat or text message.</td></tr>
+<tr><td class="mn-pad mn-muted mn-rule" style="padding:20px 32px;border-top:1px solid ${BRAND.border};font-family:${FONT};font-size:12px;line-height:18px;color:${BRAND.muted};text-align:center">${footerLines.join("<br>")}<br>${esc(l.reason)}${legal}</td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
 </td></tr>
@@ -165,6 +200,8 @@ ${secondary}
     "",
     l.heading,
     "",
+    greeting,
+    "",
     ...l.intro.flatMap((t) => [t, ""]),
     ...(l.action.kind === "code" ? [`Your code: ${l.action.code}`, ""] : []),
     ...(l.action.kind === "button" ? [`${l.action.label}: ${l.action.url}`, ""] : []),
@@ -176,7 +213,7 @@ ${secondary}
     `${BRAND.name} will never ask for your password or a code by phone, chat or text message.`,
     "",
     "--",
-    ...[BRAND.name, l.businessAddress, l.supportContact].filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()),
+    ...[BRAND.name, l.businessAddress, support].filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()),
     l.reason,
     ...(site ? [`Privacy Policy: ${site}/privacy`, `Terms: ${site}/terms`] : []),
   ].join("\n");
@@ -212,8 +249,8 @@ export function renderPasswordResetEmail(input: LinkEmailInput): RenderedEmail {
     subject: `Reset your ${BRAND.name} password`,
     preheader: `Choose a new password for your ${BRAND.name} account. ${expiry}`,
     heading: "Reset your password",
-    intro: [`We got a request to reset the password for your ${BRAND.name} account. Tap the button to choose a new one.`],
-    action: { kind: "button", label: "Reset password", url },
+    intro: [`We received a request to reset the password for your ${BRAND.name} account. Tap the button below to choose a new one.`],
+    action: { kind: "button", label: "Change your password here", url },
     expiry,
     ignore: "If you didn't request this, you can ignore this email: your password stays the same.",
     reason: `You received this email because a password reset was requested for your ${BRAND.name} account.`,
@@ -232,7 +269,7 @@ export function renderEmailChangeConfirmEmail(input: LinkEmailInput & { newEmail
       `You asked to use ${input.newEmail} for your ${BRAND.name} account.`,
       "Your email changes only after you confirm it.",
     ],
-    action: { kind: "button", label: "Confirm new email", url },
+    action: { kind: "button", label: "Confirm email change", url },
     expiry,
     ignore: "If you didn't request this, you can ignore this email: nothing changes.",
     reason: `You received this email because this address was entered as the new email of a ${BRAND.name} account.`,
@@ -254,7 +291,7 @@ export function renderEmailChangeNoticeEmail(
       "Nothing changes unless the new address is confirmed. If this wasn't you, stop the change now.",
     ],
     action: { kind: "button", label: "Stop this change", url: cancel },
-    expiry: `You can stop it for the next ${minutesText(input.expiresMinutes)}.`,
+    expiry: `You can stop it within ${minutesText(input.expiresMinutes)}.`,
     facts: [["Requested", input.when], ["New email", input.newEmail]],
     secondary: { lead: "Not you? Change your password too.", label: "Secure your account", url: secure },
     ignore: "If you made this change, you don't need to do anything.",

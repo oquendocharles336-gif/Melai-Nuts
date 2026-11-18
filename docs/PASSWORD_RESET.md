@@ -1,34 +1,44 @@
-# Password reset (real e-mail link, app + website)
+# Password reset (our own e-mail and link, app + website)
 
-Accounts are Firebase accounts (the app and the website share them), so the reset uses Firebase's
-own password-reset e-mail — the Firebase equivalent of Supabase's `resetPasswordForEmail`. Supabase
-Auth is not used for sign-in in this project.
+Accounts are Firebase accounts (the app and the website share them), but **Firebase sends no
+e-mail**. The reset e-mail is ours: Supabase Edge Function `account-email`, sent through Resend
+on the shared Melai Nuts layout (`supabase/functions/_shared/email-template.ts`). Supabase Auth
+is not used for sign-in in this project, so there are no Supabase Auth templates either.
 
 ## Flow
 
-1. "Forgot password?" in the app (`AuthService.sendPasswordResetEmail`) or on the website
-   (`LoginController@forgot` → `accounts:sendOobCode`). Unknown e-mails behave like known ones.
-2. Firebase e-mails a link to **`<website>/auth/action?mode=resetPassword&oobCode=…`** (custom action URL).
-3. That page (or, on a phone with the app, the app's reset screen via an Android App Link):
-   * checks the code with Firebase first (`accounts:resetPassword` without a password / `verifyPasswordResetCode`);
-   * asks for the new password twice and applies the same rules as sign-up (8+ characters,
-     upper-case letter, number, symbol, not the e-mail/name, not a common password);
-   * sets it (`confirmPasswordReset`). Firebase accepts each code **once**, so the link stops
-     working, and it ends the account's other sign-ins.
-   * Loading, success, expired/used-link and error states are real Firebase answers. The page sends
-     `Referrer-Policy: no-referrer` and `Cache-Control: no-store`; the code is never stored or logged.
+1. "Forgot password?" in the app (`AuthService.sendPasswordResetEmail` → `AccountEmailService`)
+   or on the website (`LoginController@forgot`, `CustomerAuthController@forgot` → `AccountEmails`)
+   calls `POST /functions/v1/account-email/password-reset/request`.
+   * App: App Check token, or the Turnstile captcha when App Check is unavailable.
+   * Website: its server key (`AUTH_GUARD_SERVER_KEY`) plus the visitor's IP.
+   * Limits: 60 s cooldown and 5/hour per e-mail, 20/hour per IP (`auth_action_issue`).
+   * The answer is always the same — "If an account exists for this email, we've sent a reset
+     link." — whether or not the address has an account (no account enumeration).
+2. The function looks the address up with the Firebase Admin credentials, stores only an HMAC of
+   a random single-use token, and e-mails **"Reset your Melai Nuts password"** with one
+   **"Change your password here"** button. The link
+   (`<PUBLIC_SITE_URL>/auth/action?mode=resetPassword&token=…`) lives only in the button's href
+   and in the plain-text part; it expires in 30 minutes.
+3. The link opens our page: on a phone with the app, `ResetPasswordLinkScreen` (Android App Link);
+   otherwise the website's `AccountActionController`. Both check the link first (not used up),
+   ask for the new password twice with the sign-up rules, then call `password-reset/confirm`.
+   The function sets the password with the Admin API and ends every older sign-in.
 
-Code: `admin/app/Http/Controllers/Auth/AccountActionController.php`,
-`admin/resources/views/auth/account-action.blade.php`,
-`lib/features/auth/screens/reset_password_link_screen.dart`, `lib/app/routes.dart` (`/auth/action`),
-`android/app/src/main/AndroidManifest.xml` (App Link). Tests: `admin/tests/Feature/AccountActionTest.php`.
+Old Firebase links (`oobCode=…`) are answered with "ask for a new link".
 
-## Redirect URLs to configure
+Code: `supabase/functions/account-email/`, `lib/core/services/account_email_service.dart`,
+`lib/features/auth/screens/forgot_password_screen.dart`, `reset_password_link_screen.dart`,
+`admin/app/Services/Auth/AccountEmails.php`, `admin/app/Http/Controllers/Auth/AccountActionController.php`.
+Tests: `supabase/functions/account-email/handler_test.ts`, `admin/tests/Feature/AccountActionTest.php`.
+
+Setup, secrets, DNS and the Firebase console safety net: [ACCOUNT_EMAILS_SETUP.md](ACCOUNT_EMAILS_SETUP.md).
+
+## Links to configure
 
 | Where | Value |
 |---|---|
-| Firebase console → Authentication → Templates → Password reset → ✎ → **Customize action URL** | `https://<website host>/auth/action` |
-| Firebase console → Authentication → Settings → Authorized domains | `<website host>` |
+| Supabase secret `PUBLIC_SITE_URL` | `https://<website host>` (the button links go here) |
 | `admin/.env` `APP_URL` | `https://<website host>` |
 | Android build (optional, opens the link in the app) | `flutter build appbundle -PmelaiWebHost=<website host>` (or env `MELAI_WEB_HOST`) |
 | `admin/.env` `ANDROID_APP_LINK_SHA256` (optional, same purpose) | SHA-256 of the app signing key (Play Console → App integrity). Serves `/.well-known/assetlinks.json` |

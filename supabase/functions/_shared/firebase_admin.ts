@@ -56,6 +56,8 @@ export async function markEmailVerified(
   if (!res.ok) throw new Error(`accounts:update ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
+export type AccountRef = { uid: string; name: string | null };
+
 /** The account's uid for an e-mail address, or null when there is no such account. */
 export async function lookupUidByEmail(
   email: string,
@@ -63,6 +65,16 @@ export async function lookupUidByEmail(
   serviceAccountJson: string | undefined,
   fetchFn: typeof fetch = fetch,
 ): Promise<string | null> {
+  return (await lookupAccountByEmail(email, projectId, serviceAccountJson, fetchFn))?.uid ?? null;
+}
+
+/** uid + display name (for the greeting) for an e-mail address, or null when there is no such account. */
+export async function lookupAccountByEmail(
+  email: string,
+  projectId: string,
+  serviceAccountJson: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<AccountRef | null> {
   const sa = parseServiceAccount(serviceAccountJson);
   const token = await accessToken(sa, fetchFn);
   const res = await fetchFn(`https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:lookup`, {
@@ -75,7 +87,7 @@ export async function lookupUidByEmail(
   const data = await res.json();
   const user = Array.isArray(data?.users) ? data.users[0] : null;
   if (!user?.localId || user.disabled === true) return null;
-  return String(user.localId);
+  return { uid: String(user.localId), name: typeof user.displayName === "string" ? user.displayName : null };
 }
 
 export type AccountChange = { password?: string; email?: string; emailVerified?: boolean; endSessions?: boolean };

@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.auth-guard]
 verify_jwt = false
+
+[functions.account-email]
+verify_jwt = false

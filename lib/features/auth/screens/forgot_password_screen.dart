@@ -48,7 +48,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Reset link sent — check your email to choose a new password.'),
+          // Same text whether or not the address has an account (no account enumeration).
+          content: Text("If an account exists for this email, we've sent a reset link."),
         ),
       );
       Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.login);

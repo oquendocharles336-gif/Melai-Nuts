@@ -145,7 +145,7 @@ class CustomerAuthController extends ShopController
             return redirect()->to(AuthPanel::url(AuthPanel::RESET_PASSWORD))->withInput()->with('shop_error', $e->getMessage());
         }
 
-        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If that email has an account, we\'ve sent a link to reset your password.');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If an account exists for this email, we\'ve sent a reset link.');
     }
 
     /** ONE logout for everything (same as the admin side's): every sign-in of this session ends. */

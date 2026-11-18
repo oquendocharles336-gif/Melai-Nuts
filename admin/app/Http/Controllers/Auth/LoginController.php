@@ -273,6 +273,6 @@ class LoginController extends Controller
             }
         }
 
-        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If a Melai Nuts account uses that email, we\'ve sent it a password-reset link. The new password works in the app and on this website.');
+        return redirect()->to(AuthPanel::url(AuthPanel::SIGN_IN))->with('status', 'If an account exists for this email, we\'ve sent a reset link. The new password works in the app and on this website.');
     }
 }

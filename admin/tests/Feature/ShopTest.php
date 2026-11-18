@@ -149,7 +149,7 @@ class ShopTest extends TestCase
     {
         $this->post('/shop/forgot-password', ['_panel' => 'reset-password', 'email' => 'nope'])->assertRedirect('/?panel=reset-password')->assertSessionHasErrors('email');
         $this->post('/shop/forgot-password', ['_panel' => 'reset-password', 'email' => 'bea@example.com'])->assertRedirect('/?panel=sign-in');
-        $this->get('/?panel=sign-in')->assertSee("we've sent a link to reset your password");
+        $this->get('/?panel=sign-in')->assertSee("If an account exists for this email, we've sent a reset link.");
     }
 
     public function test_sign_up_verifies_the_email_then_creates_the_same_profiles_as_the_app(): void

@@ -63,10 +63,11 @@ class AccountEmails
     }
 
     /** Best effort: a security notice must never block turning two-step sign-in on. */
-    public function notifyMfaEnrolled(string $email, ?string $userAgent): void
+    public function notifyMfaEnrolled(string $email, ?string $userAgent, ?string $name = null): void
     {
         try {
-            $this->post('security-notice/mfa-enrolled', ['email' => $email, 'user_agent' => (string) $userAgent]);
+            // $name: the greeting ("Hi Maria,"); the function keeps only the cleaned first name.
+            $this->post('security-notice/mfa-enrolled', ['email' => $email, 'user_agent' => (string) $userAgent, 'name' => (string) $name]);
         } catch (AccountEmailException $e) {
             Log::warning('[account-email] MFA notice not sent', ['code' => $e->reason]);
         }

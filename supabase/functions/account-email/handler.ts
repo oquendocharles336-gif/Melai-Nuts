@@ -8,7 +8,7 @@ import { bearer, corsHeaders, type Env, json, readJson } from "../_shared/http.t
 import { clientIp, constantTimeEqual, hmacHex, keyHash, normalizeEmail } from "../_shared/security.ts";
 import type { CaptchaResult } from "../_shared/captcha.ts";
 import type { FirebaseUser } from "../_shared/firebase_token.ts";
-import type { AccountChange } from "../_shared/firebase_admin.ts";
+import type { AccountChange, AccountRef } from "../_shared/firebase_admin.ts";
 import {
   type Brand,
   formatWhen,
@@ -28,7 +28,8 @@ export type Deps = {
   verifyCaptcha: (token: unknown, action: string, remoteIp: string | null) => Promise<CaptchaResult>;
   rpc: Rpc;
   sendMail: SendMail;
-  lookupUid: (email: string) => Promise<string | null>;
+  /** The account for an address (uid + display name for the greeting), or null. */
+  lookupAccount: (email: string) => Promise<AccountRef | null>;
   updateAccount: (uid: string, change: AccountChange) => Promise<void>;
   /** Runs work after the answer (EdgeRuntime.waitUntil); tests await it. */
   background?: (p: Promise<unknown>) => void;
@@ -116,7 +117,7 @@ export function makeHandler(deps: Deps) {
     const brand: Brand = {
       logoUrl: env("EMAIL_LOGO_URL"),
       businessAddress: env("EMAIL_FOOTER_ADDRESS"),
-      supportContact: env("EMAIL_SUPPORT_CONTACT"),
+      supportContact: env("EMAIL_SUPPORT_CONTACT") || env("EMAIL_REPLY_TO"),
       siteUrl: site,
     };
     const ctx = { deps, req, body, ip, pepper, site, brand, fromServer, background, now };
@@ -187,7 +188,8 @@ function sendInBackground(c: Ctx, to: string, mail: ReturnType<typeof renderPass
   }));
 }
 
-const GENERIC_SENT = "If an account uses that email, we sent it a link. Check your inbox and spam folder.";
+// Exactly the same text for a known and an unknown address (no account enumeration).
+export const GENERIC_SENT = "If an account exists for this email, we've sent a reset link. Check your inbox and spam folder.";
 
 // --- Password reset ---------------------------------------------------------------------------
 
@@ -197,13 +199,14 @@ async function resetRequest(c: Ctx): Promise<Response> {
   const human = await requireHuman(c, "reset_password");
   if (human) return human;
 
-  let uid: string | null;
+  let account: AccountRef | null;
   try {
-    uid = await c.deps.lookupUid(email);
+    account = await c.deps.lookupAccount(email);
   } catch (e) {
     console.error("account-email: lookup failed", e instanceof Error ? e.message : e);
     return fail(503, "failed", "We could not send the email right now. Please try again.");
   }
+  const uid = account?.uid ?? null;
   const token = (c.deps.newToken ?? newLinkToken)();
   const { data, error } = await c.deps.rpc("auth_action_issue", {
     p_kind: "password_reset",
@@ -224,7 +227,7 @@ async function resetRequest(c: Ctx): Promise<Response> {
   // Same answer, and the e-mail goes out after it, whether or not the address has an account.
   if (uid) {
     const url = `${c.site}/auth/action?mode=resetPassword&token=${encodeURIComponent(token)}`;
-    sendInBackground(c, email, renderPasswordResetEmail({ ...c.brand, url, expiresMinutes: RESET_MINUTES }), "reset");
+    sendInBackground(c, email, renderPasswordResetEmail({ ...c.brand, name: account?.name, url, expiresMinutes: RESET_MINUTES }), "reset");
   }
   return json({ sent: true, message: GENERIC_SENT });
 }
@@ -313,7 +316,7 @@ async function changeRequest(c: Ctx): Promise<Response> {
 
   let taken: boolean;
   try {
-    taken = (await c.deps.lookupUid(newEmail)) !== null;
+    taken = (await c.deps.lookupAccount(newEmail)) !== null;
   } catch (e) {
     console.error("account-email: lookup failed", e instanceof Error ? e.message : e);
     return fail(503, "failed", "We could not send the email right now. Please try again.");
@@ -343,6 +346,7 @@ async function changeRequest(c: Ctx): Promise<Response> {
   if (!taken) {
     sendInBackground(c, newEmail, renderEmailChangeConfirmEmail({
       ...c.brand,
+      name: user.name,
       newEmail,
       url: `${c.site}/auth/action?mode=confirmEmail&token=${encodeURIComponent(confirm)}`,
       expiresMinutes: CHANGE_MINUTES,
@@ -350,6 +354,7 @@ async function changeRequest(c: Ctx): Promise<Response> {
     if (user.email) {
       sendInBackground(c, user.email, renderEmailChangeNoticeEmail({
         ...c.brand,
+        name: user.name,
         newEmail,
         cancelUrl: `${c.site}/auth/action?mode=cancelEmailChange&token=${encodeURIComponent(cancel)}`,
         secureUrl: `${c.site}/?panel=reset-password`,
@@ -401,8 +406,10 @@ async function mfaNotice(c: Ctx): Promise<Response> {
   // themselves (Firebase token) — then only if staff_2fa_confirm turned it on in the last
   // 10 minutes (auth_action_mfa_recent), and always to the account's own e-mail.
   let email: string | null;
+  let name: string | null = null;
   if (c.fromServer) {
     email = normalizeEmail(c.body.email);
+    name = typeof c.body.name === "string" ? c.body.name.slice(0, 100) : null;
     if (!email) return fail(400, "invalid_email", "Please enter a valid email address.");
   } else {
     const idToken = bearer(c.req);
@@ -413,6 +420,7 @@ async function mfaNotice(c: Ctx): Promise<Response> {
     } catch (_) {
       return fail(401, "unauthorized", "Not allowed.");
     }
+    name = user.name ?? null;
     const recent = await c.deps.rpc("auth_action_mfa_recent", { p_uid: user.uid });
     email = normalizeEmail(recent.data);
     if (recent.error || !email) return fail(409, "not_recent", "Two-step sign-in was not just turned on.");
@@ -427,6 +435,7 @@ async function mfaNotice(c: Ctx): Promise<Response> {
   const ua = typeof c.body.user_agent === "string" ? c.body.user_agent.slice(0, 400) : (c.req.headers.get("User-Agent") ?? "");
   sendInBackground(c, email, renderMfaEnrolledEmail({
     ...c.brand,
+    name,
     when: formatWhen(c.now()),
     device: deviceLabel(ua),
     secureUrl: `${c.site}/?panel=reset-password`,

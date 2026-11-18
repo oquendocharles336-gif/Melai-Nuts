@@ -23,6 +23,7 @@ const brand = {
   businessAddress: env("EMAIL_FOOTER_ADDRESS"),
   supportContact: env("EMAIL_SUPPORT_CONTACT"),
   siteUrl: site,
+  name: env("PREVIEW_NAME") ?? "Maria Santos", // greeting; set PREVIEW_NAME="" to see "Hi there,"
 };
 const token = "PREVIEW-TOKEN-PREVIEW-TOKEN-PREVIEW-TOKEN-00";
 const when = formatWhen(new Date());

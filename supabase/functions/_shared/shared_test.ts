@@ -107,7 +107,7 @@ function idToken(claims: Record<string, unknown>, o: { iss?: string; aud?: strin
 Deno.test("ID token: a valid token gives uid, e-mail (lower-cased) and the verified flag", async () => {
   const u = await verifyFirebaseIdToken(await idToken({}), "melai-test", keys);
   const { authTime, ...rest } = u;
-  assertEquals(rest, { uid: "uid-1", email: "ana@example.com", emailVerified: false, signInProvider: "password" });
+  assertEquals(rest, { uid: "uid-1", email: "ana@example.com", emailVerified: false, signInProvider: "password", name: null });
   assert(typeof authTime === "number" || authTime === null, "auth_time passed through for recent-sign-in checks");
 });
 
@@ -139,10 +139,11 @@ Deno.test("template: the code and the expiry are in the subject, HTML and text",
   assert(m.html.includes("If you didn't request this, you can safely ignore this email.") && m.text.includes("If you didn't request this"), "ignore text");
 });
 
-Deno.test("template: no links to click at all, table layout, inline styles only", () => {
+Deno.test("template: no links to click at all, table layout, inline base styles", () => {
   const m = renderVerificationEmail({ code: "123456", expiresMinutes: 10, logoUrl: "https://shop.example.com/apple-touch-icon.png" });
   assert(!/<a\s/i.test(m.html) && !/href=/i.test(m.html), "no links");
-  assert(!/<style/i.test(m.html) && /<table role="presentation"/.test(m.html), "inline CSS, tables");
+  // One <style> only: the optional dark-mode / phone block; every colour is also inline.
+  assert((m.html.match(/<style/gi) ?? []).length === 1 && /<table role="presentation"/.test(m.html), "inline CSS, tables");
   assert(m.html.includes('src="https://shop.example.com/apple-touch-icon.png"'), "logo");
 });
 

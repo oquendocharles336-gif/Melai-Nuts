@@ -28,7 +28,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { makeHandler } from "./handler.ts";
 import { verifyAppCheckToken, verifyFirebaseIdToken } from "../_shared/firebase_token.ts";
 import { hostList, verifyCaptcha } from "../_shared/captcha.ts";
-import { lookupUidByEmail, updateAccount } from "../_shared/firebase_admin.ts";
+import { lookupAccountByEmail, updateAccount } from "../_shared/firebase_admin.ts";
 import { mailerFromEnv } from "../_shared/mailer.ts";
 
 const env = (name: string) => Deno.env.get(name);
@@ -59,7 +59,7 @@ Deno.serve(makeHandler({
     return { data, error: error ? { message: error.message } : null };
   },
   sendMail: mailerFromEnv(env),
-  lookupUid: (email) => lookupUidByEmail(email, projectId, env("FIREBASE_SERVICE_ACCOUNT")),
+  lookupAccount: (email) => lookupAccountByEmail(email, projectId, env("FIREBASE_SERVICE_ACCOUNT")),
   updateAccount: (uid, change) => updateAccount(uid, change, projectId, env("FIREBASE_SERVICE_ACCOUNT")),
   background: (p) => (runtime?.waitUntil ? runtime.waitUntil(p) : p.catch(() => {})),
 }));

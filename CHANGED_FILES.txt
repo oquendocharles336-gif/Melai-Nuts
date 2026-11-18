@@ -1,35 +1,21 @@
 CHANGED_FILES.txt
-DELETED_IN_THIS_CHANGE.txt
-lib/app/app.dart
-lib/app/routes.dart
-lib/core/services/app_notices.dart                 (new)
-lib/core/services/sqlite_service.dart
-lib/core/services/staff_inventory_overlay.dart     (new)
-lib/core/services/staff_offline_store.dart         (new)
-lib/core/services/staff_store.dart
-lib/core/widgets/offline_banner.dart
-lib/core/widgets/pending_sync_chip.dart            (new)
-lib/data/models/inventory_batch.dart
-lib/data/models/inventory_item.dart
-lib/data/models/staff_models.dart
-lib/data/repositories/staff_repository.dart
-lib/features/auth/screens/login_screen.dart
-lib/features/auth/screens/phone_login_screen.dart
-lib/features/inventory/screens/inventory_adjustment_screen.dart
-lib/features/inventory/screens/inventory_adjustment_success_screen.dart
-lib/features/inventory/screens/inventory_dashboard_screen.dart
-lib/features/inventory/screens/receive_batch_screen.dart
-lib/features/inventory/widgets/inventory_card.dart
-lib/features/notifications/notification_targets.dart
-lib/features/products/screens/add_product_screen.dart
-lib/features/products/screens/edit_product_screen.dart
-lib/features/products/screens/product_list_screen.dart
-lib/features/staff/pos_sale_queue.dart
-lib/features/staff/screens/pos_flow_screens.dart
-lib/features/staff/screens/staff_portal_screen.dart
-lib/features/staff/screens/staff_transactions_screen.dart
-lib/features/staff/staff_offline_sync.dart         (new)
-lib/features/staff/widgets/e_receipt.dart          (new)
-lib/features/staff/widgets/pos_offline_widgets.dart
-lib/main.dart
-supabase/migrations/20261118070000_staff_offline_sync.sql (new)
+supabase/functions/_shared/email-template.ts        (button labels, greeting, dark mode, phone layout, support line)
+supabase/functions/_shared/email_template_test.ts
+supabase/functions/_shared/shared_test.ts
+supabase/functions/_shared/firebase_admin.ts        (lookupAccountByEmail: uid + display name)
+supabase/functions/_shared/firebase_token.ts        (name claim)
+supabase/functions/account-email/handler.ts         (greeting name, generic reset message)
+supabase/functions/account-email/handler_test.ts
+supabase/functions/account-email/index.ts
+supabase/functions/email-verification/handler.ts    (greeting name, support fallback)
+supabase/config.toml                                (account-email verify_jwt = false)
+scripts/preview-emails.ts
+lib/features/auth/screens/forgot_password_screen.dart (generic success message)
+admin/app/Http/Controllers/Auth/LoginController.php
+admin/app/Http/Controllers/Shop/CustomerAuthController.php
+admin/app/Http/Controllers/Auth/TwoFactorController.php
+admin/app/Services/Auth/AccountEmails.php
+admin/tests/Feature/ShopTest.php
+admin/public/images/email-logo.png                  (new; PNG of assets/images/logo/melai_nuts_logo.svg)
+docs/ACCOUNT_EMAILS_SETUP.md                        (audit, Firebase console safety net, deploy)
+docs/PASSWORD_RESET.md                              (rewritten: was describing the old Firebase flow)

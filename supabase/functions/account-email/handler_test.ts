@@ -21,6 +21,7 @@ type Token = { kind: string; uid: string; email: string; new_email: string | nul
 
 function setup(opts: { accounts?: Record<string, string>; authAgeSeconds?: number; captchaOk?: boolean; mfaRecent?: Record<string, string> } = {}) {
   const accounts = new Map(Object.entries(opts.accounts ?? { "ana@example.com": "uid-ana" }));
+  const names = new Map<string, string>([["ana@example.com", "Ana Reyes"]]);
   const tokens: Token[] = [];
   const sends: Array<{ kind: string; email_hash: string }> = [];
   const mails: Array<{ to: string; mail: RenderedEmail }> = [];
@@ -76,7 +77,7 @@ function setup(opts: { accounts?: Record<string, string>; authAgeSeconds?: numbe
       return Promise.resolve({ data: null, error: { message: "unknown " + fn } });
     },
     sendMail: (to, mail) => { mails.push({ to, mail }); return Promise.resolve(); },
-    lookupUid: (email) => Promise.resolve(accounts.get(email) ?? null),
+    lookupAccount: (email) => Promise.resolve(accounts.has(email) ? { uid: accounts.get(email)!, name: names.get(email) ?? null } : null),
     updateAccount: (uid, change) => { updates.push({ uid, change }); return Promise.resolve(); },
     background: (p) => { pending.push(p); },
     newToken: () => `tok${String(++next).padStart(3, "0")}`.padEnd(43, "x"),
@@ -107,6 +108,9 @@ Deno.test("reset request: same answer with or without an account; only the accou
   assertEquals(s.mails[0].to, "ana@example.com");
   const m = s.mails[0].mail;
   assertEquals(m.subject, "Reset your Melai Nuts password");
+  assertEquals(known.body.message, "If an account exists for this email, we've sent a reset link. Check your inbox and spam folder.");
+  assert(m.html.includes("Hi Ana,") && m.html.includes(">Change your password here</a>"), "greeting + button");
+  assert(!/>https?:\/\/[^<]*token=/.test(m.html), "the link is never visible text");
   assert(m.text.includes(`${SITE}/auth/action?mode=resetPassword&token=`), "link to our own page");
   assert(!/firebase/i.test(m.html + m.text), "no Firebase wording");
   assert(!m.html.includes("token=tok") || /href="https:\/\/shop\.example\.com\/auth\/action\?mode=resetPassword&amp;token=/.test(m.html), "link only as a button");
