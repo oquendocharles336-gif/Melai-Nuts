@@ -9,3 +9,8 @@ For Website
 cd admin
 php artisan serve
 ```
+
+Link of the Web
+```text
+https://melai-nuts-retail.up.railway.app/
+```
