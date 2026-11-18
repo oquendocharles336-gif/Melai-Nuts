@@ -125,6 +125,9 @@ class SupabaseIntegrationTest extends TestCase
             [$this->fx['owner'], "owner-$s@test.local", $this->fx['staff_a'], "staff-a-$s@test.local", $this->fx['branch_a']]);
         $db->insert("insert into public.customer_profiles (firebase_uid, full_name, email, phone, rfid_card_number) values (?, ?, ?, '0917', ?)",
             [$this->fx['customer'], "IT Customer $s", "cust-$s@test.local", "CARD-$s"]);
+        // A returning customer (migration 20261118000000): these tests use the normal checkout,
+        // not the first-order online prepayment.
+        $db->update('update public.customer_profiles set first_paid_order_at = now() where firebase_uid = ?', [$this->fx['customer']]);
         // Test fixture: loyalty rules (a new database has none; the owner sets them).
         $db->statement("insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
                         on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50");

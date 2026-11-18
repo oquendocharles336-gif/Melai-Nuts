@@ -21,7 +21,7 @@ const USER: FirebaseUser = { uid: "uid-1", email: "ana@example.com", emailVerifi
 type Row = { email: string; hash: string; attempts: number; created: number; expires: number; consumed: boolean };
 
 /** In-memory copy of the SQL functions' rules (10 min, 5 tries, 60 s cooldown, single use). */
-function fakeDb() {
+function memoryDb() {
   const codes = new Map<string, Row>();
   const tokens = new Set<string>();
   let clock = 1_000_000;
@@ -73,7 +73,7 @@ type Setup = {
 };
 
 function setup(o: Setup = {}) {
-  const db = fakeDb();
+  const db = memoryDb();
   const mails: { to: string; email: RenderedEmail }[] = [];
   const verified: string[] = [];
   let nextCode = "482913";

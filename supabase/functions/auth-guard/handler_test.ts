@@ -12,7 +12,7 @@ function assertEquals(actual: unknown, expected: unknown, msg = "") {
 const PEPPER = "q".repeat(40);
 const SERVER_KEY = "s".repeat(40);
 
-function fakeDb() {
+function memoryDb() {
   const attempts: { type: string; hash: string }[] = [];
   const tokens = new Set<string>();
   const count = (type: string, hash: unknown) => hash ? attempts.filter((a) => a.type === type && a.hash === hash).length : 0;
@@ -44,7 +44,7 @@ function fakeDb() {
 }
 
 function setup() {
-  const db = fakeDb();
+  const db = memoryDb();
   const seenIps: (string | null)[] = [];
   const handler = makeHandler({
     env: (k) => ({ AUTH_CODE_PEPPER: PEPPER, AUTH_GUARD_SERVER_KEY: SERVER_KEY })[k],

@@ -35,7 +35,8 @@
 --     already refunds the downpayment row); any cash part by hand.
 --
 -- API
---   place_order(..., p_idempotency_key, p_first_order_payment text default null)  'half' | 'full'
+--   place_order(..., p_idempotency_key)                         unchanged (no choice)
+--   place_order(..., p_idempotency_key, p_first_order_payment)  'half' | 'full'
 --   first_order_quote(p_cart_id, p_is_delivery) -> the checkout preview (the server decides again)
 --   is_first_order(p_uid)                        -> service role only
 --
@@ -487,18 +488,20 @@ as $$
 $$;
 revoke all on function public.place_order(uuid, boolean, uuid, text, text) from public, anon, authenticated;
 
--- The app/website entry point: the idempotent wrapper of 20260928010000 plus the choice.
--- Dropped and re-created (not overloaded) so PostgREST never sees two candidates; older
--- builds that do not send p_first_order_payment keep working (default null).
-drop function if exists public.place_order(uuid, boolean, uuid, text, text, text);
-create or replace function public.place_order(
+-- The app/website entry points. The idempotent wrapper of 20260928010000 moves into
+-- _place_order_api; two thin overloads call it:
+--   * place_order(... 6 args)  = unchanged signature (older builds, and new builds that send
+--     no choice). Kept so older migrations / the resync file that grant on it still re-run.
+--   * place_order(... 7 args)  = with p_first_order_payment, WITHOUT a default, so PostgREST
+--     always finds exactly one candidate (6 named arguments -> 6-arg, 7 -> 7-arg).
+create or replace function public._place_order_api(
   p_cart_id uuid,
   p_is_delivery boolean,
   p_delivery_address_id uuid,
   p_payment_method text,
   p_customer_notes text,
   p_idempotency_key text,
-  p_first_order_payment text default null
+  p_first_order_payment text
 )
 returns text
 language plpgsql
@@ -539,6 +542,47 @@ begin
 
   return v_order_id;
 end;
+$$;
+revoke all on function public._place_order_api(uuid, boolean, uuid, text, text, text, text) from public, anon, authenticated;
+
+create or replace function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text,
+  p_idempotency_key text
+)
+returns text
+language sql
+security definer
+set search_path = public
+as $$
+  select public._place_order_api(p_cart_id, p_is_delivery, p_delivery_address_id, p_payment_method,
+                                 p_customer_notes, p_idempotency_key, null)
+$$;
+revoke all on function public.place_order(uuid, boolean, uuid, text, text, text) from public, anon;
+grant execute on function public.place_order(uuid, boolean, uuid, text, text, text) to authenticated;
+
+-- Dropped first: a database that ran an earlier copy of this migration has it WITH a default,
+-- which "create or replace" cannot remove.
+drop function if exists public.place_order(uuid, boolean, uuid, text, text, text, text);
+create function public.place_order(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text,
+  p_idempotency_key text,
+  p_first_order_payment text
+)
+returns text
+language sql
+security definer
+set search_path = public
+as $$
+  select public._place_order_api(p_cart_id, p_is_delivery, p_delivery_address_id, p_payment_method,
+                                 p_customer_notes, p_idempotency_key, p_first_order_payment)
 $$;
 revoke all on function public.place_order(uuid, boolean, uuid, text, text, text, text) from public, anon;
 grant execute on function public.place_order(uuid, boolean, uuid, text, text, text, text) to authenticated;

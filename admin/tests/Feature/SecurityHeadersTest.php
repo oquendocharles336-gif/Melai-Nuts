@@ -55,10 +55,20 @@ class SecurityHeadersTest extends TestCase
 
     public function test_no_page_template_loads_scripts_from_another_site(): void
     {
+        // The one exception: Cloudflare Turnstile's api.js (the security check of sign-up, of
+        // sign-in after repeated failures and of the app's /captcha page). Cloudflare does not
+        // allow self-hosting it; the CSP allows only that origin (SecurityHeaders::TURNSTILE).
+        $allowed = '#^https://challenges\.cloudflare\.com/turnstile/v0/api\.js(\?|$)#';
         $offenders = [];
         foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(resource_path('views'))) as $f) {
-            if ($f->isFile() && preg_match('/<script[^>]+src=["\']https?:/i', file_get_contents($f->getPathname()))) {
-                $offenders[] = $f->getPathname();
+            if (! $f->isFile()) {
+                continue;
+            }
+            preg_match_all('/<script[^>]+src=["\'](https?:[^"\']+)/i', file_get_contents($f->getPathname()), $m);
+            foreach ($m[1] as $src) {
+                if (! preg_match($allowed, $src)) {
+                    $offenders[] = $f->getPathname().' '.$src;
+                }
             }
         }
         $this->assertSame([], $offenders);

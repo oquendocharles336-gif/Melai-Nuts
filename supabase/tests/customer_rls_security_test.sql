@@ -530,9 +530,9 @@ select pg_temp.chk_true('authenticated cannot execute notify_customer',
 select pg_temp.chk_true('authenticated cannot execute the 5-arg place_order (idempotency bypass)',
   not pg_temp.can_exec('authenticated', 'public.place_order(uuid,boolean,uuid,text,text)'));
 select pg_temp.chk_true('anon cannot execute place_order',
-  not pg_temp.can_exec('anon', 'public.place_order(uuid,boolean,uuid,text,text,text,text)'));
-select pg_temp.chk_true('authenticated CAN execute the 7-arg place_order',
-  pg_temp.can_exec('authenticated', 'public.place_order(uuid,boolean,uuid,text,text,text,text)'));
+  not pg_temp.can_exec('anon', 'public.place_order(uuid,boolean,uuid,text,text,text)'));
+select pg_temp.chk_true('authenticated CAN execute the 6-arg place_order',
+  pg_temp.can_exec('authenticated', 'public.place_order(uuid,boolean,uuid,text,text,text)'));
 select pg_temp.chk_true('anon cannot execute redeem_reward',
   not pg_temp.can_exec('anon', 'public.redeem_reward(uuid)'));
 select pg_temp.chk_true('anon cannot execute request_refund',

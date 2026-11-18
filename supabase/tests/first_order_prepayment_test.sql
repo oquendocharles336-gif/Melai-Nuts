@@ -121,6 +121,14 @@ end $$;
 select pg_temp.chk('a customer cannot call is_first_order', 'fo-new', $q$select public.is_first_order('fo-old')$q$, 'error');
 select pg_temp.chk('a customer cannot call the place_order core (no idempotency, no checks bypass)', 'fo-new',
   $q$select public._place_order_core(null, false, null, 'x', '', 'full')$q$, 'error');
+select pg_temp.chk('a customer cannot call the place_order API body directly', 'fo-new',
+  $q$select public._place_order_api(null, false, null, 'x', '', 'k', 'full')$q$, 'error');
+select pg_temp.chk_true('both entry points exist for customers: 6 args (no choice) and 7 args (choice)',
+  has_function_privilege('authenticated', 'public.place_order(uuid,boolean,uuid,text,text,text)', 'execute')
+  and has_function_privilege('authenticated', 'public.place_order(uuid,boolean,uuid,text,text,text,text)', 'execute')
+  and not has_function_privilege('anon', 'public.place_order(uuid,boolean,uuid,text,text,text,text)', 'execute'));
+select pg_temp.chk_true('the 7-arg entry point has no default (PostgREST never sees two candidates)',
+  (select pronargdefaults = 0 from pg_proc where oid = 'public.place_order(uuid,boolean,uuid,text,text,text,text)'::regprocedure));
 select pg_temp.chk('a customer cannot mark an order as the first paid one', 'fo-new',
   $q$select public._mark_first_paid_order('x')$q$, 'error');
 select pg_temp.chk('a customer cannot write first_paid_order_at', 'fo-new',
@@ -226,6 +234,16 @@ select pg_temp.chk_true('100%: staff see it now',
   pg_temp.visible('fo-sa', format($q$select count(*) from public.orders where id = %L$q$, pg_temp.f('o_full'))) = 1);
 select pg_temp.chk_true('100%: staff are told it is fully paid',
   exists (select 1 from public.staff_notifications where reference = pg_temp.f('o_full') and body like '%Fully paid online%'));
+
+-- 6b. The 6-argument entry point (older builds): an online first order pays in full.
+update public.customer_profiles set first_paid_order_at = null where firebase_uid = 'fo-pos';
+insert into fx values ('o_six', pg_temp.call_as('fo-pos', format(
+  $q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, QR Ph, Card)', '', 'fo-six')$q$, pg_temp.cart('fo-pos'))));
+select pg_temp.chk_true('6-arg call, first order, online: 100% due online',
+  (select d.choice = 'full' and d.amount = 100 and o.status = 'awaitingDownpayment'
+   from public.orders o join public.order_downpayments d on d.order_id = o.id where o.id = pg_temp.f('o_six')));
+update public.order_downpayments set expires_at = now() - interval '1 minute' where order_id = pg_temp.f('o_six');
+select public.expire_unpaid_cod_downpayments();
 
 -- 7. Returning customer: normal checkout ------------------------------------------------
 insert into fx values ('o_ret', pg_temp.place('fo-new', 'Cash on Counter Pickup', null, 'fo-ret'));
