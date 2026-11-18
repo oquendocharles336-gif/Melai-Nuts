@@ -8,6 +8,12 @@
 //
 // Secrets: RESEND_API_KEY, EMAIL_FROM (e.g. "Melai Nuts <no-reply@your-domain>"),
 // optional EMAIL_REPLY_TO.
+//
+// GMAIL (no domain of your own): set SMTP_USER (the Gmail address) and SMTP_PASSWORD (a
+// Google App Password, NOT the account password). Mail then goes through smtp.gmail.com on
+// port 465 (implicit TLS); Supabase Edge Functions block outbound 25 and 587, 465 is open.
+// Google signs it (SPF/DKIM pass for gmail.com), no DNS work. Gmail sends ~500 mails/day.
+// EMAIL_FROM is optional here and must be the same Gmail address (Gmail rewrites any other).
 import type { RenderedEmail } from "./email-template.ts";
 
 export type SendMail = (to: string, email: RenderedEmail) => Promise<void>;
@@ -31,4 +37,78 @@ export function resendMailer(apiKey: string, from: string, replyTo: string | und
     });
     if (!res.ok) throw new Error(`resend ${res.status}: ${(await res.text()).slice(0, 200)}`);
   };
+}
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  from: string;
+  replyTo?: string;
+}
+
+export interface SmtpMessage {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  replyTo?: string;
+  headers: Record<string, string>;
+}
+
+export type SmtpSend = (config: SmtpConfig, message: SmtpMessage) => Promise<void>;
+
+// Real transport: nodemailer over implicit TLS. Loaded lazily so tests and the Resend path
+// never import it.
+export const nodemailerSend: SmtpSend = async (config, message) => {
+  const nodemailer = (await import("npm:nodemailer@6.9.16")).default;
+  const transport = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.port === 465,
+    auth: { user: config.user, pass: config.password },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+  });
+  await transport.sendMail(message);
+};
+
+export function smtpMailer(config: SmtpConfig, send: SmtpSend = nodemailerSend): SendMail {
+  return async (to, email) => {
+    if (!config.user || !config.password || !config.from) {
+      throw new Error("e-mail is not configured (SMTP_USER / SMTP_PASSWORD)");
+    }
+    await send(config, {
+      from: config.from,
+      to,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      ...(config.replyTo ? { replyTo: config.replyTo } : {}),
+      headers: { "X-Entity-Ref-ID": crypto.randomUUID() },
+    });
+  };
+}
+
+// Picks the sender from the secrets: SMTP_USER + SMTP_PASSWORD (Gmail by default) win,
+// otherwise Resend. One place, so every function sends the same way.
+export function mailerFromEnv(env: (name: string) => string | undefined, send: SmtpSend = nodemailerSend): SendMail {
+  const user = (env("SMTP_USER") ?? "").trim();
+  const password = (env("SMTP_PASSWORD") ?? "").replace(/\s+/g, ""); // App Passwords are shown with spaces
+  const replyTo = env("EMAIL_REPLY_TO")?.trim() || undefined;
+  if (user && password) {
+    const name = (env("EMAIL_FROM_NAME") ?? "Melai Nuts").trim() || "Melai Nuts";
+    return smtpMailer({
+      host: (env("SMTP_HOST") ?? "smtp.gmail.com").trim(),
+      port: Number(env("SMTP_PORT") ?? "465") || 465,
+      user,
+      password,
+      from: env("EMAIL_FROM")?.trim() || `${name} <${user}>`,
+      replyTo,
+    }, send);
+  }
+  return resendMailer(env("RESEND_API_KEY") ?? "", env("EMAIL_FROM") ?? "", replyTo);
 }

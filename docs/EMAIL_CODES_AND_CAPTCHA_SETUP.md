@@ -27,14 +27,28 @@ sites, is usually invisible or one tap, and tokens are verified server-side with
      website's `/captcha` page).
    * Secret key → Supabase function secret `TURNSTILE_SECRET_KEY` **only**.
 
-## 2. Sending domain (Resend) with SPF, DKIM and DMARC
+## 2. Sender: Gmail (melainuts@gmail.com) — current setup
 
-The code e-mail is sent by the Edge Function through Resend's HTTPS API (hosted functions are
-not a reliable place for raw SMTP). Use the **same** Resend domain for Supabase Auth SMTP so every
-Melai Nuts e-mail comes from one authenticated domain.
+There is no domain of our own yet, so the code e-mail goes out from **melainuts@gmail.com**
+through Gmail's SMTP server (`smtp.gmail.com`, port **465**, TLS). Supabase Edge Functions block
+outbound ports 25 and 587; 465 is allowed. Google signs Gmail mail itself, so **SPF, DKIM and
+DMARC already pass for gmail.com: there are no DNS records to add** (only the owner of a domain
+can add them, and nobody but Google owns gmail.com).
 
-1. resend.com → **Domains** → **Add domain**: your domain (or a sending subdomain such as
-   `mail.<your-domain>`). Region: closest to the Philippines (e.g. Tokyo/Singapore when offered).
+1. Sign in to melainuts@gmail.com → <https://myaccount.google.com/security> → turn on
+   **2-Step Verification** (App Passwords need it).
+2. <https://myaccount.google.com/apppasswords> → name it `Melai Nuts codes` → **Create**.
+   Copy the 16-letter password (spaces don't matter). This is the only password the server gets;
+   the real Gmail password is never used. Revoke it there at any time.
+3. Store it as the function secret `SMTP_PASSWORD`, and `SMTP_USER=melainuts@gmail.com` (§3).
+
+Limits: Gmail sends about 500 messages a day from a free account, and Google may hold mail if it
+looks bulk. That is plenty for sign-up codes. When the shop outgrows it, move to a domain (§2b):
+remove `SMTP_USER`/`SMTP_PASSWORD` and the functions switch to Resend by themselves.
+
+## 2b. Later: own domain (Resend) with SPF, DKIM and DMARC
+
+1. Buy a domain, then resend.com → **Domains** → **Add domain** (region Tokyo/Singapore).
 2. Add the DNS records Resend shows, exactly as shown, at your DNS host:
    * **SPF**: an `MX` and a `TXT` record (`v=spf1 include:... ~all`) on the sending
      subdomain Resend names (for example `send.<your-domain>`).
@@ -42,13 +56,9 @@ Melai Nuts e-mail comes from one authenticated domain.
    * **DMARC** (you add this one yourself): `TXT` at `_dmarc.<your-domain>`:
      `v=DMARC1; p=none; rua=mailto:dmarc@<your-domain>; adkim=s; aspf=s`
      Start with `p=none`, check the reports for 1–2 weeks, then move to `p=quarantine`.
-3. Wait until Resend shows the domain as **Verified**.
-4. Resend → **API Keys** → create a key with **Sending access** for that domain only.
-5. Optional but recommended — Supabase Dashboard → **Authentication → SMTP Settings** →
-   Enable custom SMTP: host `smtp.resend.com`, port `465`, username `resend`, password = the API
-   key, sender `no-reply@<your-domain>`, sender name `Melai Nuts`. (Supabase Auth itself sends
-   nothing in this project because sign-in is Firebase; this keeps any future Supabase e-mail on
-   the same branded, authenticated domain.)
+3. Wait until Resend shows **Verified**, create an API key with **Sending access** for that
+   domain, set `RESEND_API_KEY` and `EMAIL_FROM="Melai Nuts <no-reply@<your-domain>>"`, and
+   unset `SMTP_USER`/`SMTP_PASSWORD`.
 
 ## 3. Supabase: migrations, secrets, deploy
 
@@ -64,9 +74,9 @@ supabase secrets set AUTH_GUARD_SERVER_KEY="$(openssl rand -hex 32)"   # copy it
 supabase secrets set \
   TURNSTILE_SECRET_KEY=<turnstile secret key> \
   TURNSTILE_ALLOWED_HOSTNAMES=<website host, e.g. shop.example.com> \
-  RESEND_API_KEY=<resend api key> \
-  EMAIL_FROM="Melai Nuts <no-reply@<your-domain>>" \
-  EMAIL_REPLY_TO=<optional support address> \
+  SMTP_USER=melainuts@gmail.com \
+  SMTP_PASSWORD=<16-letter Google App Password> \
+  EMAIL_FROM_NAME="Melai Nuts" \
   EMAIL_LOGO_URL=https://<website host>/apple-touch-icon.png \
   EMAIL_FOOTER_ADDRESS="<business address, optional>" \
   EMAIL_SUPPORT_CONTACT="<support phone or e-mail, optional>" \

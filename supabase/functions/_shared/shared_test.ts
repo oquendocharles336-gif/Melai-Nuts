@@ -3,6 +3,7 @@
 // (with locally generated keys: no network) and the e-mail template.
 import { codeHash, constantTimeEqual, generateCode, keyHash, normalizeEmail } from "./security.ts";
 import { verifyCaptcha } from "./captcha.ts";
+import { mailerFromEnv, type SmtpConfig, type SmtpMessage } from "./mailer.ts";
 import { renderVerificationEmail } from "./email-template.ts";
 import { verifyAppCheckToken, verifyFirebaseIdToken } from "./firebase_token.ts";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "npm:jose@5.9.6";
@@ -151,4 +152,24 @@ Deno.test("template: footer values are escaped; non-https logo is ignored; bad c
   let threw = false;
   try { renderVerificationEmail({ code: "12345", expiresMinutes: 10 }); } catch (_) { threw = true; }
   assert(threw, "5 digits refused");
+});
+
+Deno.test("mailer: Gmail SMTP on 465 when SMTP_USER + SMTP_PASSWORD are set", async () => {
+  const sent: { c: SmtpConfig; m: SmtpMessage }[] = [];
+  const env: Record<string, string> = { SMTP_USER: "shop@gmail.com", SMTP_PASSWORD: "abcd efgh ijkl mnop" };
+  const mail = mailerFromEnv((k) => env[k], async (c, m) => { sent.push({ c, m }); });
+  await mail("buyer@example.com", { subject: "Code", html: "<p>1</p>", text: "1" });
+  assertEquals(sent.length, 1);
+  assertEquals(sent[0].c.host, "smtp.gmail.com");
+  assertEquals(sent[0].c.port, 465);
+  assertEquals(sent[0].c.password, "abcdefghijklmnop");
+  assertEquals(sent[0].m.from, "Melai Nuts <shop@gmail.com>");
+  assertEquals(sent[0].m.to, "buyer@example.com");
+});
+
+Deno.test("mailer: falls back to Resend without SMTP secrets, and refuses when nothing is set", async () => {
+  const mail = mailerFromEnv(() => undefined, async () => { throw new Error("smtp must not be used"); });
+  let err = "";
+  try { await mail("a@b.c", { subject: "s", html: "h", text: "t" }); } catch (e) { err = String(e); }
+  assertEquals(err.includes("RESEND_API_KEY"), true);
 });

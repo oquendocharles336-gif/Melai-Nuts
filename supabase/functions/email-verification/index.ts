@@ -19,7 +19,8 @@
 //   FIREBASE_APP_CHECK_APP_IDS                          (optional, comma list of allowed app ids)
 //   AUTH_CODE_PEPPER                                    (random, 32+ characters; never change casually)
 //   TURNSTILE_SECRET_KEY, TURNSTILE_ALLOWED_HOSTNAMES   (Cloudflare Turnstile)
-//   RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO?         (see _shared/mailer.ts)
+//   SMTP_USER + SMTP_PASSWORD (Gmail App Password)   OR   RESEND_API_KEY + EMAIL_FROM
+//   EMAIL_FROM_NAME?, EMAIL_REPLY_TO?                   (see _shared/mailer.ts)
 //   EMAIL_LOGO_URL?, EMAIL_FOOTER_ADDRESS?, EMAIL_SUPPORT_CONTACT?
 //   AUTH_GUARD_IP_HEADER?                               (default cf-connecting-ip)
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
@@ -28,7 +29,7 @@ import { makeHandler } from "./handler.ts";
 import { verifyAppCheckToken, verifyFirebaseIdToken } from "../_shared/firebase_token.ts";
 import { hostList, verifyCaptcha } from "../_shared/captcha.ts";
 import { markEmailVerified } from "../_shared/firebase_admin.ts";
-import { resendMailer } from "../_shared/mailer.ts";
+import { mailerFromEnv } from "../_shared/mailer.ts";
 
 const env = (name: string) => Deno.env.get(name);
 const projectId = (env("FIREBASE_PROJECT_ID") ?? "").trim();
@@ -54,6 +55,6 @@ Deno.serve(makeHandler({
     const { data, error } = await admin.rpc(fn, args);
     return { data, error: error ? { message: error.message } : null };
   },
-  sendMail: resendMailer(env("RESEND_API_KEY") ?? "", env("EMAIL_FROM") ?? "", env("EMAIL_REPLY_TO")),
+  sendMail: mailerFromEnv(env),
   markEmailVerified: (uid) => markEmailVerified(uid, projectId, env("FIREBASE_SERVICE_ACCOUNT")),
 }));
