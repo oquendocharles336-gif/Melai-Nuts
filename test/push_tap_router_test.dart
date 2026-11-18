@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:melai_nuts/features/notifications/notification_targets.dart';
 import 'package:melai_nuts/features/notifications/push_tap_router.dart';
 
 void main() {
@@ -17,6 +18,12 @@ void main() {
       final tap = PushTap.from({'kind': 'staff.inventory', 'category': 'inventory', 'reference': 'x-1'});
       expect(tap.forStaff, isTrue);
       expect(tap.category, 'inventory');
+      expect(tap.orderId, isNull);
+    });
+
+    test('a staff expiry push keeps its reference so it opens Expiring Soon', () {
+      final tap = PushTap.from({'kind': 'staff.inventory', 'category': 'inventory', 'reference': 'expiry:b-1'});
+      expect(tap.reference, 'expiry:b-1');
       expect(tap.orderId, isNull);
     });
 
@@ -48,6 +55,14 @@ void main() {
       expect(tap.forStaff, isFalse);
       expect(tap.orderId, isNull);
       expect(tap.notificationId, isNull);
+    });
+  });
+
+  group('NotificationTargets.orderIdIn', () {
+    test('finds the order a notification is about', () {
+      expect(NotificationTargets.orderIdIn('Order ORD-1010 completed', 'Thank you for your order.'), 'ORD-1010');
+      expect(NotificationTargets.orderIdIn('Refund approved', 'Your refund for ORD-77 was approved.'), 'ORD-77');
+      expect(NotificationTargets.orderIdIn('Weekend promo', '10% off all nuts.'), isNull);
     });
   });
 }

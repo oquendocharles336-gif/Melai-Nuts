@@ -10,8 +10,7 @@ import '../../core/services/customer_data_store.dart';
 import '../../core/services/staff_store.dart';
 import '../../core/utils/app_error.dart';
 import '../../data/models/notification_item.dart';
-import '../../data/repositories/orders_repository.dart';
-import '../customer/screens/order_details_screen.dart';
+import 'notification_targets.dart';
 import 'screens/notification_detail_screen.dart';
 
 /// Where a tapped push should go, worked out only from what the push carries
@@ -26,20 +25,34 @@ class PushTap {
   /// customer pushes name it in their text.
   final String? orderId;
 
-  const PushTap({required this.forStaff, this.category, this.notificationId, this.orderId});
+  /// Staff pushes: the row's `reference` (an order id, `expiry:<batch>`, ...).
+  final String? reference;
+  final String? title;
+  final String? body;
 
-  static final RegExp _orderId = RegExp(r'ORD-\d+');
+  const PushTap({
+    required this.forStaff,
+    this.category,
+    this.notificationId,
+    this.orderId,
+    this.reference,
+    this.title,
+    this.body,
+  });
 
   factory PushTap.from(Map<String, dynamic> data, {String? title, String? body}) {
     final forStaff = (data['kind'] as String? ?? '').startsWith('staff.');
     final reference = data['reference'] as String?;
     final category = data['category'] as String?;
-    final inText = _orderId.firstMatch('${title ?? ''} ${body ?? ''}')?.group(0);
+    final inText = NotificationTargets.orderIdIn(title, body);
     return PushTap(
       forStaff: forStaff,
       category: category,
       notificationId: data['notification_id'] as String?,
-      orderId: forStaff ? (category == 'order' ? reference : null) : inText,
+      orderId: forStaff ? (category == 'order' ? (reference ?? inText) : null) : inText,
+      reference: forStaff ? reference : null,
+      title: title,
+      body: body,
     );
   }
 }
@@ -115,38 +128,29 @@ class PushTapRouter {
     await store.ensureStarted();
     final id = tap.notificationId;
     if (id != null) unawaited(store.markNotificationRead(id));
-    switch (tap.category) {
-      case 'inventory':
-        navigator.pushNamed(AppRoutes.inventoryLowStock);
-        return;
-      case 'transfer':
-        navigator.pushNamed(AppRoutes.inventoryTransfers);
-        return;
-      case 'refund' when store.canReviewRefunds:
-        navigator.pushNamed(AppRoutes.staffRefunds);
-        return;
-      case 'order':
-        if (store.orders.every((o) => o.id != tap.orderId)) await store.refreshOrders();
-        for (final order in store.orders) {
-          if (order.id == tap.orderId) {
-            navigator.pushNamed(AppRoutes.staffTransactionDetails, arguments: order);
-            return;
-          }
-        }
+    String? reference = tap.category == 'order' ? tap.orderId : tap.reference;
+    if (reference == null && id != null) {
+      // Non-order pushes carry no reference; read it from the stored row
+      // (e.g. `expiry:<batch>` opens Expiring Soon instead of Low Stock).
+      for (final n in store.notifications) {
+        if (n.id == id) reference = n.reference;
+      }
     }
-    navigator.pushNamed(AppRoutes.staffNotifications);
+    final opened = await NotificationTargets.openForStaff(
+      navigator,
+      category: tap.category,
+      reference: reference,
+      title: tap.title,
+      body: tap.body,
+    );
+    if (!opened) navigator.pushNamed(AppRoutes.staffNotifications);
   }
 
   Future<void> _openForCustomer(NavigatorState navigator, PushTap tap) async {
     final store = CustomerDataStore.instance;
     final id = tap.notificationId;
     if (id != null) unawaited(store.markNotificationRead(id));
-    final orderId = tap.orderId;
-    if (orderId != null) {
-      final order = await OrdersRepository.instance.refetch(orderId);
-      navigator.push(MaterialPageRoute(builder: (_) => OrderDetailsScreen(order: order)));
-      return;
-    }
+    if (await NotificationTargets.openCustomerOrder(navigator, tap.orderId)) return;
     NotificationItem? item;
     for (final n in store.notifications) {
       if (n.id == id) item = n;

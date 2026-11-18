@@ -547,6 +547,11 @@ class StaffRepository {
 
   // ---- Notifications (RLS: a person only ever sees their own) -----------------------
 
+  /// Announces this branch's batches that are about to expire (once per
+  /// batch) as staff notifications + pushes. Returns how many were new.
+  Future<int> checkExpiringBatches(String branchId) async =>
+      ((await _rpc('staff_check_expiring_batches', {'p_branch_id': branchId})) as num?)?.toInt() ?? 0;
+
   Future<List<StaffNotification>> fetchNotifications() => _guard(() async {
         final rows = await _client
             .from('staff_notifications')

@@ -1,4 +1,3 @@
-# Renamed to the versions recorded on the live project (identical SQL):
-#   20261118000000 -> 20261118015010, 20261118010000 -> 20261118015111
-supabase/migrations/20261118000000_first_order_prepayment.sql
-supabase/migrations/20261118010000_auth_email_codes_and_sign_in_guard.sql
+# FEFO Overview and Stock Transfers removed from the app (out of scope).
+lib/features/inventory/screens/fefo_screen.dart
+lib/features/inventory/screens/stock_transfers_screen.dart

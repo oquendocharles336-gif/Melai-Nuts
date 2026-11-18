@@ -104,13 +104,16 @@ select pg_temp.chk_true('low stock reaches branch staff as a push (server trigge
 -- 3. Expiring batches: owner setting, once per batch --------------------------------
 insert into public.inventory_batches (branch_id, product_id, variant_id, batch_code, received_date, expiration_date, quantity, initial_quantity)
 values (pg_temp.f('ba')::uuid, pg_temp.f('prod')::uuid, pg_temp.f('var')::uuid, 'PUSH-B1', current_date - 30, current_date + 5, 4, 4);
-select pg_temp.chk_true('expiry alerts are off while the owner has not set a window', public.enqueue_expiring_batch_alerts() = 0);
+update public.business_settings set expiry_alert_days = 3 where id = 'default';
+select pg_temp.chk_true('a batch outside the window (5 days > 3) is not announced', public.enqueue_expiring_batch_alerts() = 0);
 update public.business_settings set expiry_alert_days = 7 where id = 'default';
 select pg_temp.chk_true('with a 7-day window the batch expiring in 5 days is announced', public.enqueue_expiring_batch_alerts() = 1);
 select pg_temp.chk_true('... as a push for branch staff',
   exists (select 1 from public.push_outbox where firebase_uid = 'push-sa' and title like 'Expiring soon:%'));
 select pg_temp.chk_true('running it again does not repeat the alert', public.enqueue_expiring_batch_alerts() = 0);
 select pg_temp.chk('clients cannot trigger expiry alerts', 'push-sa', 'select public.enqueue_expiring_batch_alerts()', 'error');
+select pg_temp.chk('branch staff can check their own branch (already announced: nothing new)', 'push-sa',
+  format('select public.staff_check_expiring_batches(%L::uuid)', pg_temp.f('ba')), 'ok');
 
 -- 4. Dispatch bookkeeping (what push-dispatch does with the service role) ------------
 insert into fx select 'claim', public.push_outbox_claim(100)::text;

@@ -9,7 +9,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/widgets/staff_data_scope.dart';
-import '../../../data/models/inventory_batch.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../data/models/owner_sales.dart';
 import '../../../data/models/sales_data.dart';
 import '../../../data/repositories/staff_repository.dart';
@@ -98,7 +98,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Widget _content(BuildContext context, StaffStore store) {
     final inventoryReady = store.inventoryState.loaded;
     final highPriorityBatches =
-        store.batches.where((b) => b.fefoPriority == FefoPriority.high).toList();
+        store.batches.where((b) => b.quantity > 0 && b.daysUntilExpiry <= AppConstants.expiringSoonDays).toList();
     final lowStockCount = store.batches.where((b) => b.isLowStock).length;
     final totalInventoryUnits = store.batches.fold<int>(0, (sum, b) => sum + b.quantity);
 
@@ -141,7 +141,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             const SizedBox(height: AppSpacing.md),
             if (highPriorityBatches.isNotEmpty)
               InkWell(
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryFefo, arguments: FefoPriority.high),
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryExpiring),
                 borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                 child: Container(
                   padding: const EdgeInsets.all(14),
@@ -158,10 +158,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('FEFO Alert: Action Needed', style: AppTextStyles.labelLg.copyWith(color: AppColors.error)),
+                            Text('Expiry Alert: Action Needed', style: AppTextStyles.labelLg.copyWith(color: AppColors.error)),
                             Text(
                               '${highPriorityBatches.length} batch${highPriorityBatches.length == 1 ? '' : 'es'} at ${store.activeBranchName} '
-                              'need markdown or a transfer soon.',
+                              'expire within ${AppConstants.expiringSoonDays} days — sell these first.',
                               style: AppTextStyles.bodySm,
                             ),
                           ],
@@ -217,11 +217,11 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                 OwnerStatCard(
                   label: 'Expiring Products',
                   value: inventoryReady ? '${highPriorityBatches.length} Batches' : '—',
-                  sub: 'FEFO Priority',
+                  sub: 'Within ${AppConstants.expiringSoonDays} days',
                   icon: Icons.hourglass_bottom_rounded,
                   valueColor: highPriorityBatches.isEmpty ? null : AppColors.error,
                   highlight: highPriorityBatches.isNotEmpty,
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryFefo, arguments: FefoPriority.high),
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryExpiring),
                 ),
               ],
             ),
@@ -293,7 +293,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                 _QuickLink(icon: Icons.dashboard_customize_outlined, label: 'Business Overview', onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBusinessOverview)),
                 _QuickLink(icon: Icons.query_stats_rounded, label: 'Sales Analytics', onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerSalesAnalytics)),
                 _QuickLink(icon: Icons.leaderboard_outlined, label: 'Product Performance', onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerProductPerformance)),
-                _QuickLink(icon: Icons.local_shipping_outlined, label: 'Delivery Management', onTap: () => Navigator.of(context).pushNamed(AppRoutes.deliveryDashboard)),
               ],
             ),
           ],

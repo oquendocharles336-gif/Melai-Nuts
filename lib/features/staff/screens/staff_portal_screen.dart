@@ -96,13 +96,6 @@ class _StaffPortalScreenState extends State<StaffPortalScreen> {
                       ),
                   ],
                 ),
-              // Delivery runs for this branch (create, assign a driver, dispatch,
-              // live map). The admin website has no delivery function.
-              IconButton(
-                tooltip: 'Deliveries',
-                icon: const Icon(Icons.local_shipping_outlined),
-                onPressed: () => Navigator.of(context).pushNamed(AppRoutes.deliveryDashboard),
-              ),
               IconButton(
                 tooltip: 'Cash drawer',
                 icon: const Icon(Icons.point_of_sale_rounded),

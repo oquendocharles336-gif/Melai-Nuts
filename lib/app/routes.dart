@@ -43,14 +43,13 @@ import '../features/inventory/screens/inventory_dashboard_screen.dart';
 import '../features/inventory/screens/inventory_list_screen.dart';
 import '../features/inventory/screens/branch_inventory_screen.dart';
 import '../features/inventory/screens/inventory_product_details_screen.dart';
-import '../features/inventory/screens/fefo_screen.dart';
+import '../features/inventory/screens/expiring_soon_screen.dart';
 import '../features/inventory/screens/batch_details_screen.dart';
 import '../features/inventory/screens/low_stock_screen.dart';
 import '../features/inventory/screens/inventory_adjustment_screen.dart';
 import '../features/inventory/screens/inventory_adjustment_success_screen.dart';
 import '../features/inventory/screens/add_inventory_screen.dart';
 import '../features/inventory/screens/receive_batch_screen.dart';
-import '../features/inventory/screens/stock_transfers_screen.dart';
 import '../features/staff/screens/staff_refunds_screen.dart';
 import '../data/models/inventory_item.dart';
 import '../data/models/staff_context.dart';
@@ -247,14 +246,13 @@ class AppRoutes {
   static const String inventoryList = '/inventory/list';
   static const String inventoryBranch = '/inventory/branch';
   static const String inventoryProductDetails = '/inventory/product-details';
-  static const String inventoryFefo = '/inventory/fefo';
+  static const String inventoryExpiring = '/inventory/expiring';
   static const String inventoryBatchDetails = '/inventory/batch-details';
   static const String inventoryLowStock = '/inventory/low-stock';
   static const String inventoryAdjustment = '/inventory/adjust';
   static const String inventoryAdjustmentSuccess = '/inventory/adjust-success';
   static const String inventoryAdd = '/inventory/add';
   static const String inventoryReceive = '/inventory/receive';
-  static const String inventoryTransfers = '/inventory/transfers';
   static const String staffRefunds = '/staff/refunds';
 
   // Product Management & Pricing feature screens (lib/features/products/).
@@ -375,14 +373,13 @@ class AppRoutes {
     inventoryList: _staff,
     inventoryBranch: _staff,
     inventoryProductDetails: _staff,
-    inventoryFefo: _staff,
+    inventoryExpiring: _staff,
     inventoryBatchDetails: _staff,
     inventoryLowStock: _staff,
     inventoryAdjustment: _staffManageInventory,
     inventoryAdjustmentSuccess: _staffManageInventory,
     inventoryAdd: _staffManageInventory,
     inventoryReceive: _staffManageInventory,
-    inventoryTransfers: _staff,
     staffRefunds: _staffManageRefunds,
 
     ownerHome: _owner,
@@ -579,7 +576,7 @@ class AppRoutes {
     inventoryList: (_) => const InventoryListScreen(),
     inventoryLowStock: (_) => const LowStockScreen(),
     inventoryAdd: (_) => const AddInventoryScreen(),
-    inventoryTransfers: (_) => const StockTransfersScreen(),
+    inventoryExpiring: (_) => const ExpiringSoonScreen(),
     staffRefunds: (_) => const StaffRefundsScreen(),
 
     productManagement: (_) => const ProductManagementScreen(),
@@ -590,7 +587,7 @@ class AppRoutes {
     // take a productId argument and are handled exclusively in
     // onGenerateRoute below (see the earlier note on route shadowing).
 
-    // NOTE: inventoryBranch, inventoryProductDetails, inventoryFefo,
+    // NOTE: inventoryBranch, inventoryProductDetails,
     // inventoryBatchDetails, and inventoryAdjustment are intentionally NOT
     // registered here — they take (optional or required) arguments and are
     // handled exclusively in onGenerateRoute below. A static `routes` map
@@ -732,11 +729,6 @@ class AppRoutes {
         final variantId = settings.arguments as String;
         return MaterialPageRoute(
           builder: (_) => InventoryProductDetailsScreen(variantId: variantId),
-        );
-      case inventoryFefo:
-        final priority = settings.arguments as FefoPriority?;
-        return MaterialPageRoute(
-          builder: (_) => FefoScreen(initialFilter: priority),
         );
       case inventoryBatchDetails:
         final batch = settings.arguments as InventoryBatch;

@@ -13,6 +13,7 @@ import '../../../core/widgets/state_views.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../data/models/notification_item.dart';
+import '../notification_targets.dart';
 import 'notification_detail_screen.dart';
 import 'notification_settings_screen.dart';
 
@@ -26,6 +27,9 @@ class NotificationCenterScreen extends StatefulWidget {
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   static const _initial = ListQuery(sortId: 'newest');
   ListQuery _query = _initial;
+
+  /// The notification whose order is being loaded (a tap while one loads is ignored).
+  String? _opening;
 
   List<SortOption<NotificationItem>> _sorts(AppLocalizations t) => [
         SortOption('newest', t.sortNewest, (a, b) => b.time.compareTo(a.time)),
@@ -94,10 +98,22 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   }
 
   Future<void> _open(NotificationItem item) async {
+    if (_opening != null) return;
     // Fire and forget: the store applies it locally, syncs it, and re-reads
     // the server state if the server rejects it.
     unawaited(CustomerDataStore.instance.markNotificationRead(item.id));
-    await Navigator.of(context).push(
+    final navigator = Navigator.of(context);
+    // An order / payment / refund update opens that order (its status,
+    // items and payment) directly; anything else shows the message itself.
+    final orderId = NotificationTargets.orderIdIn(item.title, item.body);
+    if (orderId != null) {
+      setState(() => _opening = item.id);
+      final opened = await NotificationTargets.openCustomerOrder(navigator, orderId);
+      if (mounted) setState(() => _opening = null);
+      if (opened) return;
+    }
+    if (!mounted) return;
+    await navigator.push(
       MaterialPageRoute(builder: (_) => NotificationDetailScreen(item: item)),
     );
   }
@@ -245,6 +261,14 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                         ],
                       ),
                     ),
+                    if (_opening == n.id)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else if (NotificationTargets.orderIdIn(n.title, n.body) != null)
+                      const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
                     if (!n.read)
                       Container(
                         margin: const EdgeInsets.only(top: 4),

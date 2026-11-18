@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -7,7 +8,6 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/models/inventory_batch.dart';
 import '../widgets/inventory_card.dart';
 
 /// Shared dashboard content — used both as the Staff Portal's "Inventory"
@@ -39,8 +39,11 @@ class InventoryDashboardBody extends StatelessWidget {
     final items = store.inventoryItems;
     final lowItems = items.where((i) => i.needsRestock).toList()
       ..sort((a, b) => a.quantity.compareTo(b.quantity));
-    final expiringSoonCount =
-        store.batches.where((b) => b.fefoPriority == FefoPriority.high).length;
+    final expiring = store.batches
+        .where((b) => b.quantity > 0 && b.daysUntilExpiry <= AppConstants.expiringSoonDays)
+        .toList()
+      ..sort((a, b) => a.daysUntilExpiry.compareTo(b.daysUntilExpiry));
+    final expiringSoonCount = expiring.length;
     final totalUnits = items.fold<int>(0, (sum, i) => sum + i.quantity);
 
     return ListView(
@@ -87,7 +90,7 @@ class InventoryDashboardBody extends StatelessWidget {
                 value: '$expiringSoonCount',
                 icon: Icons.schedule_rounded,
                 color: AppColors.warning,
-                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryFefo),
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryExpiring),
               ),
             ),
           ],
@@ -104,11 +107,6 @@ class InventoryDashboardBody extends StatelessWidget {
           childAspectRatio: 1.5,
           children: [
             _ActionTile(
-              icon: Icons.timeline_rounded,
-              label: 'FEFO Overview',
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryFefo),
-            ),
-            _ActionTile(
               icon: Icons.list_alt_rounded,
               label: 'Inventory List',
               onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryList),
@@ -121,11 +119,6 @@ class InventoryDashboardBody extends StatelessWidget {
                 arguments: store.activeBranchName,
               ),
             ),
-            _ActionTile(
-              icon: Icons.sync_alt_rounded,
-              label: 'Stock Transfers',
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryTransfers),
-            ),
             if (store.canManageInventory)
               _ActionTile(
                 icon: Icons.add_box_outlined,
@@ -134,6 +127,28 @@ class InventoryDashboardBody extends StatelessWidget {
               ),
           ],
         ),
+        if (expiring.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Expiring Soon', style: AppTextStyles.headlineSm),
+              TextButton(
+                onPressed: () => Navigator.of(context).pushNamed(AppRoutes.inventoryExpiring),
+                child: const Text('View all'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          for (final batch in expiring.take(3))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: InventoryCard.batch(
+                batch: batch,
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryBatchDetails, arguments: batch),
+              ),
+            ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,

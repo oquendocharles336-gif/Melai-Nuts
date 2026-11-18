@@ -11,13 +11,14 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/staff_models.dart';
+import '../../notifications/notification_targets.dart';
 import '../../settings/screens/logout_flow.dart';
 import '../../settings/screens/settings_screen.dart';
 import '../widgets/staff_avatar.dart';
 
 /// Staff notifications, read from the database (`staff_notifications`).
 /// A person only ever receives their own: new orders at their branch, low /
-/// out-of-stock alerts, stock transfers and (with permission) refund requests.
+/// out-of-stock and expiry alerts and (with permission) refund requests.
 class StaffNotificationsScreen extends StatelessWidget {
   const StaffNotificationsScreen({super.key});
 
@@ -49,29 +50,21 @@ class StaffNotificationsScreen extends StatelessWidget {
     }
   }
 
-  void _open(BuildContext context, StaffStore store, StaffNotification n) {
+  Future<void> _open(BuildContext context, StaffStore store, StaffNotification n) async {
     if (!n.read) store.markNotificationRead(n.id);
     final nav = Navigator.of(context);
-    switch (n.category) {
-      case 'inventory':
-        nav.pushNamed(AppRoutes.inventoryLowStock);
-        break;
-      case 'transfer':
-        nav.pushNamed(AppRoutes.inventoryTransfers);
-        break;
-      case 'refund':
-        if (store.canReviewRefunds) nav.pushNamed(AppRoutes.staffRefunds);
-        break;
-      case 'order':
-        final id = n.reference;
-        if (id == null) break;
-        for (final o in store.orders) {
-          if (o.id == id) {
-            nav.pushNamed(AppRoutes.staffTransactionDetails, arguments: o);
-            break;
-          }
-        }
-        break;
+    final messenger = ScaffoldMessenger.of(context);
+    final opened = await NotificationTargets.openForStaff(
+      nav,
+      category: n.category,
+      reference: n.reference,
+      title: n.title,
+      body: n.body,
+    );
+    if (!opened && n.category == 'order') {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('That order could not be found for this branch.')));
     }
   }
 
@@ -100,7 +93,7 @@ class StaffNotificationsScreen extends StatelessWidget {
                 onRetry: store.refreshNotifications,
                 emptyIcon: Icons.notifications_none_rounded,
                 emptyTitle: 'No notifications yet.',
-                emptyMessage: 'New orders, stock alerts and transfers will show up here.',
+                emptyMessage: 'New orders, stock and expiry alerts will show up here.',
                 builder: (context) => ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(AppSpacing.md),

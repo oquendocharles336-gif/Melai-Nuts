@@ -204,6 +204,20 @@ class StaffStore extends ChangeNotifier {
     _restartRealtime();
     unawaited(ProductsRepository.instance.loadCatalog());
     await refreshAll();
+    unawaited(_checkExpiringBatches(gen));
+  }
+
+  /// Makes sure staff are told about batches about to expire, even when the
+  /// server's daily job is not scheduled. Never blocks or fails the portal.
+  Future<void> _checkExpiringBatches(int gen) async {
+    final branch = activeBranchId;
+    if (branch == null || !canManageInventory) return;
+    try {
+      final added = await _repo.checkExpiringBatches(branch);
+      if (added > 0 && gen == _generation) await refreshNotifications();
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'staff_store:expiry_check');
+    }
   }
 
   /// Re-reads every section (pull-to-refresh, reconnect, branch change).
@@ -213,7 +227,6 @@ class StaffStore extends ChangeNotifier {
       refreshDashboard(),
       refreshInventory(),
       refreshOrders(),
-      refreshTransfers(),
       refreshNotifications(),
       if (canReviewRefunds) refreshRefunds(),
       if (deliveriesState.loaded) refreshDeliveries(),

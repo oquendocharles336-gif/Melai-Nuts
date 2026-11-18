@@ -5,7 +5,9 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../notification_targets.dart';
 import '../../../data/models/notification_item.dart';
 import '../../../core/services/pending_writes_service.dart';
 import '../../../core/services/customer_data_store.dart';
@@ -22,7 +24,25 @@ class NotificationDetailScreen extends StatefulWidget {
 class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
   bool _deleting = false;
 
+  bool _openingOrder = false;
+
   NotificationItem get item => widget.item;
+
+  String? get _orderId => NotificationTargets.orderIdIn(item.title, item.body);
+
+  Future<void> _openOrder() async {
+    if (_openingOrder) return;
+    setState(() => _openingOrder = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final opened = await NotificationTargets.openCustomerOrder(Navigator.of(context), _orderId);
+    if (!mounted) return;
+    setState(() => _openingOrder = false);
+    if (!opened) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Could not open this order right now. Please try again.')));
+    }
+  }
 
   /// Removes the notification from the list right away and deletes it on the
   /// server. If the server can't be reached the delete is kept on this device
@@ -109,6 +129,15 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            if (_orderId != null) ...[
+              PrimaryButton(
+                label: 'View Order $_orderId',
+                icon: Icons.receipt_long_rounded,
+                loading: _openingOrder,
+                onPressed: _openOrder,
+              ),
+              const SizedBox(height: 10),
+            ],
             SecondaryButton(
               label: _deleting ? 'Deleting...' : 'Delete Notification',
               icon: Icons.delete_outline_rounded,

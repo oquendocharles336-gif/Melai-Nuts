@@ -5,9 +5,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 
-/// Ways to add stock to the branch. Both options are real: a new batch is
-/// saved to the branch inventory, and a transfer is a request to another
-/// branch that only changes stock when that branch ships and this one receives.
+/// Ways to add stock to the branch: a newly received batch is saved to the
+/// branch inventory. (Branch-to-branch transfers are out of scope.)
 class AddInventoryScreen extends StatelessWidget {
   const AddInventoryScreen({super.key});
 
@@ -25,15 +24,8 @@ class AddInventoryScreen extends StatelessWidget {
             _OptionCard(
               icon: Icons.add_box_outlined,
               title: 'Receive a New Batch',
-              subtitle: 'Log freshly received stock with its batch code and expiry date.',
+              subtitle: 'Log freshly received stock and its expiry date. The batch code is made for you.',
               onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryReceive),
-            ),
-            const SizedBox(height: 12),
-            _OptionCard(
-              icon: Icons.sync_alt_rounded,
-              title: 'Transfer from Another Branch',
-              subtitle: 'Request stock from another branch and receive it when it arrives.',
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryTransfers),
             ),
           ],
         ),

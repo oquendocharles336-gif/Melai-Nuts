@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../core/utils/form_utils.dart';
+import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/utils/input_rules.dart';
 import '../../../core/widgets/date_form_field.dart';
 import '../../../core/services/staff_store.dart';
@@ -18,12 +19,15 @@ import '../../../core/widgets/staff_data_scope.dart';
 import '../../../data/models/inventory_item.dart';
 import '../../../data/repositories/staff_repository.dart';
 
-/// Receive stock: records a batch (code, quantity, received / expiry dates)
-/// against a product variant at the branch. With [initialItem] the product is
-/// pre-selected (e.g. from the Low Stock screen).
+/// Receive stock: records a batch (quantity and expiry date) against a product
+/// variant at the branch. With [initialItem] the product is pre-selected (e.g.
+/// from the Low Stock screen).
 ///
-/// The database validates everything again (permission, own branch, expiry in
-/// the future, unique batch code) and adds the quantity to branch stock.
+/// The batch code is generated automatically and the received date is always
+/// today. The expiry date must be 1 to 2 years from today. Saving asks for
+/// confirmation first. The database validates everything again (permission,
+/// own branch, expiry in the future, unique batch code) and adds the quantity
+/// to branch stock.
 class ReceiveBatchScreen extends StatelessWidget {
   final InventoryItem? initialItem;
 
@@ -66,13 +70,21 @@ class _ReceiveForm extends StatefulWidget {
 
 class _ReceiveFormState extends State<_ReceiveForm> {
   final _formKey = GlobalKey<FormState>();
-  final _codeController = TextEditingController();
   late final TextEditingController _qtyController;
   late final TextEditingController _thresholdController;
 
   String? _variantId;
-  DateTime _received = DateTime.now();
-  DateTime? _expiry;
+
+  /// Always today: stock is recorded the day it is received.
+  final DateTime _received = DateUtils.dateOnly(DateTime.now());
+
+  /// Allowed expiry window: 1 to 2 years after the received date.
+  late final DateTime _minExpiry = _addYears(_received, 1);
+  late final DateTime _maxExpiry = _addYears(_received, 2);
+  late DateTime? _expiry = _minExpiry;
+
+  /// Generated per product chosen, so a retry of the same save reuses it.
+  String _batchCode = '';
   bool _assignExisting = false;
   bool _saving = false;
   final _requestKey = RequestKeyHolder();
@@ -84,6 +96,7 @@ class _ReceiveFormState extends State<_ReceiveForm> {
     super.initState();
     final item = widget.initialItem;
     _variantId = item?.variantId;
+    if (item != null) _batchCode = _generateBatchCode(item);
     // Staff type the real quantity received; nothing is pre-filled.
     _qtyController = TextEditingController();
     _thresholdController = TextEditingController(text: item?.restockThreshold?.toString() ?? '');
@@ -91,10 +104,26 @@ class _ReceiveFormState extends State<_ReceiveForm> {
 
   @override
   void dispose() {
-    _codeController.dispose();
     _qtyController.dispose();
     _thresholdController.dispose();
     super.dispose();
+  }
+
+  static DateTime _addYears(DateTime d, int years) => DateTime(d.year + years, d.month, d.day);
+
+  /// e.g. `CGP-REG-250G-261118-7K3Q`: the product SKU (or "BATCH"), the
+  /// received date and 4 random characters. Unique per branch + product on the
+  /// server; the random part makes a clash practically impossible.
+  static String _generateBatchCode(InventoryItem item) {
+    final sku = item.sku.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9-]'), '');
+    final prefix = sku.isEmpty ? 'BATCH' : (sku.length > 20 ? sku.substring(0, 20) : sku);
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final date = '${two(now.year % 100)}${two(now.month)}${two(now.day)}';
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final rnd = Random.secure();
+    final suffix = List.generate(4, (_) => chars[rnd.nextInt(chars.length)]).join();
+    return '$prefix-$date-$suffix';
   }
 
   Future<void> _submit() async {
@@ -102,15 +131,33 @@ class _ReceiveFormState extends State<_ReceiveForm> {
     // Every field (dates included) shows its own message; first one focused.
     if (!FormUtils.validateAndFocus(_formKey) || _expiry == null) return;
     final branchId = widget.store.activeBranchId;
-    if (branchId == null || _variantId == null) return;
+    final item = _item;
+    if (branchId == null || _variantId == null || item == null) return;
+    if (_batchCode.isEmpty) _batchCode = _generateBatchCode(item);
+
+    final qty = int.parse(_qtyController.text.trim());
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: 'Are you sure?',
+      message: _assignExisting
+          ? 'Assign $qty existing unit(s) of ${item.displayName} to batch $_batchCode, '
+              'expiring ${DateFormField.formatDate(_expiry!)}?'
+          : 'Add $qty pack(s) of ${item.displayName} to ${widget.store.activeBranchName} as batch $_batchCode, '
+              'expiring ${DateFormField.formatDate(_expiry!)}?',
+      confirmLabel: _assignExisting ? 'Yes, assign' : 'Yes, save',
+      cancelLabel: 'Review again',
+      destructive: false,
+      icon: Icons.inventory_2_outlined,
+    );
+    if (!confirmed || !mounted) return;
 
     setState(() => _saving = true);
     try {
       await StaffRepository.instance.receiveBatch(
         branchId: branchId,
         variantId: _variantId!,
-        batchCode: _codeController.text.trim(),
-        quantity: int.parse(_qtyController.text.trim()),
+        batchCode: _batchCode,
+        quantity: qty,
         expirationDate: _expiry!,
         receivedDate: _received,
         restockThreshold: int.tryParse(_thresholdController.text.trim()),
@@ -122,7 +169,7 @@ class _ReceiveFormState extends State<_ReceiveForm> {
           jsonEncode([
             branchId,
             _variantId,
-            _codeController.text.trim(),
+            _batchCode,
             _qtyController.text.trim(),
             _expiry!.toIso8601String(),
             _received.toIso8601String(),
@@ -163,10 +210,12 @@ class _ReceiveFormState extends State<_ReceiveForm> {
             items: [
               for (final i in items) DropdownMenuItem(value: i.variantId, child: Text(i.displayName, overflow: TextOverflow.ellipsis)),
             ],
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             onChanged: (v) => setState(() {
               _variantId = v;
               _assignExisting = false;
               final chosen = v == null ? null : widget.store.itemByVariant(v);
+              _batchCode = chosen == null ? '' : _generateBatchCode(chosen);
               if (chosen != null) _thresholdController.text = chosen.restockThreshold?.toString() ?? '';
             }),
             validator: (v) => v == null ? 'Please choose a product' : null,
@@ -176,14 +225,12 @@ class _ReceiveFormState extends State<_ReceiveForm> {
             Text('Currently ${item.quantity} in stock', style: AppTextStyles.bodySm),
           ],
           const SizedBox(height: AppSpacing.md),
-          TextFormField(
-            controller: _codeController,
-            textCapitalization: TextCapitalization.characters,
-            maxLength: 40,
-            maxLengthEnforcement: MaxLengthEnforcement.enforced,
-            decoration: const InputDecoration(labelText: 'Batch code', hintText: 'e.g. as printed on the supplier slip'),
-            validator: (v) => ValidationUtils.validateText(v, fieldName: 'Batch code', required: true, maxLength: 40),
+          _ReadOnlyRow(
+            icon: Icons.qr_code_2_rounded,
+            label: 'Batch code',
+            value: _batchCode.isEmpty ? 'Made automatically once you pick a product' : _batchCode,
           ),
+          const SizedBox(height: AppSpacing.md),
           TextFormField(
             controller: _qtyController,
             keyboardType: TextInputType.number,
@@ -192,33 +239,33 @@ class _ReceiveFormState extends State<_ReceiveForm> {
             validator: (v) => ValidationUtils.validateQuantity(v, fieldName: 'Quantity received', min: 1, max: 99999),
           ),
           const SizedBox(height: AppSpacing.md),
-          DateFormField(
+          _ReadOnlyRow(
+            icon: Icons.calendar_today_rounded,
             label: 'Received date',
-            initialValue: _received,
-            firstDate: DateTime(DateTime.now().year - 1),
-            lastDate: DateTime.now(),
-            onChanged: (d) => setState(() => _received = d),
-            // Received today or earlier — never in the future.
-            validator: (d) => ValidationUtils.validateDateValue(d, fieldName: 'Received date', allowFuture: false),
+            value: '${DateFormField.formatDate(_received)} (today)',
           ),
           const SizedBox(height: 10),
           DateFormField(
             label: 'Expiration date',
             initialValue: _expiry,
-            firstDate: DateTime.now().add(const Duration(days: 1)),
-            lastDate: DateTime(DateTime.now().year + 5),
+            firstDate: _minExpiry,
+            lastDate: _maxExpiry,
             onChanged: (d) => setState(() => _expiry = d),
-            // Stock being received cannot already be expired, nor expire before it
-            // arrived. Same rule as staff_receive_batch: strictly after today.
-            validator: (d) => d != null && !DateUtils.dateOnly(d).isAfter(DateUtils.dateOnly(DateTime.now()))
-                ? 'Expiration date must be after today.'
-                : ValidationUtils.validateDateValue(
-              d,
-              fieldName: 'Expiration date',
-              allowPast: false,
-              notBefore: _received,
-              notBeforeLabel: 'the received date',
-            ),
+            // Shelf life of a received batch: 1 to 2 years from today.
+            validator: (d) {
+              if (d == null) return 'Please choose an expiration date.';
+              final day = DateUtils.dateOnly(d);
+              if (day.isBefore(_minExpiry) || day.isAfter(_maxExpiry)) {
+                return 'Expiration date must be 1 to 2 years from today '
+                    '(${DateFormField.formatDate(_minExpiry)} – ${DateFormField.formatDate(_maxExpiry)}).';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Must be between ${DateFormField.formatDate(_minExpiry)} and ${DateFormField.formatDate(_maxExpiry)} (1–2 years).',
+            style: AppTextStyles.bodySm,
           ),
           const SizedBox(height: AppSpacing.md),
           TextFormField(
@@ -255,6 +302,47 @@ class _ReceiveFormState extends State<_ReceiveForm> {
             loading: _saving,
             onPressed: _submit,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A value the staff member cannot edit (made automatically), styled like the
+/// form fields around it.
+class _ReadOnlyRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ReadOnlyRow({required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          Text(label, style: AppTextStyles.bodyMd),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: AppTextStyles.labelLg,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.textSecondary),
         ],
       ),
     );

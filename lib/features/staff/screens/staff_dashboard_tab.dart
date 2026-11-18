@@ -56,11 +56,7 @@ class StaffDashboardTab extends StatelessWidget {
       _Stat('Out of stock', '${d.outOfStockCount}', Icons.remove_shopping_cart_outlined, AppColors.error,
           () => nav.pushNamed(AppRoutes.inventoryLowStock), attention: d.outOfStockCount > 0),
       _Stat('Expiring within 15 days', '${d.expiringSoonCount}', Icons.schedule_rounded, _amber,
-          () => nav.pushNamed(AppRoutes.inventoryFefo), attention: d.expiringSoonCount > 0),
-      _Stat('Transfers to approve', '${d.transfersAwaitingApproval}', Icons.outbox_rounded, AppColors.roleStaff,
-          () => nav.pushNamed(AppRoutes.inventoryTransfers), attention: d.transfersAwaitingApproval > 0),
-      _Stat('Transfers arriving', '${d.transfersAwaitingReceipt}', Icons.move_to_inbox_rounded, AppColors.roleStaff,
-          () => nav.pushNamed(AppRoutes.inventoryTransfers), attention: d.transfersAwaitingReceipt > 0),
+          () => nav.pushNamed(AppRoutes.inventoryExpiring), attention: d.expiringSoonCount > 0),
       if (d.pendingRefunds != null)
         _Stat(
             'Open refund requests (not deducted yet)',
@@ -91,12 +87,6 @@ class StaffDashboardTab extends StatelessWidget {
               _QuickAction('Register', Icons.point_of_sale_rounded, AppColors.roleStaff, () => onOpenTab(1)),
               _QuickAction('Orders', Icons.receipt_long_rounded, AppColors.primary, () => onOpenTab(2)),
               _QuickAction('Stock', Icons.inventory_2_rounded, AppColors.success, () => onOpenTab(3)),
-              _QuickAction(
-                'Deliveries',
-                Icons.local_shipping_rounded,
-                const Color(0xFF2563EB),
-                () => nav.pushNamed(AppRoutes.deliveryDashboard),
-              ),
               _QuickAction(
                 'Drawer',
                 Icons.account_balance_wallet_rounded,
