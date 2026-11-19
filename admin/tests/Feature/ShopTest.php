@@ -194,6 +194,14 @@ class ShopTest extends TestCase
             ->assertDontSee('One sign-in for the shop');
     }
 
+    public function test_the_staff_note_on_sign_in_is_short_and_quiet(): void
+    {
+        // The rule itself (staff cannot sign in here) is tested in AuthTest / AccessControlTest.
+        $this->get('/?panel=sign-in')->assertOk()
+            ->assertSee('<p class="s-dlg-aside">Staff? Please sign in using the Melai Nuts app.</p>', false)
+            ->assertDontSee('not on this website');
+    }
+
     public function test_sign_up_mistakes_show_inside_the_create_account_panel(): void
     {
         $this->post('/shop/register', ['_panel' => 'create-account', 'first_name' => 'Bea', 'last_name' => 'Santos', 'email' => 'bea@example.com', 'phone' => '12345',

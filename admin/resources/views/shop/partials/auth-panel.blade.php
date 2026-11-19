@@ -98,7 +98,7 @@
                         </form>
                         <div class="s-dlg-foot">
                             <p>New to Melai Nuts? <a href="{{ AuthPanel::url(AuthPanel::CREATE_ACCOUNT) }}" data-panel-open="{{ AuthPanel::CREATE_ACCOUNT }}">Create an account</a></p>
-                            <p>Melai Nuts staff sign in to the Melai Nuts app, not on this website.</p>
+                            <p class="s-dlg-aside">Staff? Please sign in using the Melai Nuts app.</p>
                         </div>
                     @break
 
