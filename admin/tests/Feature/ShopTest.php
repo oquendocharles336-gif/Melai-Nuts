@@ -186,6 +186,14 @@ class ShopTest extends TestCase
         $this->assertSame(0, \App\Models\User::count(), 'no website login (staff / admin) is created');
     }
 
+    public function test_the_sign_in_panel_says_plainly_how_to_sign_in(): void
+    {
+        $this->get('/?panel=sign-in')->assertOk()
+            ->assertSee('Sign in with your Melai Nuts email and password.')
+            ->assertDontSee("owner's dashboard", false)
+            ->assertDontSee('One sign-in for the shop');
+    }
+
     public function test_sign_up_mistakes_show_inside_the_create_account_panel(): void
     {
         $this->post('/shop/register', ['_panel' => 'create-account', 'first_name' => 'Bea', 'last_name' => 'Santos', 'email' => 'bea@example.com', 'phone' => '12345',

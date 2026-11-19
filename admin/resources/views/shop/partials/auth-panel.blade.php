@@ -48,7 +48,7 @@
                     <h2 id="ap-{{ $panel }}-title">{{ $title }}</h2>
                     <p>
                         @switch($panel)
-                            @case(AuthPanel::SIGN_IN) One sign-in for the shop (and the owner's dashboard), with your Melai Nuts app email and password. @break
+                            @case(AuthPanel::SIGN_IN) Sign in with your Melai Nuts email and password. @break
                             @case(AuthPanel::RESET_PASSWORD) Enter your account's email and we'll send you a link to choose a new password. It works in the app too. @break
                         @endswitch
                     </p>
