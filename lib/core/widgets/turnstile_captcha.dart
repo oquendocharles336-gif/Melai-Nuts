@@ -72,6 +72,11 @@ class TurnstileCaptchaState extends State<TurnstileCaptcha> {
 
   void _load() {
     if (!_supported) {
+      if (!kIsWeb && !CaptchaConfig.captchaAvailable) {
+        // The usual cause on a real phone: the build was made without CAPTCHA_PAGE_URL
+        // (it belongs in env/supabase.json, see docs/EMAIL_CODES_AND_CAPTCHA_SETUP.md).
+        debugPrint('[captcha] CAPTCHA_PAGE_URL is not set (or not https) in this build: the security check cannot be shown.');
+      }
       _set(_CaptchaState.unavailable);
       return;
     }
@@ -115,6 +120,12 @@ class TurnstileCaptchaState extends State<TurnstileCaptcha> {
     } else if (message == 'expired' || message == 'timeout') {
       widget.onToken(null);
       _set(_CaptchaState.expired);
+    } else if (message == 'error:not_configured') {
+      // The website's captcha page has no Turnstile site key yet (TURNSTILE_SITE_KEY):
+      // retrying cannot help, so say the check is unavailable instead of "try again".
+      debugPrint('[captcha] the captcha page says Turnstile is not set up (TURNSTILE_SITE_KEY on the website).');
+      widget.onToken(null);
+      _set(_CaptchaState.unavailable);
     } else if (message.startsWith('error')) {
       widget.onToken(null);
       _set(_CaptchaState.error);
