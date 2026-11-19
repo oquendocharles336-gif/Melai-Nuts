@@ -110,5 +110,13 @@ export function mailerFromEnv(env: (name: string) => string | undefined, send: S
       replyTo,
     }, send);
   }
-  return resendMailer(env("RESEND_API_KEY") ?? "", env("EMAIL_FROM") ?? "", replyTo);
+  return resendMailer(env("RESEND_API_KEY") ?? "", withSenderName(env("EMAIL_FROM") ?? "", env("EMAIL_FROM_NAME")), replyTo);
+}
+
+/** "no-reply@x" -> "Melai Nuts <no-reply@x>", so the inbox shows the shop's name. A from that already has a name is kept. */
+export function withSenderName(from: string, name?: string): string {
+  const f = from.trim();
+  if (f === "" || f.includes("<")) return f;
+  const n = (name ?? "Melai Nuts").replace(/[<>"\r\n]/g, "").trim() || "Melai Nuts";
+  return `${n} <${f}>`;
 }

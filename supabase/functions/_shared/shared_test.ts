@@ -150,7 +150,8 @@ Deno.test("template: the code and the expiry are in the subject, HTML and text",
   assertEquals(m.subject, "Your Melai Nuts verification code: 048213");
   assert(m.html.includes("048 213") && m.text.includes("048213"), "code shown");
   assert(m.html.includes("This code expires in 10 minutes.") && m.text.includes("This code expires in 10 minutes."), "expiry shown");
-  assert(m.html.includes("If you didn't request this, you can safely ignore this email.") && m.text.includes("If you didn't request this"), "ignore text");
+  assert(m.html.includes("If this wasn&#39;t you, ignore this email.") || m.html.includes("If this wasn't you, ignore this email."), "ignore text (HTML)");
+  assert(m.text.includes("If this wasn't you, ignore this email."), "ignore text");
 });
 
 Deno.test("template: no links to click at all, table layout, inline base styles", () => {

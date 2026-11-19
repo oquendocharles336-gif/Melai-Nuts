@@ -96,6 +96,8 @@ type Layout = Brand & {
   ignore?: string;
   /** Why the person got this e-mail (footer). */
   reason: string;
+  /** No links at all (the code e-mail: nothing to click, so nothing that looks like phishing). */
+  noLinks?: boolean;
 };
 
 function button(label: string, url: string, primary: boolean): string {
@@ -112,8 +114,10 @@ function button(label: string, url: string, primary: boolean): string {
 }
 
 function renderLayout(l: Layout): RenderedEmail {
-  const logoUrl = httpsUrl(l.logoUrl);
   const site = siteBase(l.siteUrl);
+  // The logo comes from our own website (admin/public/images/email-logo.png) unless
+  // EMAIL_LOGO_URL names another https image.
+  const logoUrl = httpsUrl(l.logoUrl) ?? (site ? `${site}/images/email-logo.png` : null);
   const logo = logoUrl
     ? `<img src="${esc(logoUrl)}" width="56" height="56" alt="${BRAND.name} logo" style="display:block;border:0;outline:none;width:56px;height:56px;border-radius:14px;margin:0 auto">`
     : `<div role="img" aria-label="${BRAND.name}" style="width:56px;height:56px;line-height:56px;margin:0 auto;border-radius:28px;background:${BRAND.primary};color:#FFFFFF;font-family:${FONT};font-size:24px;font-weight:700;text-align:center">M</div>`;
@@ -142,7 +146,7 @@ function renderLayout(l: Layout): RenderedEmail {
   const support = l.supportContact?.trim() ? `Need help? Contact us at ${l.supportContact.trim()}` : "";
   const footerLines = [BRAND.name, l.businessAddress, support]
     .filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => esc(x.trim()));
-  const legal = site
+  const legal = site && !l.noLinks
     ? `<br><a href="${esc(site)}/privacy" class="mn-muted" style="color:${BRAND.muted};text-decoration:underline">Privacy Policy</a> &nbsp;·&nbsp; <a href="${esc(site)}/terms" class="mn-muted" style="color:${BRAND.muted};text-decoration:underline">Terms</a>`
     : "";
 
@@ -170,7 +174,7 @@ function renderLayout(l: Layout): RenderedEmail {
 </style>
 </head>
 <body class="mn-canvas" style="margin:0;padding:0;background:${BRAND.canvas};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%">
-<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${BRAND.canvas}">${esc(l.preheader)}&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;</div>
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:${BRAND.canvas}">${esc(l.preheader)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="mn-canvas" style="background:${BRAND.canvas}" bgcolor="${BRAND.canvas}">
 <tr><td align="center" class="mn-outer" style="padding:32px 12px">
 <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
@@ -215,7 +219,7 @@ ${secondary}
     "--",
     ...[BRAND.name, l.businessAddress, support].filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()),
     l.reason,
-    ...(site ? [`Privacy Policy: ${site}/privacy`, `Terms: ${site}/terms`] : []),
+    ...(site && !l.noLinks ? [`Privacy Policy: ${site}/privacy`, `Terms: ${site}/terms`] : []),
   ].join("\n");
 
   return { subject: l.subject, html, text };
@@ -229,13 +233,17 @@ export function renderVerificationEmail(input: VerificationEmailInput): Rendered
   return renderLayout({
     ...input,
     subject: `Your ${BRAND.name} verification code: ${input.code}`,
-    preheader: `Your code is ${input.code}. ${expiry}`,
-    heading: "Confirm your email",
-    intro: [`Enter this code in the ${BRAND.name} app or website to finish creating your account.`],
+    preheader: `Your ${BRAND.name} code is ${input.code}. ${expiry}`,
+    heading: "Your verification code",
+    intro: [
+      `This is ${BRAND.name}. This email address was used to create a ${BRAND.name} account.`,
+      `To finish, type this code in the ${BRAND.name} app or on our website:`,
+    ],
     action: { kind: "code", code: input.code },
     expiry,
-    ignore: "If you didn't request this, you can safely ignore this email. Your email address won't be used without this code.",
+    ignore: "If this wasn't you, ignore this email. No account is created without this code.",
     reason: `You received this email because this address was used to create a ${BRAND.name} account.`,
+    noLinks: true,
   });
 }
 
