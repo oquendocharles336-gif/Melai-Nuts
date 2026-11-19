@@ -475,6 +475,7 @@ html:has(.s-dlg[open]) { overflow: hidden; }
 .s-dlg-row a:hover, .s-dlg-foot a:hover { text-decoration-color: var(--brand); }
 .s-dlg-foot { display: grid; gap: 6px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; font-size: 14.5px; color: var(--roast-2); }
 .s-dlg-foot p { margin: 0; }
+.s-dlg-foot .s-dlg-aside { font-size: 13px; color: var(--muted); }
 .s-dlg-foot a { white-space: nowrap; }
 .s-dlg .s-two { align-items: start; }
 .s-dlg .s-flash { font-size: 14.5px; }

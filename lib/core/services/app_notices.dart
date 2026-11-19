@@ -159,10 +159,9 @@ class AppNotices {
     final unsynced = CartController.instance.hasUnsyncedChanges;
     if (unsynced == _cartWasUnsynced) return;
     _cartWasUnsynced = unsynced;
+    // Only the problem is worth saying: a cart that syncs normally needs no message.
     if (unsynced) {
       _toast(Icons.shopping_cart_outlined, AppColors.warning, "Your cart changes haven't synced to your account yet.");
-    } else if (ConnectivityService.instance.isOnline) {
-      _toast(Icons.shopping_cart_checkout_rounded, AppColors.success, 'Your cart is synced to your account.');
     }
   }
 

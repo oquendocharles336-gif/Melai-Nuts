@@ -48,7 +48,7 @@
                     <h2 id="ap-{{ $panel }}-title">{{ $title }}</h2>
                     <p>
                         @switch($panel)
-                            @case(AuthPanel::SIGN_IN) One sign-in for the shop (and the owner's dashboard), with your Melai Nuts app email and password. @break
+                            @case(AuthPanel::SIGN_IN) Sign in with your Melai Nuts email and password. @break
                             @case(AuthPanel::RESET_PASSWORD) Enter your account's email and we'll send you a link to choose a new password. It works in the app too. @break
                         @endswitch
                     </p>
@@ -98,7 +98,7 @@
                         </form>
                         <div class="s-dlg-foot">
                             <p>New to Melai Nuts? <a href="{{ AuthPanel::url(AuthPanel::CREATE_ACCOUNT) }}" data-panel-open="{{ AuthPanel::CREATE_ACCOUNT }}">Create an account</a></p>
-                            <p>Melai Nuts staff sign in to the Melai Nuts app, not on this website.</p>
+                            <p class="s-dlg-aside">Staff? Please sign in using the Melai Nuts app.</p>
                         </div>
                     @break
 
