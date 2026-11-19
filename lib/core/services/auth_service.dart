@@ -60,15 +60,6 @@ class CaptchaNeededException extends AuthException {
             : 'For your security, please complete the security check to continue.');
 }
 
-/// Thrown by [AuthService.confirmPhoneCode] when the SMS code was valid and the
-/// person is signed in with Firebase, but no customer profile exists yet for
-/// this phone number. The UI must ask for a full name and then call
-/// [AuthService.completePhoneProfile].
-class PhoneNameRequiredException extends AuthException {
-  const PhoneNameRequiredException()
-      : super('Please enter your full name to finish creating your account.');
-}
-
 /// In-memory brake on repeated failures (exponential back-off after a few
 /// free attempts). This is a UX / accidental-hammering brake only — it lives
 /// on the device and can be bypassed by a modified client or a reinstall. The
@@ -169,7 +160,6 @@ class AuthService {
   static const String _usersCollection = 'users';
 
   final _FailureBrake _signInBrake = _FailureBrake();
-  final _FailureBrake _phoneCodeBrake = _FailureBrake();
   // Same on-device brake for wrong e-mail verification codes and for repeated
   // failed sign-ups (the e-mail code API and Firebase also limit server-side).
   final _FailureBrake _emailCodeBrake = _FailureBrake();
@@ -381,196 +371,6 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       throw AuthException(_messageFor(e));
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Phone (SMS one-time code) sign-in — an ADDITIONAL option next to email +
-  // password. A phone-only account has no email: the SMS code proves ownership
-  // of the number, so email verification does not apply to it.
-  // ---------------------------------------------------------------------------
-
-  /// Asks Firebase to SMS a 6-digit code to [phoneE164] (e.g. `+639171234567`).
-  ///
-  /// [onCodeSent] fires when the SMS is on its way; keep the `verificationId`
-  /// and pass it to [confirmPhoneCode]. Pass the last `resendToken` as
-  /// [resendToken] to resend. Failures are reported through [onError] (never
-  /// thrown), already worded for the screen.
-  ///
-  /// On Android the code may be picked up automatically; Firebase then signs
-  /// the person in without typing. That is reported through [onAutoSignedIn]
-  /// (profile ready) or [onNeedsName] (new customer: collect a name, then call
-  /// [completePhoneProfile]).
-  Future<void> sendPhoneCode({
-    required String phoneE164,
-    required void Function(String verificationId, int? resendToken) onCodeSent,
-    required void Function(AuthException) onError,
-    int? resendToken,
-    void Function(AppUser user)? onAutoSignedIn,
-    void Function()? onNeedsName,
-  }) async {
-    try {
-      await _auth.verifyPhoneNumber(
-        phoneNumber: phoneE164,
-        timeout: const Duration(seconds: 60),
-        forceResendingToken: resendToken,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          try {
-            final user = await _completePhoneSignIn(credential);
-            onAutoSignedIn?.call(user);
-          } on PhoneNameRequiredException {
-            onNeedsName?.call();
-          } on FirebaseAuthException catch (e) {
-            onError(AuthException(_messageFor(e)));
-          } on AuthException catch (e) {
-            onError(e);
-          } catch (caughtError, caughtStack) {
-            AppErrors.report(caughtError, caughtStack, 'auth_service:343');
-            onError(const AuthException('Something went wrong. Please try again.'));
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          onError(AuthException(_messageFor(e)));
-        },
-        codeSent: (String verificationId, int? token) {
-          onCodeSent(verificationId, token);
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {},
-      );
-    } on FirebaseAuthException catch (e) {
-      onError(AuthException(_messageFor(e)));
-    } catch (caughtError, caughtStack) {
-      AppErrors.report(caughtError, caughtStack, 'auth_service:357');
-      onError(const AuthException('Something went wrong. Please try again.'));
-    }
-  }
-
-  /// Signs in with the SMS code. Returns the validated profile of an existing
-  /// account. For a number with no account yet it throws
-  /// [PhoneNameRequiredException] (the person stays signed in with Firebase,
-  /// holding no access) unless [fullNameIfNew] is given, in which case the new
-  /// customer profile is created right away.
-  Future<AppUser> confirmPhoneCode({
-    required String verificationId,
-    required String smsCode,
-    String? fullNameIfNew,
-  }) async {
-    _throwIfBraked(_phoneCodeBrake);
-    final code = smsCode.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      throw const AuthException('Please enter the 6-digit code from the SMS.');
-    }
-    try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: code,
-      );
-      final profile = await _completePhoneSignIn(credential, fullName: fullNameIfNew);
-      _phoneCodeBrake.reset();
-      return profile;
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'invalid-verification-code') _phoneCodeBrake.recordFailure();
-      throw AuthException(_messageFor(e));
-    }
-  }
-
-  /// Final step for a NEW phone customer after [PhoneNameRequiredException]:
-  /// writes `users/{uid}` (role customer) and loads the profile, which also
-  /// creates the customer's Supabase row exactly like any other customer.
-  Future<AppUser> completePhoneProfile(String fullName) async {
-    final user = _auth.currentUser;
-    if (user == null || (user.phoneNumber ?? '').isEmpty) {
-      throw const AuthException(
-        'Your sign-in session expired. Please verify your phone number again.',
-      );
-    }
-    return _createPhoneCustomer(user, fullName);
-  }
-
-  /// Backs out of a phone sign-in that has no profile yet (e.g. "Change
-  /// number" on the name step) so nothing stays half signed in.
-  Future<void> cancelPhoneSignIn() async {
-    _userInitiatedSignOut = true;
-    try {
-      await _auth.signOut();
-    } catch (caughtError, caughtStack) {
-      AppErrors.report(caughtError, caughtStack, 'auth_service:410');
-    }
-  }
-
-  Future<AppUser> _completePhoneSignIn(
-    AuthCredential credential, {
-    String? fullName,
-  }) async {
-    StaffSessionStore.instance.beginAuthentication();
-    try {
-      final result = await _auth.signInWithCredential(credential);
-      final fbUser = result.user;
-      if (fbUser == null) {
-        throw const AuthException('Sign-in failed. Please try again.');
-      }
-      _userInitiatedSignOut = false;
-
-      final bool hasProfile;
-      try {
-        final doc = await _firestore.collection(_usersCollection).doc(fbUser.uid).get();
-        hasProfile = doc.exists;
-      } on FirebaseException {
-        // Fail closed and start clean: the SMS code is single-use anyway.
-        await _auth.signOut();
-        throw const AuthException(
-          'We could not verify your account right now. Please check your connection and request a new code.',
-        );
-      }
-
-      if (hasProfile) {
-        return await _loadAndValidateProfile(fbUser.uid);
-      }
-      final name = (fullName ?? '').trim();
-      if (name.isEmpty) {
-        throw const PhoneNameRequiredException();
-      }
-      return await _createPhoneCustomer(fbUser, name);
-    } finally {
-      StaffSessionStore.instance.endAuthentication();
-    }
-  }
-
-  Future<AppUser> _createPhoneCustomer(User fbUser, String fullName) async {
-    final name = fullName.trim();
-    if (name.isEmpty) {
-      throw const AuthException('Please enter your full name.');
-    }
-    if (name.length > 100) {
-      throw const AuthException('Your name is too long (100 characters at most).');
-    }
-    final appUser = AppUser(
-      uid: fbUser.uid,
-      email: '',
-      name: name,
-      role: UserRole.customer,
-      phone: fbUser.phoneNumber ?? '',
-      isActive: true,
-    );
-    try {
-      await _firestore
-          .collection(_usersCollection)
-          .doc(fbUser.uid)
-          .set(appUser.toFirestore(serverTimestamp: true));
-    } on FirebaseException {
-      throw const AuthException(
-        'We could not finish creating your account. Please try again.',
-      );
-    }
-    try {
-      await fbUser.updateDisplayName(name);
-    } catch (caughtError, caughtStack) {
-      AppErrors.report(caughtError, caughtStack, 'auth_service:479');
-      // Not critical; the name lives in the profile.
-    }
-    _userInitiatedSignOut = false;
-    // Same path as every customer sign-in: validates the profile and creates
-    // the Supabase customer_profiles row (ensureProfile) + hydrates the cart.
-    return _loadAndValidateProfile(fbUser.uid);
   }
 
   /// Abandons an unfinished sign-up: deletes the never-verified account so the
@@ -927,10 +727,11 @@ class AuthService {
     if (!doc.exists) {
       final fbUser = _auth.currentUser;
       if (fbUser != null && fbUser.uid == uid && (fbUser.phoneNumber ?? '').isNotEmpty) {
-        // Phone sign-in that never got its name step: no email to verify.
+        // A phone-number sign-in started before phone login was removed and never got its
+        // name step: there is no email to verify and no way to finish it any more.
         await signOut();
         throw const AuthException(
-          'Please sign in with your phone number again to finish creating your account.',
+          'This account was never finished. Please create an account with your email address.',
         );
       }
       if (allowVerificationResume &&
