@@ -461,7 +461,7 @@ class _DownpaymentLines extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Flexible(child: Text('${d.isFirstOrder ? 'Online payment' : 'Downpayment online'} ($state)', style: AppTextStyles.bodyMd)),
+              Flexible(child: Text('${d.isOnlinePayment ? 'Online payment' : 'Downpayment online'} ($state)', style: AppTextStyles.bodyMd)),
               Text('₱${d.amount.toStringAsFixed(2)}', style: AppTextStyles.labelLg),
             ],
           ),

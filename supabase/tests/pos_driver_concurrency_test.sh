@@ -46,6 +46,7 @@ delete from public.loyalty_transactions where order_id in (select id from cc_ord
 delete from public.loyalty_accounts where firebase_uid like 'cc-%';
 delete from public.notifications where firebase_uid like 'cc-%';
 delete from public.voucher_usage where order_id in (select id from cc_orders);
+delete from public.order_downpayments where order_id in (select id from cc_orders);
 delete from public.payments where order_id in (select id from cc_orders);
 delete from public.order_status_events where order_id in (select id from cc_orders);
 delete from public.order_items where order_id in (select id from cc_orders);
@@ -68,8 +69,11 @@ delete from public.product_categories where label like 'CC-%';
 delete from public.branches where name like 'CC-%';
 SQL
 }
-trap cleanup EXIT
+# Every order is paid online first (migration 20261119080000).
+. "$(dirname "$0")/online_first_settings.sh"
+trap 'cleanup; online_first_restore' EXIT
 cleanup
+online_first_on
 
 # --- fixtures (committed) -----------------------------------------------------
 "${PSQL[@]}" >/dev/null <<'SQL'
@@ -157,6 +161,8 @@ RR=$("${PSQL[@]}" -c "select count(*) from public.refund_returned_items where re
 # --- 5. N simultaneous "delivered + cash collected" for one stop ----------------
 CART=$(as_user cc-cust "select public.sync_customer_cart('$BA', jsonb_build_array(jsonb_build_object('product_id','$PROD','variant_id','$VAR','quantity',1)), null, false) ->> 'cart_id'")
 ORD=$(as_user cc-cust "select public.place_order('$CART', true, '$ADDR', 'Cash on Delivery', '', 'cc-cod-order-1')")
+pay_online "$ORD" >/dev/null   # the 50% downpayment, paid online first; the rider collects the rest
+CASH=$("${PSQL[@]}" -c "select amount from public.payments where order_id='$ORD'")
 as_user cc-mgr "select public.staff_update_order_status('$ORD', 'confirmed')" >/dev/null
 RUN=$(as_user cc-mgr "select public.staff_create_delivery('$BA', 'Bike', 'TBD', array['$ORD']) ->> 'id'")
 as_user cc-mgr  "select public.staff_assign_driver('$RUN', 'cc-drv')" >/dev/null
@@ -164,7 +170,7 @@ as_user cc-drv "select public.driver_respond_assignment('$RUN', 'accept')" >/dev
 as_user cc-drv "select public.driver_mark_picked_up('$RUN')" >/dev/null
 STOP=$("${PSQL[@]}" -c "select id from public.delivery_stops where delivery_id='$RUN'")
 for i in $(seq 1 "$N"); do
-  ( as_user cc-drv "select public.driver_update_stop('$STOP', 'delivered', null, null, null, 'CC Cust', 100) ->> 'status'" > "$tmp/d$i" ) &
+  ( as_user cc-drv "select public.driver_update_stop('$STOP', 'delivered', null, null, null, 'CC Cust', $CASH) ->> 'status'" > "$tmp/d$i" ) &
 done
 wait
 DE=$(cat "$tmp"/d* | grep -c 'ERROR' || true)

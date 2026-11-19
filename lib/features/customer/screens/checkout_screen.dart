@@ -101,6 +101,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// The database's online-payment switch and message; [PaymentSettings.unknown]
   /// (= off) until it has been read, or when it cannot be read.
   PaymentSettings _paymentSettings = PaymentSettings.unknown;
+  /// The switch was actually read. Only a switch read as off pauses ordering; one that
+  /// could not be read leaves the decision to `place_order`.
+  bool _paymentSettingsRead = false;
   bool get _onlineAllowed => _paymentSettings.onlineAllowed;
   final _notesController = TextEditingController();
   /// The special instructions contain a blocked word: Place Order stays disabled.
@@ -166,7 +169,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _loadPaymentSettings() async {
     try {
       final settings = await PaymentSettingsRepository.instance.fetch();
-      if (mounted) setState(() => _paymentSettings = settings);
+      if (mounted) {
+        setState(() {
+          _paymentSettings = settings;
+          _paymentSettingsRead = true;
+        });
+      }
     } catch (e) {
       // Unreadable switch = online payment stays off; the built-in text is shown.
       if (kDebugMode) debugPrint('payment_settings could not be read: $e');
@@ -763,6 +771,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (_fulfillment == _FulfillmentMethod.pickup) _loadCodQuote(total);
     final codQuote = firstOrder == null && _codQuoteTotal == total && _codQuote?.required == true ? _codQuote : null;
     final payingDownpayment = firstOrder == null && _payment == _PaymentMethod.cash && codQuote != null;
+    // Online first, every order (migration 20261119080000; place_order decides again):
+    // with online payment switched off no order with something to pay is taken, and a
+    // cash order needs its online downpayment, so without one there is no cash option.
+    final orderingPaused = _paymentSettingsRead && !_onlineAllowed && total > 0;
+    final cashUnavailable = firstOrder == null &&
+        total > 0 &&
+        _codQuoteTotal == total &&
+        _codQuote != null &&
+        !_codQuote!.required;
+    final cashBlocked = cashUnavailable && _payment == _PaymentMethod.cash;
     final t = AppLocalizations.of(context);
 
     return Scaffold(
@@ -974,7 +992,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               const SizedBox(height: AppSpacing.lg),
               Text(AppLocalizations.of(context).paymentMethod, style: AppTextStyles.titleMd),
               const SizedBox(height: AppSpacing.sm),
-              if (firstQuote == null && !_firstQuoteFailed)
+              if (orderingPaused)
+                OnlinePaymentUnavailableNotice(message: t.orderingPaused)
+              else if (firstQuote == null && !_firstQuoteFailed)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Row(children: [
@@ -1057,6 +1077,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   selected: _payment == _PaymentMethod.cod,
                   onTap: () => setState(() => _payment = _PaymentMethod.cod),
                 )
+              else if (cashUnavailable)
+                OnlinePaymentUnavailableNotice(message: t.cashOnPickupUnavailable)
               else
                 _PaymentTile(
                   icon: Icons.storefront_rounded,
@@ -1248,7 +1270,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     loading: _placingOrder,
                     // Waits for the first-order answer; a blocked first order cannot be placed.
                     // ...and while the special instructions hold an offensive word.
-                    onPressed: cart.lines.isEmpty || locating || branch == null || firstQuote == null || firstBlocked || _notesBlocked
+                    // ...and while ordering is paused, or cash is chosen without a downpayment.
+                    onPressed: cart.lines.isEmpty ||
+                            locating ||
+                            branch == null ||
+                            firstQuote == null ||
+                            firstBlocked ||
+                            _notesBlocked ||
+                            orderingPaused ||
+                            cashBlocked
                         ? null
                         : _placeOrder,
                   ),

@@ -16,6 +16,9 @@
 
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 -- These checks cover online-paid orders: switch online payment on inside this
 -- rolled-back transaction (it is off by default, migration 20261017000000).
 do $$ begin
@@ -135,6 +138,7 @@ create function pg_temp.snap() returns jsonb language sql as $$
     'orders',       (select count(*) from public.orders where firebase_uid = 'i_a'),
     'order_items',  (select count(*) from public.order_items oi join public.orders o on o.id = oi.order_id where o.firebase_uid = 'i_a'),
     'payments',     (select count(*) from public.payments where firebase_uid = 'i_a'),
+    'downpayments', (select count(*) from public.order_downpayments where firebase_uid = 'i_a'),
     'points',       (select points_balance from public.loyalty_accounts where firebase_uid = 'i_a'),
     'ledger',       (select count(*) from public.loyalty_transactions where firebase_uid = 'i_a'),
     'voucher_used', (select used_count from public.vouchers where code = 'INTTEST10'),
@@ -186,6 +190,7 @@ begin
       ('orders',               'insert'),   -- step 10: order row
       ('order_items',          'insert'),   -- step 11: order lines
       ('payments',             'insert'),   -- step 13: payment record
+      ('order_downpayments',   'insert'),   -- step 13: the online part, paid first (20261119080000)
       ('loyalty_transactions', 'insert'),   -- step 14: loyalty ledger
       ('loyalty_accounts',     'update'),   -- step 14: loyalty balance
       ('voucher_usage',        'insert'),   -- step  7: voucher accounting
@@ -239,8 +244,12 @@ select pg_temp.chk_true('order lines saved with product and variant ids',
      and product_id is not null and variant_id is not null and quantity = 2 and unit_price = 100) = 1);
 select pg_temp.chk_true('stock deducted 10 -> 8',
   (select quantity from public.branch_inventory where variant_id = (select v from fx where k = 'variant')::uuid) = 8);
-select pg_temp.chk_true('exactly one payment for exactly the order total',
-  (select count(*) from public.payments where order_id = (select v from fx where k = 'order_a') and amount = 120 and status = 'pending') = 1);
+-- Every order is paid online first (migration 20261119080000): the 120 is split into the
+-- 50% downpayment (online, before staff see it) and one cash payment for the rest.
+select pg_temp.chk_true('the total is split: 60 downpayment online + one cash payment of 60',
+  (select count(*) from public.payments where order_id = (select v from fx where k = 'order_a') and amount = 60 and method = 'cash' and status = 'pending') = 1
+  and (select count(*) from public.order_downpayments where order_id = (select v from fx where k = 'order_a') and amount = 60 and status = 'pending') = 1
+  and (select status = 'awaitingDownpayment' from public.orders where id = (select v from fx where k = 'order_a')));
 select pg_temp.chk_true('loyalty points debited (60 -> 0) with a matching ledger row',
   (select points_balance from public.loyalty_accounts where firebase_uid = 'i_a') = 0
   and exists (select 1 from public.loyalty_transactions where order_id = (select v from fx where k = 'order_a') and points = -60 and source = 'order_redeem'));
@@ -286,6 +295,8 @@ select pg_temp.chk('Ann cannot use the loyalty ledger she no longer has (0 point
 -- ===========================================================================
 -- 3. Order state machine (applies to EVERY writer, here the trusted owner)
 -- ===========================================================================
+-- HitPay confirms the downpayment: the order reaches the branch as 'pending'.
+select pg_temp.chk_true('the downpayment is paid online', pg_temp.pay_online((select v from fx where k = 'order_a')) = 'success');
 select pg_temp.chk('unpaid order cannot be completed', '__admin__',
   format($$update public.orders set status = 'completed' where id = %L$$, (select v from fx where k = 'order_a')),
   'like:payment is confirmed');

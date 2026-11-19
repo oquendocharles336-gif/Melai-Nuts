@@ -121,14 +121,11 @@ begin
     from unnest(array['confirmed', 'preparing', 'readyForPickup']) s$q$, p_order));
 end $$;
 
--- 1. Off until the owner sets it --------------------------------------------------
-insert into fx values ('o_off', pg_temp.order_for('dp-off'));
-select pg_temp.chk_true('Not set: pickup goes straight to staff',
-  (select status = 'pending' from public.orders where id = pg_temp.f('o_off')));
-select pg_temp.chk_true('Not set: the whole total is paid in cash',
-  (select amount = 100 and method = 'cash' from public.payments where order_id = pg_temp.f('o_off')));
-select pg_temp.chk_true('Not set: no downpayment row',
-  not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o_off')));
+-- 1. Not set: no cash order (online first, every order: migration 20261119080000) ----
+select pg_temp.chk('Not set: Cash on Counter Pickup is refused (no cash-only order)', 'dp-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'dp-off')$q$, pg_temp.cart()), 'error');
+select pg_temp.chk_true('Not set: no order was placed',
+  not exists (select 1 from public.orders where firebase_uid = 'dp-c1'));
 select pg_temp.chk_true('Not set: the quote says none is required',
   (pg_temp.j('dp-c1', 'public.cod_downpayment_quote(100)') ->> 'required')::boolean = false);
 
@@ -160,16 +157,16 @@ select pg_temp.chk_true('the quote carries the real values for the note',
           and (j ->> 'expiry_minutes')::int = 30 and (j ->> 'percent')::numeric = 30 and (j ->> 'pickup_days')::int = 2
    from (select pg_temp.j('dp-c1', 'public.cod_downpayment_quote(100)') j) t));
 
--- 3. Online payment switched off: pickup keeps working, full cash ------------------
+-- 3. Online payment switched off: ordering is paused (migration 20261119080000) ----
 update public.payment_settings set online_payment_enabled = false where id = 'default';
 select pg_temp.chk_true('switched off: the quote says none is required',
   (pg_temp.j('dp-c1', 'public.cod_downpayment_quote(100)') ->> 'required')::boolean = false);
-insert into fx values ('o_switch_off', pg_temp.order_for('dp-switch-off'));
-select pg_temp.chk_true('switched off: pickup goes straight to staff for the full amount',
-  (select o.status = 'pending' and p.amount = 100 from public.orders o join public.payments p on p.order_id = o.id
-   where o.id = pg_temp.f('o_switch_off')));
-select pg_temp.chk_true('switched off: no downpayment row',
-  not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o_switch_off')));
+select pg_temp.chk('switched off: Cash on Counter Pickup is refused (no cash-only order)', 'dp-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'dp-switch-off')$q$, pg_temp.cart()), 'error');
+select pg_temp.chk('switched off: Online Payment is refused too', 'dp-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, QR Ph, Card)', '', 'dp-switch-off-2')$q$, pg_temp.cart()), 'error');
+select pg_temp.chk_true('switched off: no order was placed',
+  not exists (select 1 from public.orders where firebase_uid = 'dp-c1'));
 update public.payment_settings set online_payment_enabled = true where id = 'default';
 
 -- 4. Placing an order -------------------------------------------------------------
@@ -188,13 +185,14 @@ select pg_temp.chk_true('placed: the order keeps its own percent and pickup days
 select pg_temp.chk_true('placed: the stock is held', pg_temp.stock() = pg_temp.f('stock_before')::int - 1);
 select pg_temp.chk_true('the same request again is the same order', pg_temp.order_for('dp-1') = pg_temp.f('o1'));
 
--- Cash on Delivery no longer has a downpayment.
+-- Cash on Delivery takes the same downpayment: there are no cash-only orders
+-- (migration 20261119080000). 30% of the 150 total (100 + 50 delivery fee).
 insert into fx values ('o_cod', pg_temp.call_as('dp-c1', format($q$select public.place_order(%L::uuid, true, %L::uuid, 'Cash on Delivery', '', 'dp-cod')$q$,
   pg_temp.cart(), pg_temp.f('addr'))));
-select pg_temp.chk_true('Cash on Delivery is full cash again',
-  (select o.status = 'pending' and p.amount = 150 from public.orders o join public.payments p on p.order_id = o.id
-   where o.id = pg_temp.f('o_cod'))
-  and not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o_cod')));
+select pg_temp.chk_true('Cash on Delivery pays the downpayment online first too',
+  (select o.status = 'awaitingDownpayment' and p.amount = 105 and p.method = 'cash' and d.amount = 45 and d.kind = 'cod'
+   from public.orders o join public.payments p on p.order_id = o.id join public.order_downpayments d on d.order_id = o.id
+   where o.id = pg_temp.f('o_cod')));
 select pg_temp.chk_true('a delivery order keeps its address',
   (select delivery_address_id = pg_temp.f('addr')::uuid from public.orders where id = pg_temp.f('o_cod')));
 
@@ -463,11 +461,11 @@ select pg_temp.chk_true('capped: once paid, nothing is due at the counter',
    from public.orders o join public.payments p on p.order_id = o.id where o.id = pg_temp.f('o6')));
 
 select pg_temp.settings('{"cod_downpayment_value":40,"cod_downpayment_min_order":200}'::jsonb);
-insert into fx values ('o7', pg_temp.order_for('dp-7'));
-select pg_temp.chk_true('below the minimum order: no downpayment',
-  (select o.status = 'pending' and p.amount = 100
-   from public.orders o join public.payments p on p.order_id = o.id where o.id = pg_temp.f('o7'))
-  and not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o7')));
+select pg_temp.chk_true('below the minimum order: no downpayment is quoted',
+  (pg_temp.j('dp-c1', 'public.cod_downpayment_quote(100)') ->> 'required')::boolean = false);
+-- ... and without a downpayment there is no cash order (migration 20261119080000).
+select pg_temp.chk('below the minimum order: Cash on Counter Pickup is refused (pay online instead)', 'dp-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'dp-7')$q$, pg_temp.cart()), 'error');
 select pg_temp.settings('{"cod_downpayment_min_order":100}'::jsonb);
 select pg_temp.chk_true('exactly the minimum order: downpayment required',
   (pg_temp.j('dp-c1', 'public.cod_downpayment_quote(100)') ->> 'required')::boolean);

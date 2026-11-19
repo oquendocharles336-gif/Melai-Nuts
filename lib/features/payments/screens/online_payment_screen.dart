@@ -67,7 +67,8 @@ class _OnlinePaymentScreenState extends State<OnlinePaymentScreen> with WidgetsB
   bool get _paysDownpayment => widget.order.downpayment != null && !widget.payBalance;
 
   /// A first order paying 50% / 100% online (migration 20261118015010).
-  bool get _isFirstOrder => widget.order.downpayment?.isFirstOrder ?? false;
+  /// Worded as an online payment (first order or Online Payment order), not a downpayment.
+  bool get _isFirstOrder => widget.order.downpayment?.isOnlinePayment ?? false;
   bool get _isExpired => _downpayment?.isExpired ?? false;
 
   PaymentStatus? get _status {

@@ -145,3 +145,59 @@ Please confirm: is keeping a customer's name and contact number on the e-receipt
 * **Privacy 11**: the reCAPTCHA sentence is gone.
 * **Privacy 10**: rewritten. The number is only format-checked; a number that matches another
   customer with a paid order keeps the first-order prepayment on the new account.
+
+## Online payment first on every order (DRAFT, not approved, not in the app yet)
+
+**Status (2026-11-19): draft for the owner. Nothing below is in the app or on the website.** The
+Terms the customers see (version `2026-11-19.2`) still say cash is available from the second
+order. Once approved: put the wording in `lib/l10n/app_en.arb` / `app_fil.arb`, run
+`python3 scripts/gen_legal_pages.py`, and bump `termsVersion` in `LegalConfig` and
+`MELAI_TERMS_VERSION` in `admin/config/melai.php` so everyone accepts it again.
+
+What changed (migration `20261119080000_online_first_every_order.sql`): every order with
+something to pay is paid online first. Online Payment = 100% online before the branch prepares
+it. Cash on Counter Pickup = the downpayment set on the admin website (50%) online first, the
+rest in cash at pickup. No cash-only orders. While online payment is off, no orders are taken.
+The first-order rule (50% or 100% online) is unchanged.
+
+### Terms 2. Your account: replace one sentence
+
+EN, now: "Your first order is paid online first (50% or the full amount); cash payment is
+available from your next order."
+
+> Your first order is paid online first (50% or the full amount). Every later order is also paid online first, in full or as a downpayment.
+
+FIL:
+
+> Babayaran muna online ang iyong unang order (50% o ang buong halaga). Babayaran din muna online ang bawat susunod na order, buo man o downpayment.
+
+### Terms 3. Orders and payment: replace the "Later orders" bullet
+
+EN, now: "Later orders: when online payment is on, you pay the downpayment shown at checkout
+online and the rest in cash when you pick up. When online payment is off, you pay the full
+amount in cash at pickup."
+
+> - Later orders: choose Online Payment and pay 100% online through HitPay before the branch prepares your order, or choose Cash on Counter Pickup and pay the downpayment shown at checkout online first, then the rest in cash when you pick up. There are no orders paid only in cash. While online payment is unavailable, orders cannot be placed; please try again later.
+
+FIL:
+
+> - Mga susunod na order: piliin ang Online Payment at bayaran nang 100% online sa HitPay bago ihanda ng branch ang iyong order, o piliin ang Cash on Counter Pickup at bayaran muna online ang downpayment na nakasaad sa checkout, at ang natitira ay cash pagkuha mo. Walang order na cash lang ang bayad. Habang hindi available ang online payment, hindi makakapag-order; pakisubukan mamaya.
+
+### Terms 6. Pickup, online payment and downpayment: replace the first bullet
+
+EN, now: "Pay the online part of your order (first-order payment or downpayment) within the
+time shown at checkout, ..."
+
+> - Pay the online part of your order (an Online Payment order, a first-order payment or a downpayment) within the time shown at checkout, 30 minutes unless the shop sets another limit. If it is not paid in time, the order is cancelled and nothing is charged.
+
+FIL:
+
+> - Bayaran ang online na bahagi ng iyong order (order na Online Payment, bayad ng unang order o downpayment) sa loob ng oras na nakasaad sa checkout, 30 minuto maliban kung iba ang itinakda ng tindahan. Kung hindi nabayaran sa oras, makakansela ang order at walang sisingilin.
+
+The other Terms 6 bullets stay as they are. Note: the "pick up within 2 days or the shop keeps
+the downpayment" rule applies to Cash on Counter Pickup downpayments only. An Online Payment
+order (paid 100%) that is not picked up is not forfeited automatically.
+
+Please confirm:
+1. The wording above (EN and FIL).
+2. That an unclaimed Online Payment order (paid 100%) should NOT be kept automatically, as now.

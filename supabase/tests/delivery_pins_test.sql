@@ -14,6 +14,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
 create temp table fx (k text primary key, v text);
 grant select on fx to public;
@@ -128,13 +131,18 @@ select pg_temp.chk_true('a rider/unknown account sees no addresses',
   pg_temp.visible('p-drv-1', 'select count(*) from public.customer_addresses') = 0);
 
 -- 2. The pin is snapshot on the order ---------------------------------------------
-create function pg_temp.order_for(p_cust text, p_addr text, p_delivery boolean, p_method text, p_key text) returns text language sql as $$
-  select pg_temp.call_as(p_cust, format($q$select public.place_order(%L::uuid, %L::boolean, %L::uuid, %L, '', %L)$q$,
+create function pg_temp.order_for(p_cust text, p_addr text, p_delivery boolean, p_method text, p_key text) returns text language plpgsql as $$
+declare v_order text;
+begin
+  v_order := pg_temp.call_as(p_cust, format($q$select public.place_order(%L::uuid, %L::boolean, %L::uuid, %L, '', %L)$q$,
     pg_temp.call_as(p_cust, format($q$select (public.sync_customer_cart(%L::uuid,
       jsonb_build_array(jsonb_build_object('product_id', %L, 'variant_id', %L, 'quantity', 1)), null, false) ->> 'cart_id')$q$,
       pg_temp.f('ba'), pg_temp.f('prod'), pg_temp.f('var'))),
-    p_delivery, p_addr, p_method, p_key))
-$$;
+    p_delivery, p_addr, p_method, p_key));
+  -- The online part (downpayment or Online Payment) is paid first (migration 20261119080000).
+  perform pg_temp.pay_online(v_order);
+  return v_order;
+end $$;
 insert into fx values ('o1', pg_temp.order_for('p-c1', pg_temp.f('addr1'), true, 'Cash on Delivery', 'pin-key-1'));
 insert into fx values ('o2', pg_temp.order_for('p-c2', pg_temp.f('addr2'), true, 'Cash on Delivery', 'pin-key-2'));
 insert into fx values ('o3', pg_temp.order_for('p-c1', null, false, 'Cash on Counter Pickup', 'pin-key-3'));
@@ -249,7 +257,7 @@ select pg_temp.chk_true('customer tracking of an unpinned order has a null desti
   (pg_temp.call_as('p-c2', format($q$select public.customer_get_delivery_tracking(%L)::text$q$, pg_temp.f('o2')))::jsonb
      -> 'destination' -> 'lat') = 'null'::jsonb);
 select pg_temp.chk('stop 1 delivered', 'p-drv-1',
-  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Pia Pinned', 100)$q$, pg_temp.f('stop1')), 'ok');
+  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Pia Pinned', 50)$q$, pg_temp.f('stop1')), 'ok');
 select pg_temp.chk_true('a delivered stop hides address, pin and phone from the rider while the run goes on',
   (select s ->> 'address' = 'Hidden after delivery' and s -> 'latitude' = 'null'::jsonb and s -> 'contact_phone' is null
    from (select pg_temp.rider_stop('p-drv-1', pg_temp.f('o1')) as s) t)

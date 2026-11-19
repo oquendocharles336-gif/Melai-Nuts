@@ -22,7 +22,7 @@ extension OrderStatusX on OrderStatus {
   String get label {
     switch (this) {
       case OrderStatus.awaitingDownpayment:
-        return 'Awaiting Downpayment';
+        return 'Awaiting Online Payment';
       case OrderStatus.pending:
         return 'Pending';
       case OrderStatus.confirmed:

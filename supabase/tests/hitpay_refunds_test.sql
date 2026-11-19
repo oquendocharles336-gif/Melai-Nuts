@@ -6,6 +6,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 -- These checks cover online-paid orders: switch online payment on inside this
 -- rolled-back transaction (it is off by default, migration 20261017000000).
 do $$ begin
@@ -99,6 +102,8 @@ begin
   return v_order;
 end $$;
 insert into fx values ('o_online', pg_temp.order_for('Online Payment (GCash, Maya, Card)', 'hr-key-online-1'));
+-- Online Payment is paid 100% online before staff see the order (migration 20261119080000):
+-- the HitPay money is on its order_downpayments row (kind 'online'), the payments row is 0.
 -- A first link (preq-old) is replaced by a newer one (preq-123) while the
 -- customer pays: a late "failed" event from the OLD link must not fail the
 -- payment (migration 20261028000000_hitpay_failed_event_link_check.sql).
@@ -107,7 +112,7 @@ select public.hitpay_set_checkout(pg_temp.f('o_online'), 'preq-123', 'https://pa
 select pg_temp.chk_true('failed event: an OLD link failing leaves the current payment processing',
   public.hitpay_apply_payment(pg_temp.f('o_online'), 'failed', 'GCash', 'pay-old-1', null, 'preq-old') = 'processing'
   and (select status = 'processing' and gateway_payment_id = 'preq-123'
-       from public.payments where order_id = pg_temp.f('o_online')));
+       from public.order_downpayments where order_id = pg_temp.f('o_online')));
 select pg_temp.chk_true('failed event: no request id is treated as not the current link',
   public.hitpay_apply_payment(pg_temp.f('o_online'), 'failed', 'GCash', 'pay-old-1', null) = 'processing');
 select pg_temp.chk_true('failed event: the CURRENT link failing fails the payment',
@@ -115,6 +120,7 @@ select pg_temp.chk_true('failed event: the CURRENT link failing fails the paymen
 -- HitPay lets the buyer retry on the same page: the success below still applies.
 select public.hitpay_apply_payment(pg_temp.f('o_online'), 'success', 'GCash', 'pay-abc-001', null);
 insert into fx values ('o_cash', pg_temp.order_for('Cash on Counter Pickup', 'hr-key-cash-1'));
+select pg_temp.pay_online(pg_temp.f('o_cash'));   -- its 50% downpayment, online first
 select pg_temp.call_as('h-own', format($q$select public.staff_confirm_payment(%L, null)::text$q$, pg_temp.f('o_cash')));
 do $$
 declare o text;
@@ -130,8 +136,9 @@ insert into fx select 'r_cash', pg_temp.call_as('h-c', format(
   $q$select public.request_refund(%L, 'Damaged', '', jsonb_build_array(jsonb_build_object('product_name','HR-TEST Nut','variant_label','Regular','quantity',1)))$q$,
   pg_temp.f('o_cash')));
 select pg_temp.chk_true('fixture: online payment is a successful HitPay GCash payment',
-  (select status = 'success' and gateway = 'hitpay' and gateway_payment_id = 'pay-abc-001' and method = 'gcash'
-   from public.payments where order_id = pg_temp.f('o_online')));
+  (select status = 'success' and gateway = 'hitpay' and gateway_payment_id = 'pay-abc-001' and method = 'gcash' and kind = 'online'
+   from public.order_downpayments where order_id = pg_temp.f('o_online'))
+  and (select status = 'success' and amount = 0 from public.payments where order_id = pg_temp.f('o_online')));
 
 -- 1. Begin ------------------------------------------------------------------------
 select pg_temp.chk('pending (not approved) refund cannot be sent', 'h-sa',
@@ -146,8 +153,10 @@ select pg_temp.chk('customer cannot send', 'h-c',
   format($q$select public.staff_begin_gateway_refund(%L)$q$, pg_temp.f('r_online')), 'error');
 select pg_temp.chk('anon cannot send', null,
   format($q$select public.staff_begin_gateway_refund(%L)$q$, pg_temp.f('r_online')), 'error');
-select pg_temp.chk('cash refund cannot go through HitPay', 'h-sa',
-  format($q$select public.staff_begin_gateway_refund(%L)$q$, pg_temp.f('r_cash')), 'error');
+-- The cash order's online part is only its downpayment; this refund (1 of its 2 items) is
+-- sent through HitPay up to that downpayment, the rest is cash at the counter.
+select pg_temp.chk('a refund of an order with an online downpayment can go through HitPay', 'h-sa',
+  format($q$select public.staff_begin_gateway_refund(%L)$q$, pg_temp.f('r_cash')), 'ok');
 
 insert into fx select 'a1', j ->> 'attempt_id' from (select pg_temp.j('h-sa', format('public.staff_begin_gateway_refund(%L)', pg_temp.f('r_online'))) j) t;
 select pg_temp.chk_true('attempt carries HitPay payment id and the refund amount',
@@ -216,18 +225,21 @@ select pg_temp.chk_true('audit rows for send / failed / succeeded',
 -- A payment that arrives after the order was cancelled ------------------------------
 insert into fx values ('o_late', pg_temp.order_for('Online Payment (GCash, QR Ph, Card)', 'hr-key-late-1'));
 select public.hitpay_set_checkout(pg_temp.f('o_late'), 'preq-late', 'https://pay.example/late');
-select pg_temp.call_as('h-own', format($q$select public.staff_update_order_status(%L, 'cancelled')::text$q$, pg_temp.f('o_late')));
+-- Not paid in time: the expiry job cancels it (staff never see an unpaid order).
+update public.order_downpayments set expires_at = now() - interval '1 minute' where order_id = pg_temp.f('o_late');
+select public.expire_unpaid_cod_downpayments();
 select pg_temp.chk_true('late payment: the event is accepted',
   public.hitpay_apply_payment(pg_temp.f('o_late'), 'success', 'qrph', 'pay-late-1', null, 'preq-late') = 'success');
 -- A separate statement: one statement cannot see what a function it calls has changed.
 select pg_temp.chk_true('late payment: it is still recorded',
-  (select status = 'success' and method = 'qrph' from public.payments where order_id = pg_temp.f('o_late')));
+  (select status = 'success' and method = 'qrph' from public.order_downpayments where order_id = pg_temp.f('o_late')));
 select pg_temp.chk_true('late payment: the order stays cancelled',
   (select status = 'cancelled' from public.orders where id = pg_temp.f('o_late')));
 insert into fx select 'r_late', id from public.refund_requests where order_id = pg_temp.f('o_late');
 select pg_temp.chk_true('late payment: a pending refund for the full amount is open',
-  (select r.status = 'pending' and r.amount = p.amount from public.refund_requests r
-     join public.payments p on p.order_id = r.order_id where r.id = pg_temp.f('r_late')));
+  (select r.status = 'pending' and r.amount = d.amount and d.amount = o.total from public.refund_requests r
+     join public.order_downpayments d on d.order_id = r.order_id join public.orders o on o.id = r.order_id
+   where r.id = pg_temp.f('r_late')));
 select pg_temp.chk_true('late payment: the same event again opens no second refund',
   public.hitpay_apply_payment(pg_temp.f('o_late'), 'success', 'qrph', 'pay-late-1', null, 'preq-late') = 'success'
   and (select count(*) = 1 from public.refund_requests where order_id = pg_temp.f('o_late')));
@@ -235,9 +247,9 @@ select pg_temp.call_as('h-sa', format($q$select public.admin_portal_review_refun
 select pg_temp.chk_true('late payment: the refund can go through HitPay',
   (pg_temp.call_as('h-sa', format($q$select public.staff_begin_gateway_refund(%L)::text$q$, pg_temp.f('r_late')))) like '%pay-late-1%');
 select pg_temp.call_as('h-sa', format($q$select public.staff_review_refund(%L, 'complete')::text$q$, pg_temp.f('r_late')));
-select pg_temp.chk_true('late payment: completing it marks the payment refunded, the order stays cancelled',
-  (select p.status = 'refunded' and o.status = 'cancelled' from public.payments p
-     join public.orders o on o.id = p.order_id where p.order_id = pg_temp.f('o_late')));
+select pg_temp.chk_true('late payment: completing it marks the online payment refunded, the order stays cancelled',
+  (select d.status = 'refunded' and o.status = 'cancelled' from public.order_downpayments d
+     join public.orders o on o.id = d.order_id where d.order_id = pg_temp.f('o_late')));
 
 -- Report -------------------------------------------------------------------------
 select id, case when passed then 'PASS' else 'FAIL' end as result, name, detail from results order by id;

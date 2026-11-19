@@ -253,23 +253,46 @@ class ShopTest extends TestCase
         $this->assertSame([], $this->shop->orders, 'no order was placed');
     }
 
-    public function test_a_cash_pickup_order_is_placed_through_place_order_as_store_pickup(): void
+    public function test_without_a_downpayment_cash_pickup_is_not_offered(): void
     {
+        // Online first, every order (migration 20261119080000): no downpayment set = no cash order.
         $this->signIn();
         $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 2])->assertOk();
-        $this->get('/shop/checkout')->assertOk()->assertSee('Santa Cruz Branch')->assertSee('Mon–Sat 8am–6pm')->assertSee('Pay the full amount in cash');
+        $this->get('/shop/checkout')->assertOk()
+            ->assertSee('Not available for this order right now. Please choose Pay online now.')
+            ->assertSee('name="payment" value="counter"  disabled', false)
+            ->assertDontSee('Pay the full amount in cash');
+    }
+
+    public function test_ordering_is_paused_while_online_payment_is_switched_off(): void
+    {
+        $this->shop->onlinePayment = false;
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1'])->assertOk();
+        $this->get('/shop/checkout')->assertOk()
+            ->assertSee('Ordering is paused because online payment is unavailable right now.')
+            ->assertDontSee('Cash on counter pickup')
+            ->assertSee('form="checkout" disabled', false);
+    }
+
+    public function test_a_cash_pickup_order_is_placed_through_place_order_as_store_pickup(): void
+    {
+        $this->shop->quote = ['required' => true, 'amount' => 110, 'balance' => 110, 'percent' => 50, 'expiry_minutes' => 30, 'pickup_days' => 2];
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 2])->assertOk();
+        $this->get('/shop/checkout')->assertOk()->assertSee('Santa Cruz Branch')->assertSee('Mon–Sat 8am–6pm')->assertSee('50% downpayment');
 
         $this->post('/shop/checkout', ['payment' => 'counter', 'notes' => 'Pasalubong box please'])
-            ->assertRedirect(route('shop.orders.show', ['order' => 'ORD-1001', 'placed' => 1]));
+            ->assertRedirect('https://securecheckout.sandbox.hit-pay.com/payment-request/ORD-1001');
 
         $params = $this->shop->orders[0]['_params'];
         $this->assertFalse($params['p_is_delivery']);
         $this->assertSame('Cash on Counter Pickup', $params['p_payment_method']);
         $this->assertSame('Pasalubong box please', $params['p_customer_notes']);
         $this->assertNotEmpty($params['p_idempotency_key']);
-        $this->assertSame([], $this->shop->paymentRequests, 'a plain cash order opens no payment page');
+        $this->assertSame([['order_id' => 'ORD-1001', 'return_to' => 'web']], $this->shop->paymentRequests, 'the downpayment is paid online first');
 
-        $this->get('/shop/orders/ORD-1001?placed=1')->assertOk()->assertSee('Salamat po! Your order is in.');
+        $this->get('/shop/orders/ORD-1001?placed=1')->assertOk()->assertSee('Salamat po! Your order is in.')->assertSee('Pay the downpayment to confirm it.');
     }
 
     public function test_a_double_click_places_one_order(): void

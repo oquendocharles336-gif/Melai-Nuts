@@ -45,7 +45,11 @@
                 <h2 id="pay-title">Payment</h2>
                 @php($isFirst = $first !== null && $first['first_order'])
                 @php($firstBlocked = $isFirst && ($first['pending_order_id'] !== null || ! $first['online_payment_enabled']))
-                @if ($first === null)
+                @if ($paused)
+                    <div class="s-flash note" role="status"><x-icon name="alert" :size="18" />
+                        <span>Ordering is paused because online payment is unavailable right now. Every order is paid online first, in full or as a downpayment. Please try again later.</span>
+                    </div>
+                @elseif ($first === null)
                     {{-- The first-order check could not be loaded: never guess, offer a retry. --}}
                     <div class="s-flash bad" role="alert"><x-icon name="alert" :size="18" />
                         <span>We couldn't load your payment options. <a href="{{ route('shop.checkout') }}">Try again</a>.</span>
@@ -61,7 +65,7 @@
                     </div>
                 @elseif ($isFirst)
                     <div class="s-flash note" role="note"><x-icon name="gift" :size="18" />
-                        <span><b>Your first order.</b> Welcome to Melai Nuts! Your first order is paid online, half or in full, before we prepare it. This is a one-time step: from your next order you can also pay in cash. Pay within {{ $first['expiry_minutes'] }} minutes, or the order is cancelled and nothing is charged.</span>
+                        <span><b>Your first order.</b> Welcome to Melai Nuts! Your first order is paid online, half or in full, before we prepare it. This is a one-time step: from your next order you can also choose cash on counter pickup, paying a downpayment online first and the rest in cash. Pay within {{ $first['expiry_minutes'] }} minutes, or the order is cancelled and nothing is charged.</span>
                     </div>
                     <div style="display:grid;gap:10px" role="radiogroup" aria-labelledby="pay-title">
                         <label class="s-option">
@@ -80,10 +84,12 @@
                 @else
                 <div style="display:grid;gap:10px" role="radiogroup" aria-labelledby="pay-title">
                     <label class="s-option">
-                        <input type="radio" name="payment" value="counter" @checked(old('payment', 'counter') === 'counter')>
+                        <input type="radio" name="payment" value="counter" @checked(! $cashUnavailable && old('payment', 'counter') === 'counter') @disabled($cashUnavailable)>
                         <span><x-icon name="banknote" :size="20" /><b>Cash on counter pickup</b>
                             <small>
-                                @if ($quote)
+                                @if ($cashUnavailable)
+                                    Not available for this order right now. Please choose Pay online now.
+                                @elseif ($quote)
                                     Pay {{ \App\Support\Format::peso($quote['amount']) }} online now (a {{ rtrim(rtrim(number_format($quote['percent'] ?? 0, 2), '0'), '.') }}% downpayment), and the rest, {{ \App\Support\Format::peso($quote['balance']) }}, in cash at pickup.
                                 @else
                                     Pay the full amount in cash when you pick up.
@@ -99,7 +105,7 @@
                     </label>
                 </div>
                 @endif
-                @if ($quote)
+                @if ($quote && ! $paused)
                     <div class="s-flash note"><x-icon name="clock" :size="18" />
                         <span>Pickup orders need the online downpayment{{ $quote['expiry_minutes'] ? ' within '.$quote['expiry_minutes'].' minutes' : '' }}, or the order is cancelled and the stock goes back on the shelf.{{ $quote['pickup_days'] ? ' Please pick up within '.$quote['pickup_days'].' '.\Illuminate\Support\Str::plural('day', $quote['pickup_days']).' of "Ready for pickup".' : '' }}</span>
                     </div>
@@ -137,7 +143,7 @@
                 @endif
             </div>
             {{-- On phones the button stays at the bottom of the screen (shop.css .s-sticky-cta). --}}
-            <div class="s-sticky-cta"><button type="submit" class="s-btn primary block" form="checkout" @disabled($first === null || $firstBlocked)>{{ $isFirst || $quote || old('payment') === 'online' ? 'Place order & pay' : 'Place order' }}</button></div>
+            <div class="s-sticky-cta"><button type="submit" class="s-btn primary block" form="checkout" @disabled($paused || $first === null || $firstBlocked)>{{ $isFirst || $quote || old('payment') === 'online' ? 'Place order & pay' : 'Place order' }}</button></div>
             <p class="s-note">By placing your order you agree to our <a href="{{ route('legal.terms') }}" target="_blank" rel="noopener">Terms</a>. Online payments are processed by HitPay.</p>
         </aside>
     </form>

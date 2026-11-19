@@ -47,6 +47,11 @@ class CheckoutController extends ShopController
             'cart' => $cart,
             'online' => $online,
             'quote' => $quote !== null && $quote['required'] ? $quote : null,
+            // Online first, every order (migration 20261119080000; place_order decides again):
+            // with online payment switched off no order with something to pay is taken, and
+            // without a downpayment there is no cash order.
+            'paused' => $online['read'] && ! $online['enabled'] && $cart['total'] > 0,
+            'cashUnavailable' => $quote !== null && ! $quote['required'] && $cart['total'] > 0,
             // null = could not be loaded (the page offers a retry and does not let the order go).
             'first' => $first,
             'phone' => $this->customer->phone(),

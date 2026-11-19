@@ -278,7 +278,7 @@
   "verifyCompleteCheckFirst": "Tapusin ang security check sa itaas, saka i-tap ang Verify.",
   "verifySpamHint": "Hindi mo makita? Tingnan ang spam o promotions folder. Galing ang email sa Melai Nuts at walang link, code lang.",
   "firstOrderTitle": "Ang una mong order",
-  "firstOrderExplain": "Maligayang pagdating sa Melai Nuts! Ang una mong order ay binabayaran online, kalahati o buo, bago namin ito ihanda. Isang beses lang ito: mula sa susunod mong order, puwede ka na ring magbayad ng cash.",
+  "firstOrderExplain": "Maligayang pagdating sa Melai Nuts! Ang una mong order ay binabayaran online, kalahati o buo, bago namin ito ihanda. Isang beses lang ito: mula sa susunod mong order, puwede mo ring piliin ang Cash on Counter Pickup, kung saan magbabayad ka muna ng downpayment online at ang natitira ay cash.",
   "firstOrderHalfTitle": "Magbayad ng 50% ngayon",
   "firstOrderHalfPickup": "{amount} online ngayon, saka {balance} na cash pagkuha mo",
   "firstOrderHalfDelivery": "{amount} online ngayon, saka {balance} na cash pagdating ng delivery",
@@ -295,5 +295,7 @@
   "firstOrderBalancePickup": "Cash pagkuha",
   "firstOrderBalanceDelivery": "Cash pagdating ng delivery",
   "firstOrderPayNow": "Bayaran online ngayon",
-  "firstOrderPaidInFull": "Bayad na nang buo online"
+  "firstOrderPaidInFull": "Bayad na nang buo online",
+  "orderingPaused": "Naka-pause ang pag-order dahil hindi available ang online payment ngayon. Binabayaran muna online ang bawat order, buo man o downpayment. Pakisubukan mamaya.",
+  "cashOnPickupUnavailable": "Hindi available ang Cash on Counter Pickup para sa order na ito ngayon. Piliin ang Online Payment."
 }

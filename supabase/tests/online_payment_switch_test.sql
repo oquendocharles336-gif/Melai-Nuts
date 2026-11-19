@@ -6,6 +6,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
 create temp table fx (k text primary key, v text);
 grant select on fx to public;
@@ -94,7 +97,7 @@ select pg_temp.chk('staff cannot turn it on', 'pay-sa',
   $q$update public.payment_settings set online_payment_enabled = true$q$, 'error');
 select pg_temp.chk_true('the switch is still off', not public.online_payment_enabled());
 
--- 2. Online orders refused, cash orders fine --------------------------------------
+-- 2. Ordering is paused: online AND cash orders refused (migration 20261119080000) ---
 select pg_temp.chk('online payment order is refused', 'pay-c1',
   format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, Maya, Card)', '', 'pay-key-1')$q$, pg_temp.cart()), 'error');
 select pg_temp.chk('the current checkout label is refused too', 'pay-c1',
@@ -105,8 +108,10 @@ select pg_temp.chk('older app label Maya / Credit Card is refused too', 'pay-c1'
   format($q$select public.place_order(%L::uuid, false, null, 'Maya / Credit Card', '', 'pay-key-3')$q$, pg_temp.cart()), 'error');
 select pg_temp.chk_true('no online order or payment was left behind',
   (select count(*) = 0 from public.orders where firebase_uid = 'pay-c1'));
-select pg_temp.chk('cash on counter pickup still works', 'pay-c1',
-  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'pay-key-4')$q$, pg_temp.cart()), 'ok');
+select pg_temp.chk('cash on counter pickup is refused too (its downpayment is online: no cash-only order)', 'pay-c1',
+  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'pay-key-4')$q$, pg_temp.cart()), 'error');
+select pg_temp.chk_true('no cash order was left behind either',
+  (select count(*) = 0 from public.orders where firebase_uid = 'pay-c1'));
 select pg_temp.chk('in-store GCash sale at the POS is not affected', 'pay-sa',
   format($q$select public.staff_create_pos_sale(%L::uuid, jsonb_build_array(jsonb_build_object('variant_id', %L, 'quantity', 1)), 'gcash', 'REF-1')$q$,
     pg_temp.f('ba'), pg_temp.f('var')), 'ok');
@@ -130,8 +135,11 @@ select pg_temp.chk_true('a QR Ph payment event is accepted',
     (select id from public.orders where payment_method = 'Online Payment (GCash, QR Ph, Card)' and firebase_uid = 'pay-c1'),
     'success', 'qrph', 'pay-qr-1', null) = 'success');
 -- A separate statement: one statement cannot see what a function it calls has changed.
+-- Online Payment is paid 100% online first (migration 20261119080000): the method is
+-- recorded on its online part, the order_downpayments row of kind 'online'.
 select pg_temp.chk_true('a QR Ph payment is recorded as qrph',
-  (select p.method = 'qrph' from public.payments p join public.orders o on o.id = p.order_id
+  (select d.method = 'qrph' and d.kind = 'online' and d.status = 'success'
+   from public.order_downpayments d join public.orders o on o.id = d.order_id
    where o.payment_method = 'Online Payment (GCash, QR Ph, Card)' and o.firebase_uid = 'pay-c1'));
 
 -- Report -------------------------------------------------------------------------

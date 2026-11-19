@@ -8,6 +8,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 set local timezone = 'Asia/Manila';
 
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
@@ -83,10 +86,8 @@ insert into public.customer_profiles (firebase_uid, full_name, email, phone) val
   ('vp-bal2', 'Balance2', 'vp-bal2@test.local', '09170000106');
 update public.customer_profiles set first_paid_order_at = now() - interval '30 days'
  where firebase_uid in ('vp-dup', 'vp-nophone');
-update public.payment_settings set online_payment_enabled = true where id = 'default';
-update public.business_settings set cod_downpayment_type = null, cod_downpayment_value = null,
-  cod_downpayment_min_order = null, cod_downpayment_expiry_minutes = null, cod_downpayment_pickup_days = null
- where id = 'default';
+-- Online payment on, and the owner's Cash on Counter Pickup downpayment (50%, 30 minutes,
+-- 2 days): every order is paid online first (migration 20261119080000).
 
 create function pg_temp.cart(p_uid text, p_phone text) returns text language sql as $$
   select pg_temp.call_as(p_uid, p_phone, format($q$select (public.sync_customer_cart(%L::uuid,
@@ -138,7 +139,7 @@ select pg_temp.chk_true('webhook: paid', pg_temp.pay(pg_temp.f('o_paid'), 'paid'
 select pg_temp.chk_true('webhook: the account is returning and its number is recorded (normalized)',
   not pg_temp.first('vp-paid')
   and exists (select 1 from public.first_order_phones where phone = '+639170000101' and firebase_uid = 'vp-paid'));
-select pg_temp.chk('a returning customer checks out in cash, no SMS step', 'vp-paid', null,
+select pg_temp.chk('a returning customer checks out with Cash on Counter Pickup (downpayment online), no SMS step', 'vp-paid', null,
   pg_temp.place_sql(pg_temp.cart('vp-paid', null), 'Cash on Counter Pickup', null, 'vp-paid-2'), 'ok');
 
 -- 3. Phone-match safeguard ----------------------------------------------------------------------

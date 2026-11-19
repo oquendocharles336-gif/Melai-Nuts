@@ -6,6 +6,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
 create temp table fx (k text primary key, v text);
 grant select on fx to public;
@@ -93,8 +96,13 @@ $$;
 -- 1. Nothing set = nothing invented ------------------------------------------------
 select pg_temp.chk_true('earn rate is NULL (Not set) when the owner never set it', public.get_loyalty_earn_rate() is null);
 select pg_temp.chk_true('restock threshold fallback is NULL when not set', public._default_restock_threshold() is null);
+-- Nothing set includes the Cash on Counter Pickup downpayment, so there is no cash order
+-- (migration 20261119080000): these orders use Online Payment, paid 100% online first.
+select pg_temp.chk_true('with no downpayment set, Cash on Counter Pickup is refused (no cash-only order)',
+  pg_temp.err_of('bs-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'bs-key-0')$q$,
+    pg_temp.cart())) like 'Cash payment is not available for this order right now.%');
 select pg_temp.chk('an order without an earn rate is accepted', 'bs-c1',
-  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'bs-key-1')$q$, pg_temp.cart()), 'ok');
+  format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, QR Ph, Card)', '', 'bs-key-1')$q$, pg_temp.cart()), 'ok');
 select pg_temp.chk_true('... and earns 0 points (no invented 1 pt per PHP 50)',
   (select points_earned = 0 from public.orders where firebase_uid = 'bs-c1' order by created_at desc limit 1));
 select pg_temp.chk_true('settings read shows every value as null',
@@ -159,7 +167,7 @@ select pg_temp.chk('owner sets loyalty rules', 'bs-own', 'select public.owner_up
 select pg_temp.chk_true('earn rate is now 25', public.get_loyalty_earn_rate() = 25);
 update public.branch_inventory set quantity = 100 where branch_id = pg_temp.f('ba')::uuid and variant_id = pg_temp.f('var')::uuid;
 select pg_temp.chk('order with an earn rate', 'bs-c1',
-  format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'bs-key-2')$q$, pg_temp.cart()), 'ok');
+  format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, QR Ph, Card)', '', 'bs-key-2')$q$, pg_temp.cart()), 'ok');
 select pg_temp.chk_true('... earns floor(total / 25) points',
   (select points_earned = floor(total / 25)::int and points_earned > 0
    from public.orders where firebase_uid = 'bs-c1' order by id desc limit 1));
@@ -186,9 +194,14 @@ select pg_temp.chk_true('branch changes are audited',
 -- 7. Online payment text comes from the database ---------------------------------------------
 update public.payment_settings set online_payment_enabled = false,
   online_payment_disabled_message = 'BS-TEST: paying online is paused' where id = 'default';
-select pg_temp.chk_true('the order trigger uses the database message',
+-- Every order is paid online first (migration 20261119080000): while it is off, ordering
+-- is paused for every payment method, with the server's own message.
+select pg_temp.chk_true('while online payment is off, ordering is paused (online)',
   pg_temp.err_of('bs-c1', format($q$select public.place_order(%L::uuid, false, null, 'Online Payment (GCash, Maya, Card)', '', 'bs-key-3')$q$,
-    pg_temp.cart())) = 'BS-TEST: paying online is paused');
+    pg_temp.cart())) like 'Ordering is paused because online payment is unavailable%');
+select pg_temp.chk_true('while online payment is off, ordering is paused (cash, no cash-only order)',
+  pg_temp.err_of('bs-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'bs-key-4')$q$,
+    pg_temp.cart())) like 'Ordering is paused because online payment is unavailable%');
 select pg_temp.chk_true('customers can read the message (for the checkout notice)',
   pg_temp.call_as('bs-c1', 'select online_payment_disabled_message from public.payment_settings where id = ''default''') = 'BS-TEST: paying online is paused');
 

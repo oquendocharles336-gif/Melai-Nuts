@@ -25,7 +25,9 @@ ph() { printf '+639%09d' "$(( $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 1000
 
 PSQL=(psql "$DATABASE_URL" -X -q -At -v ON_ERROR_STOP=0)
 PASS=0; FAIL=0
-TMP="$(mktemp -d)"; trap 'cleanup; rm -rf "$TMP"' EXIT
+# Every order is paid online first (migration 20261119080000).
+. "$(dirname "$0")/online_first_settings.sh"
+TMP="$(mktemp -d)"; trap 'cleanup; online_first_restore; rm -rf "$TMP"' EXIT
 
 sql()  { "${PSQL[@]}" -c "$1" 2>&1; }
 val()  { "${PSQL[@]}" -c "$1" 2>/dev/null | head -1; }
@@ -53,6 +55,7 @@ delete from public.voucher_usage        where firebase_uid like 'conc\_%';
 delete from public.loyalty_transactions where firebase_uid like 'conc\_%';
 delete from public.loyalty_accounts     where firebase_uid like 'conc\_%';
 delete from public.payments             where firebase_uid like 'conc\_%';
+delete from public.order_downpayments   where firebase_uid like 'conc\_%';
 delete from public.order_status_events  where order_id in (select id from public.orders where firebase_uid like 'conc\_%');
 delete from public.order_items          where order_id in (select id from public.orders where firebase_uid like 'conc\_%');
 delete from public.orders               where firebase_uid like 'conc\_%';
@@ -93,6 +96,7 @@ errored()   { grep -q 'ERROR' "$TMP/r$1" && echo yes || echo no; }
 
 echo "== setting up fixtures"
 cleanup
+online_first_on
 "${PSQL[@]}" -q >/dev/null <<'EOF'
 insert into public.branches (name, address, supports_delivery, supports_pickup, delivery_fee) values ('CONC-1','x',true,true,0),('CONC-2','x',true,true,0);
 insert into public.product_categories (label) values ('CONC-cat');
