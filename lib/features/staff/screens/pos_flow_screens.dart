@@ -4,6 +4,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../app/routes.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/nfc_card_reader.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -24,12 +26,20 @@ import '../widgets/pos_offline_widgets.dart';
 /// never ring it up twice (the database returns the original sale instead),
 /// and a changed sale after a refused attempt gets a new key (see
 /// [PosSaleAttempt]).
+///
+/// [quote] is the database's own total (`staff_pos_quote`) for a sale with a
+/// loyalty customer; with [redeemPoints] it includes the points discount,
+/// computed by the same rule as an app order.
 class PosCheckout {
   final Map<String, int> cart; // variantId -> quantity
   final String? customerUid;
   final String? customerName;
   final PosSaleAttempt attempt;
   final String? method; // cash | gcash | card
+  final bool redeemPoints;
+  final bool customerConfirmed;
+  final String? loyaltyPin;
+  final PosQuote? quote;
 
   const PosCheckout({
     required this.cart,
@@ -37,6 +47,10 @@ class PosCheckout {
     this.customerUid,
     this.customerName,
     this.method,
+    this.redeemPoints = false,
+    this.customerConfirmed = false,
+    this.loyaltyPin,
+    this.quote,
   });
 
   PosCheckout withMethod(String m) => PosCheckout(
@@ -45,16 +59,22 @@ class PosCheckout {
         customerUid: customerUid,
         customerName: customerName,
         method: m,
+        redeemPoints: redeemPoints,
+        customerConfirmed: customerConfirmed,
+        loyaltyPin: loyaltyPin,
+        quote: quote,
       );
 
-  /// Display total using the prices the register currently shows. The
-  /// database recomputes the real total from the catalog when the sale is
-  /// recorded.
+  /// The amount to collect: the database's quote when there is one,
+  /// otherwise the prices the register currently shows. Either way the
+  /// database recomputes the real total when the sale is recorded.
   ///
   /// Summed in whole centavos so the total is exact: adding doubles gives
   /// ₱45.10 + ₱45.20 = 90.30000000000001, and the cash screen would then
   /// refuse an exact ₱90.30 payment.
   double get total {
+    final q = quote;
+    if (q != null) return q.total;
     var cents = 0;
     cart.forEach((variantId, qty) {
       final item = StaffStore.instance.itemByVariant(variantId);
@@ -89,6 +109,7 @@ Future<PosSaleResult> _submitSale(
     method: c.method!,
     customerUid: c.customerUid,
     reference: reference,
+    redeemPoints: c.redeemPoints,
   ));
   final PosSaleResult result;
   try {
@@ -100,9 +121,22 @@ Future<PosSaleResult> _submitSale(
       paymentReference: reference,
       cashReceived: cashReceived,
       customerUid: c.customerUid,
+      redeemPoints: c.redeemPoints,
+      loyaltyPin: c.loyaltyPin,
+      customerConfirmed: c.customerConfirmed,
     );
   } catch (e) {
-    c.attempt.markFailed(outcomeUnknown: AppErrors.from(e).isConnectivity);
+    final mapped = AppErrors.from(e);
+    c.attempt.markFailed(outcomeUnknown: mapped.isConnectivity);
+    if (c.redeemPoints && mapped.isConnectivity) {
+      // Points are checked against the live balance, so they cannot be
+      // queued on the device. Retrying uses the same key (never twice).
+      throw AppError(
+        mapped.kind,
+        'No connection. Using points needs a connection: try again, or go back, turn off '
+        '"Use points" and save the sale on this device.',
+      );
+    }
     rethrow;
   }
   unawaited(store.refreshLive());
@@ -112,7 +146,8 @@ Future<PosSaleResult> _submitSale(
 /// The sale could not reach the server: offer to keep it on the device
 /// ([PosSaleQueue]). Returns true when it was saved (the caller then leaves
 /// the checkout). Only offered for a connectivity failure — a sale the server
-/// answered and refused is never queued.
+/// answered and refused is never queued — and never for a sale that redeems
+/// points (the balance must be checked live).
 Future<bool> _saveOfflineIfDisconnected(
   BuildContext context,
   Object error,
@@ -121,7 +156,7 @@ Future<bool> _saveOfflineIfDisconnected(
   double? cashReceived,
 }) async {
   final branchId = StaffStore.instance.activeBranchId;
-  if (branchId == null || c.method == null || !AppErrors.from(error).isConnectivity) return false;
+  if (branchId == null || c.method == null || c.redeemPoints || !AppErrors.from(error).isConnectivity) return false;
   final saved = await offerOfflineSave(
     context,
     branchId: branchId,
@@ -144,7 +179,10 @@ Future<bool> _saveOfflineIfDisconnected(
   return saved;
 }
 
-/// POS Cart — review the sale and optionally attach a loyalty customer.
+/// POS Cart — review the sale and optionally attach a loyalty customer
+/// (tap their card on this phone, the counter reader, or type phone / e-mail).
+/// With a customer attached the totals come from the database, and points can
+/// be used by the same rule as an app order.
 class PosCartScreen extends StatefulWidget {
   final Map<String, int> initialCart;
 
@@ -157,14 +195,76 @@ class PosCartScreen extends StatefulWidget {
 class _PosCartScreenState extends State<PosCartScreen> {
   late final Map<String, int> _cart = Map.from(widget.initialCart);
   final PosSaleAttempt _attempt = PosSaleAttempt();
+  final TextEditingController _pin = TextEditingController();
   CustomerMatch? _customer;
+  bool _confirmed = false;
+  bool _redeem = false;
+  PosQuote? _quote;
+  bool _quoteLoading = false;
+  Object? _quoteError;
+  int _quoteSeq = 0;
+
+  static final RegExp _pinRule = RegExp(r'^\d{4,6}$');
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    super.dispose();
+  }
+
+  bool get _online => ConnectivityService.instance.isOnline;
 
   PosCheckout get _checkout => PosCheckout(
         cart: Map.from(_cart),
         attempt: _attempt,
         customerUid: _customer?.uid,
         customerName: _customer?.name,
+        redeemPoints: _redeem,
+        customerConfirmed: _confirmed,
+        loyaltyPin: _redeem && (_quote?.pinRequired ?? false) ? _pin.text : null,
+        // Only a quote for exactly this cart / customer / choice is used.
+        quote: _quoteLoading || _quoteError != null ? null : _quote,
       );
+
+  /// Asks the database for the totals of the current cart and choice.
+  Future<void> _refreshQuote() async {
+    final customer = _customer;
+    final branchId = StaffStore.instance.activeBranchId;
+    final seq = ++_quoteSeq;
+    if (customer == null || branchId == null || _cart.isEmpty || !_online) {
+      setState(() {
+        _quote = null;
+        _quoteError = null;
+        _quoteLoading = false;
+        if (!_online) _redeem = false;
+      });
+      return;
+    }
+    setState(() {
+      _quoteLoading = true;
+      _quoteError = null;
+    });
+    try {
+      final q = await StaffRepository.instance.posQuote(
+        branchId: branchId,
+        quantitiesByVariant: Map.from(_cart),
+        customerUid: customer.uid,
+        redeemPoints: _redeem,
+      );
+      if (!mounted || seq != _quoteSeq) return;
+      setState(() {
+        _quote = q;
+        _quoteLoading = false;
+        if (_redeem && !q.canRedeem) _redeem = false;
+      });
+    } catch (e) {
+      if (!mounted || seq != _quoteSeq) return;
+      setState(() {
+        _quoteLoading = false;
+        _quoteError = e;
+      });
+    }
+  }
 
   void _change(String variantId, int delta) {
     final item = StaffStore.instance.itemByVariant(variantId);
@@ -172,7 +272,11 @@ class _PosCartScreenState extends State<PosCartScreen> {
     final next = current + delta;
     if (next <= 0) {
       setState(() => _cart.remove(variantId));
-      if (_cart.isEmpty) Navigator.of(context).pop();
+      if (_cart.isEmpty) {
+        Navigator.of(context).pop();
+        return;
+      }
+      unawaited(_refreshQuote());
       return;
     }
     if (item != null && next > item.quantity) {
@@ -180,6 +284,7 @@ class _PosCartScreenState extends State<PosCartScreen> {
       return;
     }
     setState(() => _cart[variantId] = next);
+    unawaited(_refreshQuote());
   }
 
   Future<void> _lookupCustomer() async {
@@ -187,43 +292,55 @@ class _PosCartScreenState extends State<PosCartScreen> {
       context: context,
       builder: (_) => const _CustomerLookupDialog(),
     );
-    if (picked != null && mounted) setState(() => _customer = picked);
+    if (picked != null && mounted) {
+      setState(() {
+        _customer = picked;
+        _confirmed = false;
+        _redeem = false;
+        _pin.clear();
+      });
+      unawaited(_refreshQuote());
+    }
+  }
+
+  void _removeCustomer() {
+    setState(() {
+      _customer = null;
+      _confirmed = false;
+      _redeem = false;
+      _pin.clear();
+    });
+    unawaited(_refreshQuote());
+  }
+
+  /// Why "Next" is not available yet, or null.
+  String? _blocker() {
+    if (_cart.isEmpty) return 'The cart is empty.';
+    if (_customer != null && _quoteLoading) return 'Getting the totals…';
+    if (_redeem) {
+      if (_quoteError != null || _quote == null) return 'The points total could not be loaded. Retry or turn off "Use points".';
+      if (!_confirmed) return 'Confirm the customer\'s name to use points.';
+      if (_quote!.pinRequired && !_pinRule.hasMatch(_pin.text)) return 'Enter the customer\'s loyalty PIN.';
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final store = StaffStore.instance;
     return ListenableBuilder(
-      listenable: store,
+      listenable: Listenable.merge([store, ConnectivityService.instance]),
       builder: (context, _) {
         final checkout = _checkout;
         final total = checkout.total;
+        final blocker = _blocker();
         return Scaffold(
           backgroundColor: AppColors.canvas,
           appBar: AppBar(title: const Text('POS Checkout')),
           body: Column(
             children: [
               if (_customer != null)
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  color: AppColors.successBg,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.verified_user_rounded, color: AppColors.success),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('CUSTOMER: ${_customer!.name}', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
-                            Text('${_customer!.points} points • more points are added after checkout.', style: AppTextStyles.bodySm),
-                          ],
-                        ),
-                      ),
-                      TextButton(onPressed: () => setState(() => _customer = null), child: const Text('Remove')),
-                    ],
-                  ),
-                )
+                _customerPanel(_customer!)
               else
                 InkWell(
                   onTap: _lookupCustomer,
@@ -235,7 +352,7 @@ class _PosCartScreenState extends State<PosCartScreen> {
                         const Icon(Icons.contactless_rounded, color: AppColors.primary),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text('Find loyalty customer (card no., phone or email)',
+                          child: Text('Find loyalty customer (tap card, phone or email)',
                               style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
                         ),
                         const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.primary),
@@ -252,13 +369,7 @@ class _PosCartScreenState extends State<PosCartScreen> {
                     for (final e in _cart.entries) _line(store, e.key, e.value),
                     const Divider(),
                     const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Subtotal', style: AppTextStyles.bodyMd),
-                        Text(peso(total), style: AppTextStyles.bodyMd),
-                      ],
-                    ),
+                    ..._totals(checkout),
                   ],
                 ),
               ),
@@ -269,30 +380,41 @@ class _PosCartScreenState extends State<PosCartScreen> {
                   boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
                 ),
                 child: SafeArea(
-                  child: Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('TOTAL PAYABLE', style: AppTextStyles.bodySm),
-                            Text(peso(total), style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary)),
-                          ],
+                      if (blocker != null && _customer != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(blocker, style: AppTextStyles.bodySm.copyWith(color: AppColors.textSecondary)),
                         ),
-                      ),
-                      SizedBox(
-                        width: 160,
-                        child: PrimaryButton(
-                          label: 'Next: Payment',
-                          onPressed: _cart.isEmpty
-                              ? null
-                              : () async {
-                                  final done = await Navigator.of(context)
-                                      .pushNamed(AppRoutes.staffPosPayment, arguments: _checkout);
-                                  if (done == true && context.mounted) Navigator.of(context).pop(true);
-                                },
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('TOTAL PAYABLE', style: AppTextStyles.bodySm),
+                                Text(peso(total), style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary)),
+                              ],
+                            ),
+                          ),
+                          SizedBox(
+                            width: 160,
+                            child: PrimaryButton(
+                              label: 'Next: Payment',
+                              onPressed: blocker != null
+                                  ? null
+                                  : () async {
+                                      final done = await Navigator.of(context)
+                                          .pushNamed(AppRoutes.staffPosPayment, arguments: _checkout);
+                                      if (done == true && context.mounted) Navigator.of(context).pop(true);
+                                    },
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -303,6 +425,117 @@ class _PosCartScreenState extends State<PosCartScreen> {
         );
       },
     );
+  }
+
+  /// Name check (the card is only a lookup key), points and the PIN.
+  Widget _customerPanel(CustomerMatch customer) {
+    final q = _quote;
+    final canRedeem = _online && q != null && q.canRedeem;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm),
+      color: AppColors.successBg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_user_rounded, color: AppColors.success),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('CUSTOMER: ${customer.name}', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
+                    Text('${q?.pointsBalance ?? customer.points} points available', style: AppTextStyles.bodySm),
+                  ],
+                ),
+              ),
+              TextButton(onPressed: _removeCustomer, child: const Text('Remove')),
+            ],
+          ),
+          CheckboxListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: _confirmed,
+            onChanged: (v) => setState(() => _confirmed = v ?? false),
+            title: Text('Customer confirmed this is their name', style: AppTextStyles.bodyMd),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            value: _redeem,
+            onChanged: canRedeem
+                ? (v) {
+                    setState(() => _redeem = v);
+                    unawaited(_refreshQuote());
+                  }
+                : null,
+            title: Text('Use points', style: AppTextStyles.labelLg),
+            subtitle: Text(
+              !_online
+                  ? 'Needs a connection. Points are still earned on an offline sale.'
+                  : q == null
+                      ? (_quoteLoading ? 'Checking points…' : 'Points could not be checked.')
+                      : !q.redeemConfigured
+                          ? 'Point redemption is not set up by the owner.'
+                          : q.maxPointsRedeemable <= 0
+                              ? 'No points can be used on this sale.'
+                              : 'Up to ${q.maxPointsRedeemable} points (−${peso(q.maxDiscount)}) on this sale',
+              style: AppTextStyles.bodySm,
+            ),
+          ),
+          if (_redeem && (q?.pinRequired ?? false))
+            TextField(
+              controller: _pin,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Customer enters their loyalty PIN',
+                prefixIcon: Icon(Icons.lock_rounded),
+                counterText: '',
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _totals(PosCheckout checkout) {
+    Widget row(String label, String value, {Color? color, bool bold = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: bold ? AppTextStyles.labelLg : AppTextStyles.bodyMd),
+              Text(value, style: (bold ? AppTextStyles.labelLg : AppTextStyles.bodyMd).copyWith(color: color)),
+            ],
+          ),
+        );
+    if (_customer != null && _quoteLoading) {
+      return [const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator()))];
+    }
+    if (_customer != null && _quoteError != null) {
+      return [
+        Text(AppErrors.from(_quoteError!).message, style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(onPressed: _refreshQuote, icon: const Icon(Icons.refresh_rounded), label: const Text('Retry')),
+        ),
+        row('Subtotal (register prices)', peso(checkout.total)),
+      ];
+    }
+    final q = checkout.quote;
+    if (q == null) return [row('Subtotal', peso(checkout.total))];
+    return [
+      row('Subtotal', peso(q.subtotal)),
+      if (q.pointsUsed > 0) row('Points used (${q.pointsUsed} pts)', '−${peso(q.loyaltyDiscount)}', color: AppColors.success),
+      row('Total payable', peso(q.total), bold: true),
+      if (q.pointsToEarn > 0) row('Points to earn', '+${q.pointsToEarn}'),
+    ];
   }
 
   Widget _line(StaffStore store, String variantId, int qty) {
@@ -325,9 +558,10 @@ class _PosCartScreenState extends State<PosCartScreen> {
   }
 }
 
-/// Looks a loyalty customer up by RFID card number, phone or email. The
-/// database only returns an exact match, so this cannot be used to browse
-/// customers.
+/// Looks a loyalty customer up by a card tapped on THIS phone (NFC), a card
+/// read by the counter reader (keyboard mode), the printed GK- label, phone or
+/// e-mail. The database only returns an exact match, so this cannot be used to
+/// browse customers.
 class _CustomerLookupDialog extends StatefulWidget {
   const _CustomerLookupDialog();
 
@@ -338,13 +572,69 @@ class _CustomerLookupDialog extends StatefulWidget {
 class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
   final _controller = TextEditingController();
   bool _busy = false;
+  bool _nfcWaiting = false;
+  NfcSupport? _nfc;
   String? _message;
   List<CustomerMatch> _results = const [];
 
   @override
+  void initState() {
+    super.initState();
+    NfcCardReader.instance.support().then((s) {
+      if (mounted) setState(() => _nfc = s);
+    });
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
+    unawaited(NfcCardReader.instance.cancel());
     super.dispose();
+  }
+
+  Future<void> _tapOnPhone() async {
+    setState(() {
+      _nfcWaiting = true;
+      _message = null;
+      _results = const [];
+    });
+    String uid;
+    try {
+      uid = await NfcCardReader.instance.readUid();
+    } on NfcReadException catch (e) {
+      if (mounted) {
+        setState(() {
+          _nfcWaiting = false;
+          _message = e.message == NfcCardReader.cancelledMessage ? null : e.message;
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    unawaited(HapticFeedback.mediumImpact());
+    setState(() {
+      _nfcWaiting = false;
+      _busy = true;
+      _controller.text = uid;
+    });
+    try {
+      final r = await StaffRepository.instance.lookupCard(uid);
+      if (!mounted) return;
+      if (r.isActive) {
+        Navigator.pop(context, r.customer);
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _message = r.problem;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _message = AppErrors.from(e).message;
+      });
+    }
   }
 
   Future<void> _search() async {
@@ -368,7 +658,9 @@ class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
       setState(() {
         _results = r;
         _busy = false;
-        _message = r.isEmpty ? 'No loyalty customer found.' : null;
+        _message = r.isEmpty
+            ? (looksLikeCardUid(q) ? 'This card is not linked to any account yet.' : 'No loyalty customer found.')
+            : null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -379,41 +671,90 @@ class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
     }
   }
 
+  Widget _nfcArea() {
+    final nfc = _nfc;
+    if (nfc == null) return const SizedBox.shrink();
+    if (nfc == NfcSupport.unsupported) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            'This phone cannot read cards (no NFC, or an iPhone with MIFARE Classic cards). '
+            'Use the counter reader, the GK- label on the card, or the customer\'s phone / e-mail.',
+            style: AppTextStyles.bodySm,
+          ),
+        );
+    }
+    if (nfc == NfcSupport.disabled) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text('Turn on NFC in the phone settings to tap the card on this phone.', style: AppTextStyles.bodySm),
+        );
+    }
+    return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _nfcWaiting
+              ? Row(
+                  children: [
+                    const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Hold the card against the back of this phone…', style: AppTextStyles.bodyMd)),
+                    TextButton(
+                      onPressed: () async {
+                        await NfcCardReader.instance.cancel();
+                        if (mounted) setState(() => _nfcWaiting = false);
+                      },
+                      child: const Text('Stop'),
+                    ),
+                  ],
+                )
+              : OutlinedButton.icon(
+                  onPressed: _busy ? null : _tapOnPhone,
+                  icon: const Icon(Icons.nfc),
+                  label: const Text('Tap card on this phone'),
+                ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Loyalty customer'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            maxLength: InputLimits.email,
-            onSubmitted: (_) => _search(),
-            decoration: InputDecoration(
-              counterText: '',
-              errorText: _results.isEmpty ? _message : null,
-              errorMaxLines: 3,
-              labelText: 'Tap card, or type phone / email / GK- label',
-              suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
-            ),
-          ),
-          if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator()),
-          for (final c in _results)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.person_outline_rounded),
-              title: Text(c.name),
-              subtitle: Text('${c.points} points'),
-              trailing: IconButton(
-                tooltip: 'Link RFID card',
-                icon: const Icon(Icons.contactless_rounded),
-                onPressed: () => showDialog<void>(context: context, builder: (_) => _LinkCardDialog(customer: c)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _nfcArea(),
+            TextField(
+              controller: _controller,
+              autofocus: _nfc != NfcSupport.available,
+              maxLength: InputLimits.email,
+              enabled: !_nfcWaiting,
+              onSubmitted: (_) => _search(),
+              decoration: InputDecoration(
+                counterText: '',
+                errorText: _results.isEmpty ? _message : null,
+                errorMaxLines: 4,
+                labelText: 'Reader tap, card no. / GK- label, phone or email',
+                suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
               ),
-              onTap: () => Navigator.pop(context, c),
             ),
-        ],
+            if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: Center(child: CircularProgressIndicator())),
+            for (final c in _results)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.person_outline_rounded),
+                title: Text(c.name),
+                subtitle: Text('${c.points} points'),
+                trailing: IconButton(
+                  tooltip: 'Link RFID card',
+                  icon: const Icon(Icons.contactless_rounded),
+                  onPressed: () => showDialog<void>(context: context, builder: (_) => _LinkCardDialog(customer: c)),
+                ),
+                onTap: () => Navigator.pop(context, c),
+              ),
+          ],
+        ),
       ),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))],
     );
@@ -877,6 +1218,10 @@ class PosReceiptScreen extends StatelessWidget {
                         for (final i in order.items)
                           _row('${i.quantity} × ${i.productName}${i.variantLabel.isEmpty ? '' : ' • ${i.variantLabel}'}', peso(i.total)),
                         const Divider(height: 24),
+                      ],
+                      if (sale.pointsRedeemed > 0) ...[
+                        _row('Subtotal', peso(sale.subtotal)),
+                        _row('Points used (${sale.pointsRedeemed} pts)', '−${peso(sale.loyaltyDiscount)}'),
                       ],
                       _row('Total', peso(sale.total), bold: true),
                       if (order != null) _row('Paid with', order.paymentMethod),

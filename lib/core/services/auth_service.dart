@@ -12,6 +12,7 @@ import '../../data/catalog_store.dart';
 import '../../data/repositories/branch_repository.dart';
 import 'branch_controller.dart';
 import 'customer_data_store.dart';
+import 'loyalty_card_store.dart';
 import 'customer_session_binder.dart';
 import 'data_sync_service.dart';
 import 'account_email_service.dart';
@@ -889,6 +890,7 @@ class AuthService {
     }
     CartController.instance.endSession();
     CustomerDataStore.instance.clear();
+    LoyaltyCardStore.instance.clear();
     StaffStore.instance.clear();
     BranchController.instance.clear();
     if (signingOutStaffUid != null) {

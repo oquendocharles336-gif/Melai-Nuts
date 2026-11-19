@@ -643,9 +643,14 @@ class CustomerMatch {
       );
 }
 
-/// What the database returns after ringing up a sale.
+/// What the database returns after ringing up a sale. [subtotal],
+/// [loyaltyDiscount] and [pointsRedeemed] come from the database (points are
+/// redeemed by `staff_create_pos_sale`, never by the app).
 class PosSaleResult {
   final String orderId;
+  final double subtotal;
+  final double loyaltyDiscount;
+  final int pointsRedeemed;
   final double total;
   final int pointsEarned;
   final double change;
@@ -659,14 +664,93 @@ class PosSaleResult {
     required this.change,
     required this.paymentId,
     required this.alreadyRecorded,
+    this.subtotal = 0,
+    this.loyaltyDiscount = 0,
+    this.pointsRedeemed = 0,
   });
 
   factory PosSaleResult.fromJson(Map<String, dynamic> j) => PosSaleResult(
         orderId: j['order_id'] as String,
+        subtotal: _numOrNull(j['subtotal']) ?? _num(j['total']),
+        loyaltyDiscount: _num(j['loyalty_discount']),
+        pointsRedeemed: _int(j['points_redeemed']),
         total: _num(j['total']),
         pointsEarned: _int(j['points_earned']),
         change: _num(j['change']),
         paymentId: (j['payment_id'] as String?) ?? '',
         alreadyRecorded: (j['already_recorded'] as bool?) ?? false,
       );
+}
+
+/// The database's totals for a POS sale before payment (`staff_pos_quote`):
+/// the same loyalty rule as an app order. The register shows these numbers,
+/// never its own discount.
+class PosQuote {
+  final double subtotal;
+  final int pointsUsed;
+  final double loyaltyDiscount;
+  final double total;
+  final int pointsToEarn;
+  final int pointsBalance;
+  final bool redeemConfigured;
+  final int maxPointsRedeemable;
+  final double maxDiscount;
+  final bool pinRequired;
+
+  const PosQuote({
+    required this.subtotal,
+    required this.pointsUsed,
+    required this.loyaltyDiscount,
+    required this.total,
+    required this.pointsToEarn,
+    required this.pointsBalance,
+    required this.redeemConfigured,
+    required this.maxPointsRedeemable,
+    required this.maxDiscount,
+    required this.pinRequired,
+  });
+
+  factory PosQuote.fromJson(Map<String, dynamic> j) => PosQuote(
+        subtotal: _num(j['subtotal']),
+        pointsUsed: _int(j['points_used']),
+        loyaltyDiscount: _num(j['loyalty_discount']),
+        total: _num(j['total']),
+        pointsToEarn: _int(j['points_to_earn']),
+        pointsBalance: _int(j['points_balance']),
+        redeemConfigured: j['redeem_configured'] == true,
+        maxPointsRedeemable: _int(j['max_points_redeemable']),
+        maxDiscount: _num(j['max_discount']),
+        pinRequired: j['pin_required'] == true,
+      );
+
+  bool get canRedeem => redeemConfigured && maxPointsRedeemable > 0;
+}
+
+/// Who owns a tapped card (`staff_lookup_card`). Only an [isActive] card has
+/// a [customer]; blocked / removed / unknown cards never reveal the owner.
+class CardLookup {
+  final String status; // active | blocked | replaced | unregistered
+  final String? label;
+  final CustomerMatch? customer;
+
+  const CardLookup({required this.status, this.label, this.customer});
+
+  factory CardLookup.fromJson(Map<String, dynamic> j) {
+    final card = j['card'] is Map ? Map<String, dynamic>.from(j['card'] as Map) : const <String, dynamic>{};
+    final c = j['customer'] is Map ? Map<String, dynamic>.from(j['customer'] as Map) : null;
+    return CardLookup(
+      status: (j['status'] as String?) ?? 'unregistered',
+      label: card['label'] as String?,
+      customer: c == null ? null : CustomerMatch.fromJson(c),
+    );
+  }
+
+  bool get isActive => status == 'active' && customer != null;
+
+  /// What to tell staff when the card cannot be used.
+  String get problem => switch (status) {
+        'blocked' => 'Card ${label ?? ''} is blocked (reported lost). Look the customer up by phone or e-mail.',
+        'replaced' => 'Card ${label ?? ''} was replaced or removed and no longer works.',
+        _ => 'This card is not linked to any account yet. The customer can link it in the app, or use "Link RFID card".',
+      };
 }

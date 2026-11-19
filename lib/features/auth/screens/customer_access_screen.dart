@@ -300,7 +300,7 @@ class _CustomerAccessScreenState extends State<CustomerAccessScreen> {
                       icon: Icons.contactless_rounded,
                       title: 'Physical RFID Member Card Support',
                       text:
-                          'Have a Melai Nuts RFID loyalty card? Branch staff can link it to your account when you tap it at the counter.',
+                          'Have a Melai Nuts RFID loyalty card? Link it yourself at a counter card reader, or ask branch staff to link it for you.',
                     ),
                     const SizedBox(height: 14),
                     if (!_isSignIn) ...[

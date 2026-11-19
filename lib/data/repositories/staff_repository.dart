@@ -459,6 +459,11 @@ class StaffRepository {
         'p_idempotency_key': idempotencyKey,
       }))['label'] as String;
 
+  /// Rings up a sale. With [redeemPoints] the database applies the
+  /// customer's points by the app's loyalty rule in the same transaction
+  /// ([customerConfirmed] and, when the customer set one, [loyaltyPin] are
+  /// required). A wrong / locked PIN comes back as an [AppError]; nothing is
+  /// recorded then.
   Future<PosSaleResult> createPosSale({
     required String branchId,
     required Map<String, int> quantitiesByVariant,
@@ -467,18 +472,52 @@ class StaffRepository {
     String? paymentReference,
     double? cashReceived,
     String? customerUid,
+    bool redeemPoints = false,
+    String? loyaltyPin,
+    bool customerConfirmed = false,
+  }) async {
+    final r = _map(await _rpc('staff_create_pos_sale', {
+      'p_branch_id': branchId,
+      'p_items': [
+        for (final e in quantitiesByVariant.entries) {'variant_id': e.key, 'quantity': e.value},
+      ],
+      'p_payment_method': paymentMethod,
+      'p_payment_reference': paymentReference,
+      'p_cash_received': cashReceived,
+      'p_customer_uid': customerUid,
+      'p_idempotency_key': idempotencyKey,
+      if (redeemPoints) 'p_redeem_points': true,
+      if (redeemPoints) 'p_loyalty_pin': loyaltyPin,
+      if (redeemPoints) 'p_customer_confirmed': customerConfirmed,
+    }));
+    final error = r['error'];
+    if (error is String) {
+      throw AppError(AppErrorKind.invalidData, (r['message'] as String?) ?? 'Wrong loyalty PIN.');
+    }
+    return PosSaleResult.fromJson(r);
+  }
+
+  /// The database's totals for this cart (and points, with [redeemPoints]).
+  Future<PosQuote> posQuote({
+    required String branchId,
+    required Map<String, int> quantitiesByVariant,
+    String? customerUid,
+    bool redeemPoints = false,
   }) async =>
-      PosSaleResult.fromJson(_map(await _rpc('staff_create_pos_sale', {
+      PosQuote.fromJson(_map(await _rpc('staff_pos_quote', {
         'p_branch_id': branchId,
         'p_items': [
           for (final e in quantitiesByVariant.entries) {'variant_id': e.key, 'quantity': e.value},
         ],
-        'p_payment_method': paymentMethod,
-        'p_payment_reference': paymentReference,
-        'p_cash_received': cashReceived,
         'p_customer_uid': customerUid,
-        'p_idempotency_key': idempotencyKey,
+        'p_redeem_points': redeemPoints,
       })));
+
+  /// A card tapped on the phone (NFC) or reader: who owns it
+  /// (`staff_lookup_card`): active card -> the customer; blocked / removed /
+  /// unknown -> a message.
+  Future<CardLookup> lookupCard(String cardUid) async =>
+      CardLookup.fromJson(_map(await _rpc('staff_lookup_card', {'p_card_uid': cardUid})));
 
   // ---- Refunds -------------------------------------------------------------------
 

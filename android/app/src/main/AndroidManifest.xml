@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Staff POS: read a customer's loyalty card UID with the phone's NFC (nfc_manager, foreground only).
+         Not required: phones without NFC still install the app and use the reader / typed card number. -->
+    <uses-permission android:name="android.permission.NFC"/>
+    <uses-feature android:name="android.hardware.nfc" android:required="false"/>
     <!-- Camera (barcode scanner, proof-of-delivery photo) is declared by the mobile_scanner and
          image_picker plugins themselves. No storage, contacts, phone, SMS or microphone permission. -->
     <application

@@ -4,6 +4,11 @@ A small USB card reader for the counter. It reads the loyalty card's UID and sen
 the POS (Flutter app) or to the admin website. Everything else — who owns the card, whether
 it is blocked, points — is decided by the database (`supabase/migrations/20261011000000_loyalty_cards.sql`).
 
+> **Wi-Fi reader (ESP32):** for customer self-linking ("Link my card" in the app) and live point
+> sync, see [`../rfid-reader-esp32/`](../rfid-reader-esp32/README.md). Staff can also tap a card on
+> an NFC Android phone in the POS (*Find loyalty customer → Tap card on this phone*). This USB reader
+> keeps working as before.
+
 ## Parts (about ₱400–₱700)
 | Part | Notes |
 |---|---|

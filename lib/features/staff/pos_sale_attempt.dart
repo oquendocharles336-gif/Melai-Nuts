@@ -52,6 +52,7 @@ class PosSaleAttempt {
     required String method,
     String? customerUid,
     String? reference,
+    bool redeemPoints = false,
   }) {
     final lines = <String, int>{};
     cart.forEach((variant, qty) {
@@ -65,6 +66,8 @@ class PosSaleAttempt {
       (customerUid == null || customerUid.trim().isEmpty) ? 'walk-in' : customerUid.trim(),
       reference?.trim() ?? '',
       sorted.map((v) => '${v}x${lines[v]}').join(','),
+      // Like the database: redeeming points makes it a different request.
+      if (redeemPoints) 'redeem',
     ].join('|');
   }
 

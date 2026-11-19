@@ -205,6 +205,15 @@ class CustomerDataStore extends ChangeNotifier {
   /// Retry after a failed load (same as [refresh]).
   Future<void> retry() => refresh();
 
+  /// Re-reads the points balance and history (and orders) without a full
+  /// reload — e.g. after the customer's card was tapped on a reader
+  /// (LoyaltyCardStore). Keeps the last good values when it fails.
+  Future<void> refreshLoyalty() async {
+    final uid = _uid ?? _requestedUid;
+    if (uid == null) return;
+    await _refreshAfterOrderChange(_generation, uid);
+  }
+
   /// Runs at most one load at a time. A request that arrives mid-load is
   /// coalesced into one follow-up load (so a change made while loading is
   /// never missed and loads never interleave).

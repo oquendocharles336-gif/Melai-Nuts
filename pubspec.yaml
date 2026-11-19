@@ -85,6 +85,12 @@ dependencies:
   # Barcode scanning at the POS (matched to product_variants.sku).
   mobile_scanner: ^7.4.2
 
+  # Staff POS: read the UID of a customer's loyalty card with the phone's NFC
+  # (lib/core/services/nfc_card_reader.dart). Android: NFC permission in
+  # AndroidManifest.xml. iPhones cannot read MIFARE Classic cards at all; the
+  # POS then uses the USB reader or the typed card number.
+  nfc_manager: ^4.1.0
+
   # Real connectivity detection (not a guess from failed requests) so the
   # app can tell "offline" apart from "server error" and refresh real data
   # the moment a connection comes back — see lib/core/services/connectivity_service.dart.

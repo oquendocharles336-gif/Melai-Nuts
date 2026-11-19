@@ -227,7 +227,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               icon: Icons.contactless_rounded,
               title: 'Physical RFID Member Card Support',
               text:
-                  'Have a Melai Nuts RFID loyalty card? Branch staff can link it to your account when you tap it at the counter.',
+                  'Have a Melai Nuts RFID loyalty card? Link it yourself at a counter card reader, or ask branch staff to link it for you.',
             ),
             const SizedBox(height: AppSpacing.md),
             TermsConsentField(initialValue: _agreed, onChanged: (v) => _agreed = v),

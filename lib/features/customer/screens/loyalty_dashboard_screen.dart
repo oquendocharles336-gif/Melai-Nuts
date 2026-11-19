@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/services/customer_data_store.dart';
+import '../../../core/services/loyalty_card_store.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/loyalty.dart';
@@ -19,8 +20,9 @@ class LoyaltyDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    LoyaltyCardStore.instance.ensureLoaded();
     return ListenableBuilder(
-      listenable: CustomerDataStore.instance,
+      listenable: Listenable.merge([CustomerDataStore.instance, LoyaltyCardStore.instance]),
       builder: (context, _) => _buildBody(context),
     );
   }
@@ -31,10 +33,11 @@ class LoyaltyDashboardScreen extends StatelessWidget {
     final lifetimeEarned = CustomerDataStore.instance.loyaltyTransactions
         .where((t) => t.type == LoyaltyTransactionType.earn)
         .fold<int>(0, (sum, t) => sum + t.points);
-    // The customer's RFID card: only a card actually registered to this account
-    // (customer_profiles.rfid_card_number, kept equal to the ACTIVE card by the database).
-    final cardNumber = store.profile?.rfidCardNumber?.trim();
-    final hasCard = cardNumber != null && cardNumber.isNotEmpty;
+    // The customer's RFID card, read live from the database (get_my_loyalty_card):
+    // "active" only while a card is really linked — never from a cached profile.
+    final liveCard = LoyaltyCardStore.instance.card;
+    final cardNumber = liveCard.isActive ? liveCard.label : null;
+    final hasCard = cardNumber != null;
     final claimableRewards = CustomerDataStore.instance.rewards.where((r) => r.pointsRequired <= availablePoints).toList();
 
     return Scaffold(
@@ -157,13 +160,13 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            hasCard ? 'Tap RFID Card at Store Counter' : 'No card linked · Link an RFID card',
+                            hasCard ? 'Tap RFID Card at Store Counter' : 'No card linked · Link my card',
                             style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark),
                           ),
                           Text(
                             hasCard
                                 ? 'Tap your card at the counter of any Melai Nuts branch'
-                                : 'See how to get a Golden Kernel card linked to your account',
+                                : 'Link your Golden Kernel card yourself at a counter card reader',
                             style: AppTextStyles.bodySm,
                           ),
                         ],
