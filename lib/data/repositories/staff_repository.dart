@@ -295,10 +295,13 @@ class StaffRepository {
           batches: byVariant[r['variant_id'] as String] ?? const [],
           // Older databases don't send it: treat as carried (old behaviour).
           isCarried: r['carried'] as bool? ?? true,
+          imageUrl: _nonEmpty(r['image_url']),
         ),
     ];
     return StaffInventorySnapshot(branchId: resolvedBranch, items: items, batches: batches);
   }
+
+  static String? _nonEmpty(Object? v) => v is String && v.trim().isNotEmpty ? v : null;
 
   Future<String> receiveBatch({
     required String branchId,

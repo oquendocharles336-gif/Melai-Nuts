@@ -21,6 +21,7 @@ import '../../../core/widgets/pending_sync_chip.dart';
 import '../widgets/e_receipt.dart';
 import '../widgets/pos_offline_widgets.dart';
 import '../widgets/staff_avatar.dart';
+import '../widgets/staff_product_photo.dart';
 import 'cash_drawer_screen.dart';
 import '../../notifications/push_tap_router.dart';
 import 'staff_dashboard_tab.dart';
@@ -373,12 +374,12 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
         maxCrossAxisExtent: 260,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 1.25,
+        // Taller tiles: photo on top, then name, option, price and stock.
+        childAspectRatio: 0.78,
       ),
       itemCount: items.length,
       itemBuilder: (context, i) {
         final item = items[i];
-        final product = findProductById(item.productId);
         final qty = _cart[item.variantId] ?? 0;
         final isSelected = qty > 0;
         // Nothing to sell: out of stock, or not sold at this branch.
@@ -394,7 +395,7 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                 borderRadius: BorderRadius.circular(16),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: isSelected ? AppColors.roleStaff.withValues(alpha: 0.04) : Colors.white,
                     borderRadius: BorderRadius.circular(16),
@@ -407,8 +408,15 @@ class _PosRegisterTabState extends State<_PosRegisterTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(product.icon, size: 22, color: isSelected ? AppColors.roleStaff : product.color),
-                      const Spacer(),
+                      Expanded(
+                        child: StaffProductPhoto(
+                          productId: item.productId,
+                          imageUrl: item.imageUrl,
+                          size: double.infinity,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       Text(
                         item.productName,
                         style: AppTextStyles.labelMd.copyWith(

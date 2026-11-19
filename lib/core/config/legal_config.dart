@@ -16,19 +16,21 @@
 /// use: Terms 10, Privacy 12, offline data in Privacy 2 and 4) and the
 /// 2026-11-19 update (no SMS check of the mobile number, the phone-match
 /// safeguard of the first-order rule, product reviews: Terms 2, Privacy 2, 3, 4,
-/// 10 and 11) wait for the owner, who also fills in
+/// 10 and 11) and the 2026-11-19.2 update (loyalty cards and staff-phone NFC
+/// with the "Allow NFC" button: Terms 11, Privacy 2, 8 and 13) wait for the
+/// owner, who also fills in
 /// the business name and address marked "TO BE FILLED IN BY THE OWNER".
 class LegalConfig {
   LegalConfig._();
 
-  static const String termsVersion = '2026-11-19';
-  static const String privacyVersion = '2026-11-19';
+  static const String termsVersion = '2026-11-19.2';
+  static const String privacyVersion = '2026-11-19.2';
 
   /// Section numbers whose wording still needs the owner's confirmation.
   /// They show a small "draft" note until this set is emptied.
   static const Set<String> ownerReviewSections = {
-    'terms.2', 'terms.3', 'terms.6', 'terms.7', 'terms.9', 'terms.10',
+    'terms.2', 'terms.3', 'terms.6', 'terms.7', 'terms.9', 'terms.10', 'terms.11',
     'privacy.1', 'privacy.2', 'privacy.3', 'privacy.4', 'privacy.5', 'privacy.8',
-    'privacy.9', 'privacy.10', 'privacy.11', 'privacy.12',
+    'privacy.9', 'privacy.10', 'privacy.11', 'privacy.12', 'privacy.13',
   };
 }

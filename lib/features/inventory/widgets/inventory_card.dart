@@ -6,6 +6,7 @@ import '../../../core/widgets/pending_sync_chip.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../../../data/models/inventory_item.dart';
+import '../../staff/widgets/staff_product_photo.dart';
 import 'fefo_badge.dart';
 
 /// A single tappable row summarizing either a whole [InventoryItem]
@@ -16,6 +17,7 @@ import 'fefo_badge.dart';
 /// default constructor.
 class InventoryCard extends StatelessWidget {
   final String productId;
+  final String? imageUrl;
   final String title;
   final String subtitle;
   final int quantity;
@@ -29,6 +31,7 @@ class InventoryCard extends StatelessWidget {
 
   const InventoryCard._({
     required this.productId,
+    this.imageUrl,
     required this.title,
     required this.subtitle,
     required this.quantity,
@@ -44,6 +47,7 @@ class InventoryCard extends StatelessWidget {
     final unassigned = item.unassignedQuantity > 0 ? ' • ${item.unassignedQuantity} not in a batch' : '';
     return InventoryCard._(
       productId: item.productId,
+      imageUrl: item.imageUrl,
       title: item.displayName,
       subtitle: item.isNotSoldHere
           ? 'Not sold here'
@@ -78,7 +82,6 @@ class InventoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final product = findProductById(productId);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
@@ -92,12 +95,7 @@ class InventoryCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(color: product.color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-              child: Icon(product.icon, color: product.color, size: 20),
-            ),
+            StaffProductPhoto(productId: productId, imageUrl: imageUrl, size: 44),
             const SizedBox(width: 10),
             Expanded(
               child: Column(

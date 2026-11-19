@@ -7,7 +7,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
-import '../../../data/catalog_store.dart';
+import '../../staff/widgets/staff_product_photo.dart';
 import '../widgets/inventory_card.dart';
 
 /// Full inventory detail for one variant (e.g. "Garlic Peanuts • 100g"):
@@ -33,7 +33,6 @@ class InventoryProductDetailsScreen extends StatelessWidget {
             ),
           );
         }
-        final product = findProductById(item.productId);
         final batches = item.batchesFefoSorted;
 
         return Scaffold(
@@ -53,14 +52,11 @@ class InventoryProductDetailsScreen extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: product.color.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(product.icon, color: product.color, size: 28),
+                      StaffProductPhoto(
+                        productId: item.productId,
+                        imageUrl: item.imageUrl,
+                        size: 64,
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       const SizedBox(width: 12),
                       Expanded(

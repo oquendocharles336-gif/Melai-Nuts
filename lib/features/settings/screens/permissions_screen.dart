@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/services/nfc_card_reader.dart';
 import '../../../core/services/permission_service.dart';
 import '../../../core/services/push_service.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -20,6 +22,13 @@ class PermissionsScreen extends StatefulWidget {
 class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindingObserver {
   final Map<AppPermission, PermissionStatusView> _status = {};
   bool _loading = true;
+
+  /// NFC for loyalty cards (staff phones only): the phone's NFC state and the
+  /// in-app "Allow NFC" choice (Android / iOS have no runtime NFC permission).
+  NfcSupport _nfc = NfcSupport.unsupported;
+  bool? _nfcAllowed;
+
+  bool get _showNfc => StaffStore.instance.profile != null && _nfc != NfcSupport.unsupported;
 
   @override
   void initState() {
@@ -45,11 +54,15 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
     for (final p in AppPermission.values) {
       next[p] = await PermissionService.instance.status(p);
     }
+    final nfc = await NfcCardReader.instance.support();
+    final nfcAllowed = await NfcCardReader.instance.allowedOnThisPhone();
     if (!mounted) return;
     setState(() {
       _status
         ..clear()
         ..addAll(next);
+      _nfc = nfc;
+      _nfcAllowed = nfcAllowed;
       _loading = false;
     });
   }
@@ -108,6 +121,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
                     Text(t.permissionsIntro, style: AppTextStyles.bodyMd),
                     const SizedBox(height: AppSpacing.md),
                     for (final p in AppPermission.values) _tile(t, p),
+                    if (_showNfc) _nfcTile(t),
                   ],
                 ),
               ),
@@ -146,6 +160,56 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
                 onPressed: () => _act(p),
                 child: Text(allow ? t.permAllow : t.permManage),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _nfcTile(AppLocalizations t) {
+    final allowed = _nfcAllowed == true;
+    final status = _nfcAllowed == null
+        ? t.permStatusNotAsked
+        : allowed
+            ? (_nfc == NfcSupport.disabled ? '${t.permStatusAllowed} · ${t.permNfcPhoneOff}' : t.permStatusAllowed)
+            : t.permNfcStatusOff;
+    final color = allowed && _nfc == NfcSupport.available
+        ? AppColors.success
+        : (_nfcAllowed == false ? AppColors.error : AppColors.textSecondary);
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.nfc_rounded, color: AppColors.primary),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(t.permNfcTitle, style: AppTextStyles.titleMd),
+                  const SizedBox(height: AppSpacing.xs2),
+                  Text(t.permNfcUse, style: AppTextStyles.bodySm),
+                  const SizedBox(height: AppSpacing.xs2),
+                  Text(status, style: AppTextStyles.labelMd.copyWith(color: color)),
+                  if (allowed && _nfc == NfcSupport.disabled)
+                    TextButton(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () => NfcCardReader.instance.openNfcSettings(),
+                      child: Text(t.permNfcPhoneSettings),
+                    ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                await NfcCardReader.instance.setAllowedOnThisPhone(!allowed);
+                await _load();
+              },
+              child: Text(allowed ? t.permNfcTurnOff : t.permAllow),
+            ),
           ],
         ),
       ),

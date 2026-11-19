@@ -295,7 +295,7 @@ class ProductPhotosTest extends TestCase
             ->assertSee('public &quot;product-images&quot; folder', false)
             ->assertSee('Version '.config('melai.legal.privacy_version'), false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('9. Mga larawan ng produkto at access sa mga file');
-        $this->assertSame('2026-11-19', config('melai.legal.privacy_version'));
+        $this->assertSame('2026-11-19.2', config('melai.legal.privacy_version'));
     }
 
     public function test_the_legal_pages_describe_offline_use(): void
@@ -310,7 +310,22 @@ class ProductPhotosTest extends TestCase
             ->assertSee('erased when you sign out');
         $this->get('/terms?lang=fil')->assertOk()->assertSee('10. Paggamit ng app nang offline');
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('12. Pagtatrabaho nang offline (staff at may-ari)');
-        $this->assertSame('2026-11-19', config('melai.legal.terms_version'));
+        $this->assertSame('2026-11-19.2', config('melai.legal.terms_version'));
+    }
+
+    public function test_the_legal_pages_describe_loyalty_cards_and_nfc(): void
+    {
+        $this->get('/terms')->assertOk()
+            ->assertSee('id="terms-11"', false)
+            ->assertSee('11. Loyalty cards')
+            ->assertSee('It is not a payment card');
+        $this->get('/privacy')->assertOk()
+            ->assertSee('id="privacy-13"', false)
+            ->assertSee('13. Loyalty cards and NFC')
+            ->assertSee('reads only your card&#x27;s ID number', false)
+            ->assertSee('Allow NFC');
+        $this->get('/terms?lang=fil')->assertOk()->assertSee('11. Mga loyalty card');
+        $this->get('/privacy?lang=fil')->assertOk()->assertSee('13. Mga loyalty card at NFC');
     }
 
     public function test_the_privacy_policy_describes_the_first_order_rule_and_sign_in_protection(): void

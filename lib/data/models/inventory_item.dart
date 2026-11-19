@@ -34,6 +34,11 @@ class InventoryItem {
   /// (shown with a "Pending sync" indicator).
   final bool pendingSync;
 
+  /// The product's main photo (first of `products.images`), or null when
+  /// none was uploaded / an older database doesn't send it. The staff screens
+  /// then fall back to the loaded catalog's photo, then to the icon tile.
+  final String? imageUrl;
+
   const InventoryItem({
     required this.productId,
     required this.variantId,
@@ -50,6 +55,7 @@ class InventoryItem {
     this.branch,
     this.isCarried = true,
     this.pendingSync = false,
+    this.imageUrl,
   });
 
   InventoryItem copyWith({
@@ -76,6 +82,7 @@ class InventoryItem {
         batches: batches ?? this.batches,
         isCarried: isCarried ?? this.isCarried,
         pendingSync: pendingSync ?? this.pendingSync,
+        imageUrl: imageUrl,
       );
 
   String get displayName =>

@@ -352,7 +352,7 @@ class _PosCartScreenState extends State<PosCartScreen> {
                         const Icon(Icons.contactless_rounded, color: AppColors.primary),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text('Find loyalty customer (tap card, phone or email)',
+                          child: Text('Find loyalty customer (tap card)',
                               style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
                         ),
                         const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.primary),
@@ -558,10 +558,22 @@ class _PosCartScreenState extends State<PosCartScreen> {
   }
 }
 
-/// Looks a loyalty customer up by a card tapped on THIS phone (NFC), a card
-/// read by the counter reader (keyboard mode), the printed GK- label, phone or
-/// e-mail. The database only returns an exact match, so this cannot be used to
-/// browse customers.
+/// Finds a loyalty customer by their card.
+///
+/// The first time on a phone, staff are asked to allow the app to use this
+/// phone's NFC ("Allow NFC"); the choice is saved on the phone and can be
+/// changed in Settings > Permissions. When NFC is off in the phone settings, a
+/// "Turn on NFC" button opens them. Once allowed and on, opening this dialog
+/// turns the reader on straight away: the customer holds the card against the
+/// back of THIS phone. The counter reader (keyboard mode) also works here,
+/// caught without a text box. After an unknown / blocked card the reader keeps
+/// listening, and it is switched on again when the app comes back to the front
+/// (Android stops it while the app is in the background).
+///
+/// A text box (counter reader, GK- label, phone or e-mail) is shown only when
+/// this phone cannot read cards, or when staff chose "Type instead". The
+/// database only returns an exact match, so this cannot be used to browse
+/// customers.
 class _CustomerLookupDialog extends StatefulWidget {
   const _CustomerLookupDialog();
 
@@ -569,53 +581,139 @@ class _CustomerLookupDialog extends StatefulWidget {
   State<_CustomerLookupDialog> createState() => _CustomerLookupDialogState();
 }
 
-class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
+class _CustomerLookupDialogState extends State<_CustomerLookupDialog> with WidgetsBindingObserver {
   final _controller = TextEditingController();
+  final _keyFocus = FocusNode(debugLabel: 'counter-reader');
   bool _busy = false;
   bool _nfcWaiting = false;
+  bool _disposed = false;
+
+  /// "Type instead" chosen for this lookup.
+  bool _typing = false;
   NfcSupport? _nfc;
+
+  /// Staff's choice on this phone (null = not asked yet).
+  bool? _allowed;
   String? _message;
   List<CustomerMatch> _results = const [];
+
+  /// Bumped to stop the current listening loop.
+  int _gen = 0;
+
+  // Counter reader in keyboard mode: it types the UID and presses Enter.
+  final StringBuffer _keys = StringBuffer();
+  DateTime _lastKey = DateTime.fromMillisecondsSinceEpoch(0);
+
+  bool get _phoneCanRead => _nfc == NfcSupport.available || _nfc == NfcSupport.disabled;
+  bool get _canListen => _nfc == NfcSupport.available && _allowed == true && !_typing;
 
   @override
   void initState() {
     super.initState();
-    NfcCardReader.instance.support().then((s) {
-      if (mounted) setState(() => _nfc = s);
-    });
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _gen++;
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
+    _keyFocus.dispose();
     unawaited(NfcCardReader.instance.cancel());
     super.dispose();
   }
 
-  Future<void> _tapOnPhone() async {
-    setState(() {
-      _nfcWaiting = true;
-      _message = null;
-      _results = const [];
-    });
-    String uid;
-    try {
-      uid = await NfcCardReader.instance.readUid();
-    } on NfcReadException catch (e) {
-      if (mounted) {
-        setState(() {
-          _nfcWaiting = false;
-          _message = e.message == NfcCardReader.cancelledMessage ? null : e.message;
-        });
-      }
-      return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Back from the NFC settings, or the screen was off: start again.
+      _refresh();
+    } else if (state == AppLifecycleState.paused) {
+      _gen++;
+      unawaited(NfcCardReader.instance.cancel());
     }
+  }
+
+  /// Reads NFC state + the staff choice, then starts the reader if it may.
+  Future<void> _refresh() async {
+    _gen++;
+    await NfcCardReader.instance.cancel();
+    final s = await NfcCardReader.instance.support();
+    final allowed = await NfcCardReader.instance.allowedOnThisPhone();
     if (!mounted) return;
+    setState(() {
+      _nfc = s;
+      _allowed = allowed;
+      _nfcWaiting = false;
+    });
+    if (_canListen && !_busy) unawaited(_listen());
+  }
+
+  Future<void> _allow() async {
+    await NfcCardReader.instance.setAllowedOnThisPhone(true);
+    if (!mounted) return;
+    setState(() => _message = null);
+    await _refresh();
+  }
+
+  Future<void> _turnOnNfc() async {
+    final opened = await NfcCardReader.instance.openNfcSettings();
+    if (!opened && mounted) {
+      setState(() => _message = 'Open the phone\'s Settings, turn on NFC, then come back to this screen.');
+    }
+  }
+
+  /// Keeps the phone's reader on while the dialog is open.
+  Future<void> _listen() async {
+    final gen = ++_gen;
+    bool live() => !_disposed && gen == _gen && _canListen;
+    while (live() && !_busy) {
+      setState(() => _nfcWaiting = true);
+      String uid;
+      try {
+        uid = await NfcCardReader.instance.readUid(timeout: const Duration(minutes: 2));
+      } on NfcReadException catch (e) {
+        if (_disposed) return;
+        if (!live() || e.message == NfcCardReader.cancelledMessage) {
+          if (gen == _gen) setState(() => _nfcWaiting = false);
+          return;
+        }
+        if (e.message == NfcCardReader.startFailedMessage) {
+          // The phone's NFC won't start: fall back to the text box.
+          setState(() {
+            _nfcWaiting = false;
+            _nfc = NfcSupport.unsupported;
+            _message = e.message;
+          });
+          return;
+        }
+        // Timeout: just listen again. A real problem: show it, then listen again.
+        if (e.message != NfcCardReader.timeoutMessage) {
+          setState(() {
+            _nfcWaiting = false;
+            _message = e.message;
+          });
+          await Future<void>.delayed(const Duration(milliseconds: 1200));
+        }
+        continue;
+      }
+      if (!live()) return;
+      await _lookupUid(uid);
+      // Card not usable: give the staff a moment to read why, then re-arm.
+      if (live() && !_busy) await Future<void>.delayed(const Duration(milliseconds: 1200));
+    }
+  }
+
+  /// A card UID from the phone or the counter reader.
+  Future<void> _lookupUid(String uid) async {
     unawaited(HapticFeedback.mediumImpact());
     setState(() {
       _nfcWaiting = false;
       _busy = true;
-      _controller.text = uid;
+      _message = null;
+      _results = const [];
     });
     try {
       final r = await StaffRepository.instance.lookupCard(uid);
@@ -635,6 +733,35 @@ class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
         _message = AppErrors.from(e).message;
       });
     }
+  }
+
+  /// Counter reader keystrokes while there is no text box.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final now = DateTime.now();
+    // The reader types a whole UID within a fraction of a second.
+    if (now.difference(_lastKey) > const Duration(seconds: 1)) _keys.clear();
+    _lastKey = now;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.numpadEnter) {
+      final uid = _keys.toString();
+      _keys.clear();
+      if (looksLikeCardUid(uid) && !_busy) {
+        unawaited(() async {
+          _gen++;
+          await NfcCardReader.instance.cancel();
+          await _lookupUid(uid);
+          if (!_disposed && !_busy && _canListen) unawaited(_listen());
+        }());
+      }
+      return KeyEventResult.handled;
+    }
+    final c = event.character;
+    if (c != null && RegExp(r'^[0-9A-Fa-f]$').hasMatch(c)) {
+      _keys.write(c.toUpperCase());
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   Future<void> _search() async {
@@ -671,91 +798,206 @@ class _CustomerLookupDialogState extends State<_CustomerLookupDialog> {
     }
   }
 
-  Widget _nfcArea() {
-    final nfc = _nfc;
-    if (nfc == null) return const SizedBox.shrink();
-    if (nfc == NfcSupport.unsupported) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            'This phone cannot read cards (no NFC, or an iPhone with MIFARE Classic cards). '
-            'Use the counter reader, the GK- label on the card, or the customer\'s phone / e-mail.',
-            style: AppTextStyles.bodySm,
+  Widget _bigIcon(IconData icon, {bool active = false}) => Container(
+        width: 96,
+        height: 96,
+        decoration: BoxDecoration(color: AppColors.primaryContainer.withValues(alpha: 0.35), shape: BoxShape.circle),
+        child: _busy
+            ? const Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator(strokeWidth: 3))
+            : Icon(icon, size: 52, color: active ? AppColors.primary : AppColors.textSecondary),
+      );
+
+  Widget _messageLine() => _message == null
+      ? const SizedBox.shrink()
+      : Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Text(_message!, textAlign: TextAlign.center, style: AppTextStyles.bodySm.copyWith(color: AppColors.error)),
+        );
+
+  Widget _typeInsteadButton() => TextButton(
+        onPressed: _busy
+            ? null
+            : () {
+                _gen++;
+                unawaited(NfcCardReader.instance.cancel());
+                setState(() {
+                  _typing = true;
+                  _nfcWaiting = false;
+                  _message = null;
+                });
+              },
+        child: const Text('Type instead (phone, e-mail or GK- label)'),
+      );
+
+  /// First time on this phone (or turned off in Settings): ask to allow NFC.
+  Widget _allowPanel() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        Center(child: _bigIcon(Icons.nfc_rounded, active: true)),
+        const SizedBox(height: 16),
+        Text(
+          _allowed == false ? 'NFC is turned off for this app' : 'Allow this phone to read loyalty cards?',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.titleMd,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Melai Nuts uses this phone\'s NFC to read only the ID number of a customer\'s loyalty card '
+          'when it is held against the back of the phone. Nothing else on the card is read, nothing is '
+          'written to it, and the reader is on only while this screen is open. '
+          'You can change this any time in Settings > Permissions.',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.bodySm,
+        ),
+        _messageLine(),
+        const SizedBox(height: 16),
+        PrimaryButton(label: 'Allow NFC', onPressed: _allow),
+        _typeInsteadButton(),
+      ],
+    );
+  }
+
+  /// Allowed, but NFC is switched off in the phone settings.
+  Widget _nfcOffPanel() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        Center(child: _bigIcon(Icons.nfc_rounded)),
+        const SizedBox(height: 16),
+        Text('NFC is off on this phone', textAlign: TextAlign.center, style: AppTextStyles.titleMd),
+        const SizedBox(height: 8),
+        Text(
+          'Turn on NFC in the phone settings, then come back. The reader starts by itself.',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.bodySm,
+        ),
+        _messageLine(),
+        const SizedBox(height: 16),
+        PrimaryButton(label: 'Turn on NFC', onPressed: _turnOnNfc),
+        _typeInsteadButton(),
+      ],
+    );
+  }
+
+  /// The "hold the card here" panel (allowed and on).
+  Widget _tapPanel() {
+    final waiting = _nfcWaiting && !_busy;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        Center(child: _bigIcon(Icons.contactless_rounded, active: waiting)),
+        const SizedBox(height: 16),
+        Text(
+          _busy
+              ? 'Card read. Finding the customer…'
+              : waiting
+                  ? 'Hold the customer\'s card flat against the back of this phone'
+                  : 'Starting the card reader…',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.labelLg,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Keep it still for a second, near the middle / camera area. '
+          'The counter reader works too.',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.bodySm,
+        ),
+        _messageLine(),
+        const SizedBox(height: 8),
+        _typeInsteadButton(),
+      ],
+    );
+  }
+
+  /// Text box: this phone cannot read cards, or "Type instead" was chosen.
+  Widget _typePanel() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!_phoneCanRead)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'This phone cannot read cards (no NFC, or an iPhone with MIFARE Classic cards). '
+              'Use the counter reader, the GK- label on the card, or the customer\'s phone / e-mail.',
+              style: AppTextStyles.bodySm,
+            ),
           ),
-        );
-    }
-    if (nfc == NfcSupport.disabled) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text('Turn on NFC in the phone settings to tap the card on this phone.', style: AppTextStyles.bodySm),
-        );
-    }
-    return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _nfcWaiting
-              ? Row(
-                  children: [
-                    const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text('Hold the card against the back of this phone…', style: AppTextStyles.bodyMd)),
-                    TextButton(
-                      onPressed: () async {
-                        await NfcCardReader.instance.cancel();
-                        if (mounted) setState(() => _nfcWaiting = false);
-                      },
-                      child: const Text('Stop'),
-                    ),
-                  ],
-                )
-              : OutlinedButton.icon(
-                  onPressed: _busy ? null : _tapOnPhone,
-                  icon: const Icon(Icons.nfc),
-                  label: const Text('Tap card on this phone'),
-                ),
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: InputLimits.email,
+          onSubmitted: (_) => _search(),
+          decoration: InputDecoration(
+            counterText: '',
+            errorText: _results.isEmpty ? _message : null,
+            errorMaxLines: 4,
+            labelText: 'Reader tap, card no. / GK- label, phone or email',
+            suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
+          ),
+        ),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: Center(child: CircularProgressIndicator())),
+        for (final c in _results)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.person_outline_rounded),
+            title: Text(c.name),
+            subtitle: Text('${c.points} points'),
+            trailing: IconButton(
+              tooltip: 'Link RFID card',
+              icon: const Icon(Icons.contactless_rounded),
+              onPressed: () => showDialog<void>(context: context, builder: (_) => _LinkCardDialog(customer: c)),
+            ),
+            onTap: () => Navigator.pop(context, c),
+          ),
+        if (_phoneCanRead)
+          TextButton.icon(
+            onPressed: _busy
+                ? null
+                : () {
+                    setState(() {
+                      _typing = false;
+                      _message = null;
+                      _results = const [];
+                    });
+                    _refresh();
+                  },
+            icon: const Icon(Icons.nfc_rounded),
+            label: const Text('Tap the card on this phone instead'),
+          ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final nfc = _nfc;
+    final Widget body;
+    if (nfc == null) {
+      body = const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+    } else if (_typing || !_phoneCanRead) {
+      body = _typePanel();
+    } else {
+      final Widget panel = _allowed != true
+          ? _allowPanel()
+          : nfc == NfcSupport.disabled
+              ? _nfcOffPanel()
+              : _tapPanel();
+      // The counter reader works on every panel without a text box.
+      body = Focus(focusNode: _keyFocus, autofocus: true, onKeyEvent: _onKey, child: panel);
+    }
     return AlertDialog(
-      title: const Text('Loyalty customer'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _nfcArea(),
-            TextField(
-              controller: _controller,
-              autofocus: _nfc != NfcSupport.available,
-              maxLength: InputLimits.email,
-              enabled: !_nfcWaiting,
-              onSubmitted: (_) => _search(),
-              decoration: InputDecoration(
-                counterText: '',
-                errorText: _results.isEmpty ? _message : null,
-                errorMaxLines: 4,
-                labelText: 'Reader tap, card no. / GK- label, phone or email',
-                suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.search_rounded), onPressed: _busy ? null : _search),
-              ),
-            ),
-            if (_busy) const Padding(padding: EdgeInsets.only(top: 16), child: Center(child: CircularProgressIndicator())),
-            for (final c in _results)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.person_outline_rounded),
-                title: Text(c.name),
-                subtitle: Text('${c.points} points'),
-                trailing: IconButton(
-                  tooltip: 'Link RFID card',
-                  icon: const Icon(Icons.contactless_rounded),
-                  onPressed: () => showDialog<void>(context: context, builder: (_) => _LinkCardDialog(customer: c)),
-                ),
-                onTap: () => Navigator.pop(context, c),
-              ),
-          ],
-        ),
-      ),
+      title: const Text('Tap loyalty card'),
+      content: SingleChildScrollView(child: body),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))],
     );
   }
