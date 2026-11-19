@@ -248,6 +248,9 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
             Route::post('/cards/customer/{uid}/replace', [LoyaltyCardController::class, 'replace'])->name('cards.replace');
             Route::post('/cards/{card}/block', [LoyaltyCardController::class, 'block'])->name('cards.block');
             Route::post('/cards/{card}/unblock', [LoyaltyCardController::class, 'unblock'])->name('cards.unblock');
+            // Archive of blocked / replaced cards (owner only, migration 20261120010000).
+            Route::post('/cards/{card}/reactivate', [LoyaltyCardController::class, 'reactivate'])->name('cards.reactivate');
+            Route::post('/cards/{card}/delete', [LoyaltyCardController::class, 'destroy'])->name('cards.destroy');
 
             // Suppliers and purchase receipts with OCR (owner, or staff with inventory permission).
             Route::get('/receipts', [PurchaseReceiptController::class, 'index'])->name('receipts.index');

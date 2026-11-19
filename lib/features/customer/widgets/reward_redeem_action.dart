@@ -4,6 +4,7 @@ import '../../../core/services/customer_data_store.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../data/models/loyalty.dart';
 import '../../../data/repositories/loyalty_repository.dart';
+import 'loyalty_pin_gate.dart';
 
 bool _redeeming = false;
 
@@ -26,7 +27,13 @@ Future<void> redeemRewardAndNavigate(BuildContext context, RewardItem reward) as
     );
     return;
   }
+  // A customer who set a loyalty PIN enters it first (the server refuses without it).
   _redeeming = true;
+  final pinOk = await confirmLoyaltyPinIfSet(context);
+  if (!pinOk || !context.mounted) {
+    _redeeming = false;
+    return;
+  }
 
   final navigator = Navigator.of(context, rootNavigator: true);
   final messenger = ScaffoldMessenger.of(context);

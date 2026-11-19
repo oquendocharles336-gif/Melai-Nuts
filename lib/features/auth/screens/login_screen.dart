@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../app/post_sign_in.dart';
 import '../../../app/routes.dart';
@@ -8,14 +7,12 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/luxe.dart';
 import '../../../core/widgets/page_transitions.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/turnstile_captcha.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/utils/form_utils.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import 'email_verification_screen.dart';
-import 'phone_login_screen.dart';
 import 'register_screen.dart';
 import 'welcome_screen.dart';
 import '../../../core/utils/app_error.dart';
@@ -113,15 +110,6 @@ class _LoginScreenState extends State<LoginScreen> {
     await _signIn();
   }
 
-  // Phone (SMS) sign-in is an Android-only extra; hidden everywhere else.
-  bool get _showPhoneLogin => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-
-  void _openPhoneLogin() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
-    );
-  }
-
   void _openVerification() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const EmailVerificationScreen()),
@@ -195,14 +183,6 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: AppSpacing.sm),
             ],
             PrimaryButton(label: 'Sign In', loading: _submitting, onPressed: _submit),
-            if (_showPhoneLogin) ...[
-              const SizedBox(height: AppSpacing.sm),
-              SecondaryButton(
-                label: 'Log in with phone number',
-                icon: Icons.phone_android_rounded,
-                onPressed: _submitting ? null : _openPhoneLogin,
-              ),
-            ],
             const Spacer(),
             const SizedBox(height: AppSpacing.md),
             SizedBox(

@@ -10,6 +10,7 @@ import {
   renderVerificationEmail,
   type RenderedEmail,
 } from "./email-template.ts";
+import { withSenderName } from "./mailer.ts";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -43,7 +44,10 @@ Deno.test("every e-mail: table layout, inline CSS, 600 px, preheader, logo with 
     assert(m.html.includes("max-width:600px"), `${name}: 600 px`);
     assert(/display:none;max-height:0/.test(m.html), `${name}: hidden preheader`);
     assert(m.html.includes('alt="Melai Nuts logo"'), `${name}: logo alt text`);
-    assert(m.html.includes("https://shop.example.com/privacy") && m.html.includes("https://shop.example.com/terms"), `${name}: legal links`);
+    if (name !== "verification") {
+      assert(m.html.includes("https://shop.example.com/privacy") && m.html.includes("https://shop.example.com/terms"), `${name}: legal links`);
+    }
+    assert(!/[\u2007\uFEFF\u034F]|&#8199;|&#65279;|&#847;/.test(m.html), `${name}: no invisible filler characters`);
     assert(m.html.includes("help@shop.example.com") && m.text.includes("help@shop.example.com"), `${name}: support e-mail`);
     assert(!/firebase/i.test(m.subject + m.html + m.text), `${name}: no Firebase wording`);
     assert(!/free|winner|urgent|act now|!!/i.test(m.subject), `${name}: calm subject`);
@@ -66,9 +70,35 @@ Deno.test("one primary action each, links never printed raw in the HTML", () => 
 Deno.test("expiry and the 'ignore' line where an action was requested", () => {
   assert(all[1][1].text.includes("This link expires in 30 minutes and works once."), "reset expiry");
   assert(all[2][1].text.includes("This link expires in 1 hour and works once."), "change expiry in hours");
-  for (const [name, m] of all.slice(0, 3)) assert(/If you didn't request this, you can/.test(m.text), `${name}: ignore line`);
+  assert(all[0][1].text.includes("If this wasn't you, ignore this email."), "verification: ignore line");
+  for (const [name, m] of all.slice(1, 3)) assert(/If you didn't request this, you can/.test(m.text), `${name}: ignore line`);
   assert(all[3][1].text.includes("Secure your account") && all[4][1].text.includes("Secure your account"), "secure buttons");
   assert(all[4][1].text.includes("Chrome on Windows"), "device");
+});
+
+Deno.test("the code e-mail: plain subject, who it is from, why, expiry, nothing to click", () => {
+  const m = all[0][1];
+  assert(m.subject === "Your Melai Nuts verification code: 048213", "plain subject with the code");
+  assert(!/<a\s|href=/i.test(m.html), "no links or buttons at all in the HTML");
+  assert(!/https?:\/\//.test(m.text), "no links in the text part");
+  assert(m.text.includes("This is Melai Nuts.") && m.text.includes("used to create a Melai Nuts account"), "who it is from and why");
+  assert(m.text.includes("Your code: 048213") && m.text.includes("This code expires in 10 minutes."), "code and expiry in the text part");
+  assert(m.text.includes("If this wasn't you, ignore this email."), "ignore line");
+  assert(m.html.includes('src="https://shop.example.com/images/email-logo.png"'), "logo from our own domain");
+});
+
+Deno.test("without EMAIL_LOGO_URL the logo is the website's own PNG; without a site, the plain badge", () => {
+  const own = renderVerificationEmail({ siteUrl: "https://shop.example.com/", code: "123456", expiresMinutes: 10 });
+  assert(own.html.includes('src="https://shop.example.com/images/email-logo.png"'), "website logo");
+  const none = renderVerificationEmail({ code: "123456", expiresMinutes: 10 });
+  assert(!none.html.includes("<img") && none.html.includes('aria-label="Melai Nuts"'), "badge fallback");
+});
+
+Deno.test("sender name: a bare address shows as Melai Nuts, a named one is kept", () => {
+  assert(withSenderName("no-reply@shop.example.com") === "Melai Nuts <no-reply@shop.example.com>", "bare address");
+  assert(withSenderName("Shop <a@b.test>") === "Shop <a@b.test>", "named kept");
+  assert(withSenderName("") === "", "empty stays empty (not configured)");
+  assert(withSenderName("a@b.test", "Melai\r\nBcc: x") === "MelaiBcc: x <a@b.test>", "no header injection");
 });
 
 Deno.test("links must be https", () => {

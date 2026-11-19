@@ -39,6 +39,7 @@ class CheckoutController extends ShopController
             // First order (50% or 100% online first): decided by the server for this cart.
             $first = $this->orders->firstOrderQuote($cart);
             $quote = $first !== null && ! $first['first_order'] ? $this->orders->downpaymentQuote($cart['total']) : null;
+            $pinRequired = $this->usesPoints($cart) && $this->orders->loyaltyPinRequired();
         } catch (ShopException $e) {
             return $this->failed($e, $request, route('shop.cart'));
         }
@@ -55,6 +56,8 @@ class CheckoutController extends ShopController
             // null = could not be loaded (the page offers a retry and does not let the order go).
             'first' => $first,
             'phone' => $this->customer->phone(),
+            // Points on this order and a loyalty PIN set: the PIN field is shown (the database checks it).
+            'pinRequired' => $pinRequired,
         ]);
     }
 
@@ -66,6 +69,7 @@ class CheckoutController extends ShopController
             'payment' => ['required', 'in:online,counter,half,full'],
             'notes' => Rules::orderNotes(),
             'phone' => $needsPhone ? Rules::phone(true) : ['nullable'],
+            'loyalty_pin' => ['nullable', 'string', 'max:6'],
         ]);
 
         try {
@@ -77,6 +81,17 @@ class CheckoutController extends ShopController
             $cart = $this->cart->view();
             if ($cart['lines'] === [] || $cart['cart_id'] === null) {
                 return redirect()->route('shop.cart')->with('shop_error', 'Your cart is empty.');
+            }
+            // Points on this order from a customer who set a loyalty PIN: the PIN first
+            // (the database refuses the points without it, migration 20261120020000).
+            if ($this->usesPoints($cart) && $this->orders->loyaltyPinRequired()) {
+                $pin = trim((string) ($data['loyalty_pin'] ?? ''));
+                if (! preg_match('/^\d{4,6}$/', $pin)) {
+                    return back()->withInput()->withErrors(['loyalty_pin' => 'Enter your 4 to 6 digit loyalty PIN to use your points.']);
+                }
+                if (($problem = $this->orders->verifyLoyaltyPin($pin)) !== null) {
+                    return back()->withInput()->withErrors(['loyalty_pin' => $problem]);
+                }
             }
             $firstChoice = in_array($data['payment'], ['half', 'full'], true) ? $data['payment'] : null;
             $payOnline = $data['payment'] === 'online' || $firstChoice !== null;
@@ -107,5 +122,10 @@ class CheckoutController extends ShopController
         }
 
         return redirect()->route('shop.orders.show', ['order' => $orderId, 'placed' => 1]);
+    }
+
+    private function usesPoints(array $cart): bool
+    {
+        return ($cart['redeem_points'] ?? false) && (int) ($cart['points_used'] ?? 0) > 0;
     }
 }

@@ -20,10 +20,39 @@ import 'package:melai_nuts/features/customer/screens/repeat_order_screen.dart';
 
 /// Full order details screen: items list, totals breakdown, payment method,
 /// status timeline, and quick actions (Pay now, Track, Repeat, Request Refund).
+///
+/// Live: the customer's orders are kept up to date by realtime
+/// ([CustomerDataStore]), so when staff move the order (for example to
+/// Completed at pickup) the status and timeline here change without
+/// leaving the screen. Until the store has the order, the one passed in is shown.
 class OrderDetailsScreen extends StatelessWidget {
   final Order order;
 
   const OrderDetailsScreen({super.key, required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = CustomerDataStore.instance;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        var live = order;
+        for (final o in store.orders) {
+          if (o.id == order.id) {
+            live = o;
+            break;
+          }
+        }
+        return _OrderDetailsView(order: live);
+      },
+    );
+  }
+}
+
+class _OrderDetailsView extends StatelessWidget {
+  final Order order;
+
+  const _OrderDetailsView({required this.order});
 
   /// An online (HitPay) order that is not paid yet and can still be paid:
   /// the customer can reopen the payment page from here. The Edge Function

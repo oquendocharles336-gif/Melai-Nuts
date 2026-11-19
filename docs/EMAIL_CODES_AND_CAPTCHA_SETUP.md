@@ -133,6 +133,19 @@ flutter build appbundle \
   --dart-define=CAPTCHA_PAGE_URL=https://<website host>/captcha
 ```
 
+Easier: put `"CAPTCHA_PAGE_URL": "https://<website host>/captcha"` in `env/supabase.json`
+(see `env/supabase.example.json`). Every run configuration (`.vscode/launch.json`,
+`.run/melai_nuts_env.run.xml`, README, RELEASE.md) already passes that file, so the security
+check then works in `flutter run` and release builds alike. **Without it the app shows "The
+security check isn't available on this device"** and no code can be sent on a phone whose
+App Check token is not accepted (debug builds, sideloaded builds).
+
+The page only works when the website has `TURNSTILE_SITE_KEY` set (section 4); otherwise it
+says "The security check is not set up yet" and the app shows the same "isn't available"
+message. The page is served from the website's own host, so that host must be listed in the
+Turnstile widget's **Hostname Management** in Cloudflare and (if set) in the Supabase secret
+`TURNSTILE_ALLOWED_HOSTNAMES` -- both are the same as for the website itself.
+
 `EMAIL_API_BASE_URL` and `AUTH_GUARD_URL` default to the Supabase project's functions URL; set
 them only to override. The old "link mode" is gone: the app always uses the 6-digit code.
 

@@ -578,6 +578,36 @@ class SupabaseRepository
         return $this->call('select public.owner_unblock_loyalty_card(?::uuid)::text as r', [$cardId]) ?? [];
     }
 
+    /**
+     * Owner only: blocked and replaced cards (migration 20261120010000), oldest first, each with
+     * days_left before the 30-day clean-up. Null when the database does not have that migration yet,
+     * so the cards page keeps working without the Archive.
+     */
+    public function archivedCards(): ?array
+    {
+        try {
+            return $this->call('select public.owner_archived_loyalty_cards(200)::text as r') ?? [];
+        } catch (\App\Exceptions\BackendUnavailableException|\App\Exceptions\BackendActionException $e) {
+            if (! SupabaseGateway::isMissingFunction($e)) {
+                report($e);
+            }
+
+            return null;
+        }
+    }
+
+    /** Owner only: an archived card works again (refused while the customer has another active card). */
+    public function reactivateArchivedCard(string $cardId): array
+    {
+        return $this->call('select public.owner_reactivate_archived_card(?::uuid)::text as r', [$cardId]) ?? [];
+    }
+
+    /** Owner only: deletes an archived card for good; $confirmLabel must be the card's label. */
+    public function deleteArchivedCard(string $cardId, string $confirmLabel): array
+    {
+        return $this->call('select public.owner_delete_archived_card(?::uuid, ?::text)::text as r', [$cardId, $confirmLabel]) ?? [];
+    }
+
     // ---- suppliers + purchase receipts (migration 20261011010000) ----------------------------
 
     public function suppliers(bool $includeInactive = false): array
