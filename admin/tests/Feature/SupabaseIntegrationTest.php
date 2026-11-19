@@ -721,16 +721,19 @@ class SupabaseIntegrationTest extends TestCase
         $refund = $this->requestRefund($order);
         $paidBefore = (float) $this->db()->selectOne('select amount from public.payments where order_id = ?', [$order])->amount;
 
+        // Every order has an online downpayment (migration 20261119080000), so a refund is approved
+        // first and then marked refunded with the HitPay reference: the race is on the approval.
         $results = $this->race(6, $this->fx['owner'],
             'select public.admin_portal_review_refund(?::text, ?::text, ?::text)::text',
-            [$refund, 'approve_cash', null]);
+            [$refund, 'approve', null]);
 
         $this->assertCount(1, array_filter($results, fn ($r) => str_starts_with($r, 'ok:')), 'one approval wins: '.implode(' | ', $results));
+        $this->asAppUser($this->fx['owner'], "select public.admin_portal_review_refund(?::text, 'complete', ?::text)::text", [$refund, 'HP-RF-RACE-1']);
         $row = $this->db()->selectOne('select r.status as refund, o.status as ord, p.status as pay, p.amount from public.refund_requests r
             join public.orders o on o.id = r.order_id join public.payments p on p.order_id = o.id where r.id = ?', [$refund]);
         $this->assertSame(['completed', 'refunded', 'refunded'], [$row->refund, $row->ord, $row->pay]);
         $this->assertSame($paidBefore, (float) $row->amount, 'the payment record is not changed twice');
-        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.approve_cash'", [$refund])->n);
+        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.approve'", [$refund])->n);
         $this->assertSame(0, (int) $this->db()->selectOne('select points_balance from public.loyalty_accounts where firebase_uid = ?', [$this->fx['customer']])->points_balance,
             'earned points reversed once, never below zero');
         $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.loyalty_transactions where order_id = ? and source = 'order_clawback'", [$order])->n);
