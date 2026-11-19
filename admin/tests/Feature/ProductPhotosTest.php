@@ -310,7 +310,7 @@ class ProductPhotosTest extends TestCase
             ->assertSee('erased when you sign out');
         $this->get('/terms?lang=fil')->assertOk()->assertSee('10. Paggamit ng app nang offline');
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('12. Pagtatrabaho nang offline (staff at may-ari)');
-        $this->assertSame('2026-11-19.2', config('melai.legal.terms_version'));
+        $this->assertSame('2026-11-20', config('melai.legal.terms_version'));
     }
 
     public function test_the_legal_pages_describe_loyalty_cards_and_nfc(): void
@@ -318,13 +318,17 @@ class ProductPhotosTest extends TestCase
         $this->get('/terms')->assertOk()
             ->assertSee('id="terms-11"', false)
             ->assertSee('11. Loyalty cards')
-            ->assertSee('It is not a payment card');
+            ->assertSee('It is not a payment card')
+            ->assertSee('your points can be used only with that PIN: at the counter, on an order in the app or on the website, and for rewards.')
+            ->assertDontSee('points can be used at the counter only with that PIN')
+            ->assertSee('Version 2026-11-20', false);
         $this->get('/privacy')->assertOk()
             ->assertSee('id="privacy-13"', false)
             ->assertSee('13. Loyalty cards and NFC')
             ->assertSee('reads only your card&#x27;s ID number', false)
             ->assertSee('Allow NFC');
-        $this->get('/terms?lang=fil')->assertOk()->assertSee('11. Mga loyalty card');
+        $this->get('/terms?lang=fil')->assertOk()->assertSee('11. Mga loyalty card')
+            ->assertSee('magagamit lang ang iyong points gamit ang PIN na iyon: sa counter, sa order sa app o sa website, at para sa rewards.');
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('13. Mga loyalty card at NFC');
     }
 
