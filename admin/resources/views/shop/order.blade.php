@@ -100,7 +100,8 @@
             </section>
         </div>
 
-        <aside class="s-panel s-sticky">
+        {{-- data-order-watch: while the order is still moving, shop.js re-checks its status and reloads the page when it changes. --}}
+        <aside class="s-panel s-sticky"@unless (in_array($order['status'], ['completed', 'cancelled', 'refunded'], true)) data-order-watch="{{ route('shop.orders.status', $order['id']) }}" data-order-status="{{ $order['status'] }}"@endunless>
             <h2>Progress</h2>
             @if ($order['events'])
                 <ol class="s-timeline">

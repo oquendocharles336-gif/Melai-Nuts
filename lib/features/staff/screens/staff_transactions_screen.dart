@@ -97,16 +97,39 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       _run(() => StaffRepository.instance.updateOrderStatus(o.id, status), done);
 
   Future<void> _confirmPayment(StaffOrder o) async {
+    // The cash due is the payment row's amount: for an order with a downpayment paid online,
+    // only the balance is collected at the counter (not the order total).
+    final cashDue = (o.payment?.amount ?? 0) > 0 ? o.payment!.amount : o.total;
     final ok = await ConfirmDialog.show(
       context,
       title: 'Confirm cash received',
-      message: 'Confirm that ${peso(o.total)} in cash was received for ${o.id}?',
+      message: 'Confirm that ${peso(cashDue)} in cash was received for ${o.id}?',
       confirmLabel: 'Yes, received',
       destructive: false,
       icon: Icons.payments_outlined,
     );
     if (!ok) return;
-    await _run(() => StaffRepository.instance.confirmPayment(o.id), 'Payment confirmed.');
+    final readyForPickup = o.status == OrderStatus.readyForPickup && !o.isDelivery;
+    var confirmed = false;
+    await _run(() async {
+      await StaffRepository.instance.confirmPayment(o.id);
+      confirmed = true;
+    }, 'Payment confirmed.');
+    // Cash is usually taken when the customer collects the order. Confirming the cash alone
+    // leaves the order "Ready for pickup", so the customer's Progress never says Completed:
+    // offer the last step right away.
+    if (!confirmed || !readyForPickup || !mounted) return;
+    final pickedUp = await ConfirmDialog.show(
+      context,
+      title: 'Picked up?',
+      message: 'Has the customer collected ${o.id}? Mark it Completed now.',
+      confirmLabel: 'Mark Completed',
+      cancelLabel: 'Not yet',
+      destructive: false,
+      icon: Icons.done_all_rounded,
+    );
+    if (!pickedUp || !mounted) return;
+    await _setStatus(o, 'completed', 'Order completed.');
   }
 
   Future<void> _cancel(StaffOrder o) async {
@@ -217,6 +240,13 @@ class _TransactionDetailsScreenState extends State<TransactionDetailsScreen> {
       case OrderStatus.outForDelivery:
         if (paid) {
           add(PrimaryButton(label: 'Mark Completed', icon: Icons.done_all_rounded, loading: _busy, onPressed: () => _setStatus(o, 'completed', 'Order completed.')));
+        } else {
+          // Without this the missing button looks like nothing is left to do, and a collected
+          // order stays "Ready for pickup" for the customer.
+          add(Text(
+            'Mark Completed appears once the payment is confirmed. When the customer collects the order, confirm the cash, then complete it.',
+            style: AppTextStyles.bodySm,
+          ));
         }
         break;
       default:

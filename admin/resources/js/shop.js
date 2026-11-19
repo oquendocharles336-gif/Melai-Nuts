@@ -535,6 +535,33 @@ if (poll) {
     setTimeout(tick, 2500);
 }
 
+// ---- Live order progress (the Progress timeline on /shop/orders/{id}) ----------------------------
+// While an order is still moving (placed ... ready for pickup), re-check its status and reload the
+// page when staff change it, so "Completed" shows without a manual refresh. Only while the tab is
+// visible; slower after the first half hour. The payment check above already handles its own case.
+const watch = document.querySelector('[data-order-watch]');
+if (watch && !poll) {
+    const opened = Date.now();
+    const initial = watch.dataset.orderStatus;
+    const delay = () => (Date.now() - opened < 1800000 ? 15000 : 60000);
+    let timer = null;
+    const later = (ms) => { clearTimeout(timer); timer = setTimeout(check, ms); };
+    async function check() {
+        if (document.visibilityState === 'visible') {
+            try {
+                const res = await fetch(watch.dataset.orderWatch, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+                if (res.ok) {
+                    const s = await res.json();
+                    if (s.status && s.status !== initial) { window.location.reload(); return; }
+                }
+            } catch { /* keep trying */ }
+        }
+        later(delay());
+    }
+    later(delay());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') later(500); });
+}
+
 // ---- Motion helpers ----------------------------------------------------------------------------
 const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 

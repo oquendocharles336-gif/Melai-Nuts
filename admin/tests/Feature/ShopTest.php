@@ -295,6 +295,34 @@ class ShopTest extends TestCase
         $this->get('/shop/orders/ORD-1001?placed=1')->assertOk()->assertSee('Salamat po! Your order is in.')->assertSee('Pay the downpayment to confirm it.');
     }
 
+    public function test_the_order_page_follows_the_status_live_until_the_order_is_done(): void
+    {
+        $this->shop->quote = ['required' => true, 'amount' => 55, 'balance' => 55, 'percent' => 50, 'expiry_minutes' => 30, 'pickup_days' => 2];
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1'])->assertOk();
+        $this->post('/shop/checkout', ['payment' => 'counter'])->assertRedirect();
+
+        // Ready for pickup (downpayment paid online, cash balance still pending): the page watches the status.
+        $this->shop->orders[0]['status'] = 'readyForPickup';
+        $this->shop->orders[0]['order_downpayments'][0]['status'] = 'success';
+        $this->shop->orders[0]['order_status_events'][] = ['id' => 'e2', 'status' => 'readyForPickup', 'note' => '', 'created_at' => '2026-11-08T06:00:00Z'];
+        $this->get('/shop/orders/ORD-1001')->assertOk()
+            ->assertSee('data-order-watch="'.route('shop.orders.status', 'ORD-1001').'"', false)
+            ->assertSee('data-order-status="readyForPickup"', false)
+            ->assertSee('Ready for pickup')->assertDontSee('<b>Completed</b>', false);
+        $this->getJson('/shop/orders/ORD-1001/status.json')->assertOk()->assertJson(['status' => 'readyForPickup']);
+
+        // Staff complete it at pickup: the status the page checks changes, and the reloaded page
+        // shows the Completed step and stops watching.
+        $this->shop->orders[0]['status'] = 'completed';
+        $this->shop->orders[0]['payments'][0]['status'] = 'success';
+        $this->shop->orders[0]['order_status_events'][] = ['id' => 'e3', 'status' => 'completed', 'note' => '', 'created_at' => '2026-11-08T06:10:00Z'];
+        $this->getJson('/shop/orders/ORD-1001/status.json')->assertOk()->assertJson(['status' => 'completed', 'status_label' => 'Completed']);
+        $this->get('/shop/orders/ORD-1001')->assertOk()
+            ->assertSee('<b>Completed</b>', false)->assertSee('<b>Ready for pickup</b>', false)
+            ->assertDontSee('data-order-watch', false);
+    }
+
     public function test_a_double_click_places_one_order(): void
     {
         $this->signIn();
