@@ -323,6 +323,43 @@ class ShopTest extends TestCase
             ->assertDontSee('data-order-watch', false);
     }
 
+    public function test_points_on_an_order_need_the_loyalty_pin_when_one_is_set(): void
+    {
+        $this->shop->loyaltyPin = '4321';
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 2])->assertOk();
+        $this->post('/shop/cart/points', ['on' => 1])->assertRedirect();
+
+        $this->get('/shop/checkout')->assertOk()->assertSee('name="loyalty_pin"', false)->assertSee('You set a PIN for your points.');
+
+        // No PIN, or a wrong one: no order, the customer is told why.
+        $this->post('/shop/checkout', ['payment' => 'online'])->assertSessionHasErrors('loyalty_pin');
+        $this->post('/shop/checkout', ['payment' => 'online', 'loyalty_pin' => '9999'])
+            ->assertSessionHasErrors(['loyalty_pin' => 'Wrong loyalty PIN. 4 tries left.']);
+        $this->assertSame([], $this->shop->orders, 'no order without the right PIN');
+
+        // The right PIN: checked once with the database, then the order is placed.
+        $this->post('/shop/checkout', ['payment' => 'online', 'loyalty_pin' => '4321'])->assertRedirect();
+        $this->assertCount(1, $this->shop->orders);
+        $this->assertSame(['9999', '4321'], $this->shop->pinChecks);
+    }
+
+    public function test_without_a_pin_or_without_points_checkout_is_unchanged(): void
+    {
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 2])->assertOk();
+        $this->post('/shop/cart/points', ['on' => 1])->assertRedirect();
+        $this->get('/shop/checkout')->assertOk()->assertDontSee('name="loyalty_pin"', false);
+        $this->post('/shop/checkout', ['payment' => 'online'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertCount(1, $this->shop->orders, 'no PIN set: the order goes through as before');
+        $this->assertSame([], $this->shop->pinChecks, 'no PIN check at all');
+
+        // A PIN holder who does not use points is not asked either.
+        $this->shop->loyaltyPin = '4321';
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1'])->assertOk();
+        $this->get('/shop/checkout')->assertOk()->assertDontSee('name="loyalty_pin"', false);
+    }
+
     public function test_a_double_click_places_one_order(): void
     {
         $this->signIn();

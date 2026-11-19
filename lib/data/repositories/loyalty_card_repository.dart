@@ -53,6 +53,14 @@ class LoyaltyCardRepository {
   Future<String?> clearPin(String currentPin) async =>
       _pinAnswer(_map(await _rpc('customer_clear_loyalty_pin', {'p_current_pin': currentPin})));
 
+  /// Before spending points in the app: null = the PIN is right (or none is set), otherwise the
+  /// message to show (wrong PIN with tries left, or locked for 15 minutes).
+  Future<String?> verifyPin(String pin) async {
+    final j = _map(await _rpc('verify_my_loyalty_pin', {'p_pin': pin}));
+    if (j['ok'] == true) return null;
+    return (j['message'] as String?) ?? (j['reason'] == 'locked' ? 'Too many wrong PINs. Try again in 15 minutes.' : 'Wrong loyalty PIN.');
+  }
+
   static String? _pinAnswer(Map<String, dynamic> j) {
     if (j['ok'] == true) return null;
     if (j['reason'] == 'locked') return 'Too many wrong PINs. Try again in 15 minutes.';

@@ -44,6 +44,11 @@ class FakeShopSupabase
     /** branch_id => variant_id => quantity */
     public array $stock = ['br-1' => ['v-1' => 10, 'v-2' => 3]];
 
+    /** Loyalty PIN (migration 20261120020000): null = not set. pinChecks = the PINs verify_my_loyalty_pin saw. */
+    public ?string $loyaltyPin = null;
+
+    public array $pinChecks = [];
+
     /** uid => branch_id => ['items' => [...], 'voucher_code' => ?, 'redeem_points' => bool] */
     public array $carts = [];
 
@@ -294,6 +299,8 @@ class FakeShopSupabase
             'my_legal_acceptance' => Http::response($this->legal[$uid] ?? ['terms_version' => null, 'privacy_version' => null]),
             'accept_legal_terms' => $this->accept($uid, $p),
             'place_order' => $this->place($uid, $p),
+            'get_my_loyalty_pin_status' => Http::response(['has_pin' => $this->loyaltyPin !== null, 'locked_until' => null]),
+            'verify_my_loyalty_pin' => $this->verifyPin((string) ($p['p_pin'] ?? '')),
             default => Http::response(['message' => 'unknown function '.$fn, 'code' => '42883'], 404),
         };
     }
@@ -316,7 +323,18 @@ class FakeShopSupabase
 
         return ['cart_id' => $cartId, 'branch_id' => $branch, 'voucher_code' => $cart['voucher_code'], 'redeem_points' => $cart['redeem_points'],
             'items' => $items, 'pricing' => ['subtotal' => $subtotal, 'voucher_discount' => 0, 'loyalty_discount' => 0, 'delivery_fee' => 0, 'total' => $subtotal,
-                'loyalty_points_balance' => 120, 'loyalty_points_used' => 0]];
+                'loyalty_points_balance' => 120, 'loyalty_points_used' => $cart['redeem_points'] ? min(120, intdiv((int) $subtotal, 2)) : 0]];
+    }
+
+    private function verifyPin(string $pin)
+    {
+        $this->pinChecks[] = $pin;
+        if ($this->loyaltyPin === null) {
+            return Http::response(['ok' => true, 'reason' => 'no_pin']);
+        }
+
+        return Http::response($pin === $this->loyaltyPin ? ['ok' => true]
+            : ['ok' => false, 'reason' => 'wrong', 'attempts_left' => 4, 'message' => 'Wrong loyalty PIN. 4 tries left.']);
     }
 
     private function sync(?string $uid, array $p)

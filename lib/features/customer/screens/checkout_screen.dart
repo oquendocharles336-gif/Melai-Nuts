@@ -45,6 +45,7 @@ import '../widgets/storefront_widgets.dart';
 import '../../../core/widgets/page_transitions.dart';
 import '../widgets/online_payment_unavailable_notice.dart';
 import 'order_confirmation_screen.dart';
+import '../widgets/loyalty_pin_gate.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../core/utils/format_utils.dart';
 
@@ -431,6 +432,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           action: SnackBarAction(label: 'Pin on map', onPressed: _pinOnMap),
         ));
       return;
+    }
+
+    // Points on this order: a customer who set a loyalty PIN enters it first
+    // (migration 20261120020000; the server refuses the points without it).
+    if (cart.redeemPoints) {
+      final pinOk = await confirmLoyaltyPinIfSet(context);
+      if (!pinOk || !mounted) return;
     }
 
     BranchController.instance.pauseRefresh = true;

@@ -107,6 +107,50 @@ class ShopOrders
      *
      * @return array{first_order: bool, total: float, half_amount: float, half_balance: float, full_amount: float, expiry_minutes: int, pending_order_id: ?string, online_payment_enabled: bool}|null
      */
+    /**
+     * Does spending points need this customer's loyalty PIN (they set one)? False when it can't be
+     * read (older database): place_order and the database's PIN rule still decide.
+     */
+    public function loyaltyPinRequired(): bool
+    {
+        try {
+            $s = $this->rest->rpc('get_my_loyalty_pin_status', [], $this->customer->idToken());
+        } catch (ShopException $e) {
+            if ($e->sessionEnded()) {
+                throw $e;
+            }
+
+            return false;
+        }
+
+        return is_array($s) && ($s['has_pin'] ?? false) === true;
+    }
+
+    /**
+     * Checks the customer's loyalty PIN before an order with points (migration 20261120020000:
+     * a single-use pass for a few minutes). Null when it is right, otherwise the message to show.
+     */
+    public function verifyLoyaltyPin(string $pin): ?string
+    {
+        try {
+            $r = $this->rest->rpc('verify_my_loyalty_pin', ['p_pin' => $pin], $this->customer->idToken());
+        } catch (ShopException $e) {
+            if ($e->sessionEnded()) {
+                throw $e;
+            }
+            report($e);
+
+            // Not answered (e.g. a database without migration 20261120020000, which has no online
+            // PIN rule yet): let place_order decide; with the rule in place it refuses the points itself.
+            return null;
+        }
+        if (is_array($r) && ($r['ok'] ?? false) === true) {
+            return null;
+        }
+
+        return is_array($r) && is_string($r['message'] ?? null) ? $r['message'] : 'Wrong loyalty PIN.';
+    }
+
     public function firstOrderQuote(array $cart): ?array
     {
         if (($cart['cart_id'] ?? null) === null) {

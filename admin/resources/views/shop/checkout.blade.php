@@ -39,6 +39,15 @@
                     @error('notes')<span class="err">{{ $message }}</span>@enderror
                 </div>
                 @include('shop.partials.blocked-words')
+                @if ($pinRequired ?? false)
+                    {{-- Points on this order and the customer set a loyalty PIN (checked by the database). --}}
+                    <div class="s-field @error('loyalty_pin') has-err @enderror">
+                        <label for="loyalty_pin">Loyalty PIN</label>
+                        <input id="loyalty_pin" type="password" name="loyalty_pin" inputmode="numeric" pattern="[0-9]{4,6}" minlength="4" maxlength="6" autocomplete="off" required>
+                        <span class="hint">You set a PIN for your points. Enter it to use {{ $cart['points_used'] }} points on this order.</span>
+                        @error('loyalty_pin')<span class="err">{{ $message }}</span>@enderror
+                    </div>
+                @endif
             </section>
 
             <section class="s-panel" aria-labelledby="pay-title">

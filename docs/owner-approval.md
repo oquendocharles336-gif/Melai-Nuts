@@ -201,3 +201,24 @@ order (paid 100%) that is not picked up is not forfeited automatically.
 Please confirm:
 1. The wording above (EN and FIL).
 2. That an unclaimed Online Payment order (paid 100%) should NOT be kept automatically, as now.
+
+## Loyalty PIN for every use of points (DRAFT, not approved, not in the app yet)
+
+Since migration 20261120020000, a customer who set a loyalty PIN must enter it whenever their
+points are used: at the counter (as before), and now also for points on an app or website
+order and for rewards in the app. Customers without a PIN see no change. The app and website
+still show the approved wording until the owner approves this change.
+
+### Terms 11. Loyalty cards: replace the PIN bullet
+
+EN, now: "If you set a loyalty PIN, points can be used at the counter only with that PIN.
+After 5 wrong tries, the PIN is locked for 15 minutes."
+
+> - If you set a loyalty PIN, your points can be used only with that PIN: at the counter, on an order in the app or on the website, and for rewards. After 5 wrong tries, the PIN is locked for 15 minutes.
+
+FIL, now: "Kung naglagay ka ng loyalty PIN, magagamit lang ang points sa counter gamit ang PIN
+na iyon. Pagkatapos ng 5 maling subok, naka-lock ang PIN nang 15 minuto."
+
+> - Kung naglagay ka ng loyalty PIN, magagamit lang ang iyong points gamit ang PIN na iyon: sa counter, sa order sa app o sa website, at para sa rewards. Pagkatapos ng 5 maling subok, naka-lock ang PIN nang 15 minuto.
+
+Please confirm the wording above (EN and FIL).
