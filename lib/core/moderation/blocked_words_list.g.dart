@@ -136,6 +136,9 @@ const List<String> blockedWordsPhrases = [
   'suck my',
   'tang ina',
   'tanga ka',
+  'tangina ka',
+  'tangina mo',
+  'tanginamo',
   'ulol ka',
 ];
 

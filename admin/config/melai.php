@@ -15,10 +15,13 @@ return [
     ],
     // Blocked words for product reviews and order special instructions (App\Support\BlockedWords).
     // ONE list shared with the app and the database: moderation/blocked_words.json at the project
-    // root (see moderation/README.md). Point MELAI_BLOCKED_WORDS_FILE elsewhere only if the website
-    // is deployed without the rest of the project.
+    // root (see moderation/README.md). When the website is deployed on its own (e.g. Railway with
+    // root directory /admin), the copy that scripts/sync_blocked_words.py keeps in
+    // resources/moderation/ is used instead.
     'moderation' => [
-        'words_file' => env('MELAI_BLOCKED_WORDS_FILE') ?: base_path('../moderation/blocked_words.json'),
+        'words_file' => env('MELAI_BLOCKED_WORDS_FILE') ?: (is_file(base_path('../moderation/blocked_words.json'))
+            ? base_path('../moderation/blocked_words.json')
+            : resource_path('moderation/blocked_words.json')),
     ],
     // Terms and Conditions / Privacy Policy shown at /terms and /privacy (same text as the app's
     // lib/features/legal). Bump the version when the wording changes; registration records it.

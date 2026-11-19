@@ -9,6 +9,7 @@ Writes:
                                                   synchronously inside a form validator)
   supabase/repair/sync_blocked_words.sql          run it in the Supabase SQL editor after an edit,
                                                   so the database blocks exactly the same words
+  admin/resources/moderation/blocked_words.json   the website's copy when admin/ is deployed alone
 
 The website (PHP and JavaScript) reads the JSON itself: nothing to do there.
 """
@@ -21,6 +22,8 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SRC = os.path.join(ROOT, 'moderation', 'blocked_words.json')
 DART = os.path.join(ROOT, 'lib', 'core', 'moderation', 'blocked_words_list.g.dart')
 SQL = os.path.join(ROOT, 'supabase', 'repair', 'sync_blocked_words.sql')
+# The website's own copy, for deployments of admin/ alone (Railway root directory /admin).
+ADMIN_COPY = os.path.join(ROOT, 'admin', 'resources', 'moderation', 'blocked_words.json')
 KINDS = ('words', 'roots', 'phrases', 'allow')
 KIND_SQL = {'words': 'word', 'roots': 'root', 'phrases': 'phrase', 'allow': 'allow'}
 OK_TERM = re.compile(r'^[a-z]+( [a-z]+)*$')
@@ -85,7 +88,7 @@ def sql(d: dict) -> str:
 
 def main() -> int:
     d = load()
-    files = {DART: dart(d), SQL: sql(d)}
+    files = {DART: dart(d), SQL: sql(d), ADMIN_COPY: open(SRC, encoding='utf-8').read()}
     stale = []
     for path, content in files.items():
         current = open(path, encoding='utf-8').read() if os.path.exists(path) else None
