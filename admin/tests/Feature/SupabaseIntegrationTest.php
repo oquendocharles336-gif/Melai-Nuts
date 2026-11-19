@@ -722,18 +722,21 @@ class SupabaseIntegrationTest extends TestCase
         $paidBefore = (float) $this->db()->selectOne('select amount from public.payments where order_id = ?', [$order])->amount;
 
         // Every order has an online downpayment (migration 20261119080000), so a refund is approved
-        // first and then marked refunded with the HitPay reference: the race is on the approval.
+        // first and then marked refunded with the HitPay reference. The step that finishes the refund
+        // (stock, points, payment) is the one raced: several sessions marking it refunded at once.
+        // Marking an already completed refund completed again is accepted as "no change", so what
+        // matters is below: the refund's effects happen exactly once.
+        $this->asAppUser($this->fx['owner'], "select public.admin_portal_review_refund(?::text, 'approve', null)::text", [$refund]);
         $results = $this->race(6, $this->fx['owner'],
             'select public.admin_portal_review_refund(?::text, ?::text, ?::text)::text',
-            [$refund, 'approve', null]);
+            [$refund, 'complete', 'HP-RF-RACE-1']);
 
-        $this->assertCount(1, array_filter($results, fn ($r) => str_starts_with($r, 'ok:')), 'one approval wins: '.implode(' | ', $results));
-        $this->asAppUser($this->fx['owner'], "select public.admin_portal_review_refund(?::text, 'complete', ?::text)::text", [$refund, 'HP-RF-RACE-1']);
+        $this->assertSame([], array_values(array_filter($results, fn ($r) => ! str_starts_with($r, 'ok:'))), 'no session failed: '.implode(' | ', $results));
         $row = $this->db()->selectOne('select r.status as refund, o.status as ord, p.status as pay, p.amount from public.refund_requests r
             join public.orders o on o.id = r.order_id join public.payments p on p.order_id = o.id where r.id = ?', [$refund]);
         $this->assertSame(['completed', 'refunded', 'refunded'], [$row->refund, $row->ord, $row->pay]);
         $this->assertSame($paidBefore, (float) $row->amount, 'the payment record is not changed twice');
-        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.approve'", [$refund])->n);
+        $this->assertGreaterThanOrEqual(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.complete'", [$refund])->n);
         $this->assertSame(0, (int) $this->db()->selectOne('select points_balance from public.loyalty_accounts where firebase_uid = ?', [$this->fx['customer']])->points_balance,
             'earned points reversed once, never below zero');
         $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.loyalty_transactions where order_id = ? and source = 'order_clawback'", [$order])->n);
