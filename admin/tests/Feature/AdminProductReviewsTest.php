@@ -39,6 +39,14 @@ class AdminProductReviewsTest extends TestCase
         return $this->signedIn($this->ownerLogin ??= $this->linkedLogin('uid-owner'));
     }
 
+    public function test_owner_pages_never_show_the_app_download_link(): void
+    {
+        config(['melai.shop.app_download_url' => 'https://www.mediafire.com/file/abc123/MelaiNuts-v1.0.0.apk/file']);
+        $this->owner()->get('/admin/reviews')->assertOk()
+            ->assertDontSee('mediafire.com')
+            ->assertDontSee('Get the Melai Nuts app');
+    }
+
     public function test_the_owner_sees_every_review_with_product_customer_rating_comment_and_date(): void
     {
         $this->owner()->get('/admin/reviews')->assertOk()

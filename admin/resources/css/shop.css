@@ -476,6 +476,9 @@ html:has(.s-dlg[open]) { overflow: hidden; }
 .s-dlg-foot { display: grid; gap: 6px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; font-size: 14.5px; color: var(--roast-2); }
 .s-dlg-foot p { margin: 0; }
 .s-dlg-foot .s-dlg-aside { font-size: 13px; color: var(--muted); }
+.s-app-link small { display: block; margin-top: 2px; font-size: 12px; }
+.s-footer .s-app-link { margin: 0; }
+.s-footer .s-app-link a { display: inline-flex; gap: 7px; align-items: center; font-weight: 600; }
 .s-dlg-foot a { white-space: nowrap; }
 .s-dlg .s-two { align-items: start; }
 .s-dlg .s-flash { font-size: 14.5px; }
