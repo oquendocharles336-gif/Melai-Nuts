@@ -128,6 +128,7 @@
             <div class="s-foot-brand">
                 <a href="{{ route('shop.home') }}" class="s-brand" aria-label="Melai Nuts shop home">@include('partials.logo')<span class="s-word">Melai Nuts</span></a>
                 <p>Fresh-roasted nuts from Laguna, in small batches. Order online and pick up at your branch. One account for the website and the Melai Nuts app.</p>
+                @include('shop.partials.app-download', ['variant' => 'footer'])
             </div>
             <div>
                 <h3>Shop</h3>

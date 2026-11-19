@@ -186,6 +186,34 @@ class ShopTest extends TestCase
         $this->assertSame(0, \App\Models\User::count(), 'no website login (staff / admin) is created');
     }
 
+    public function test_the_app_download_link_shows_in_the_footer_and_sign_in_panel_when_set(): void
+    {
+        config(['melai.shop.app_download_url' => 'https://www.mediafire.com/file/abc123/MelaiNuts-v1.0.0.apk/file']);
+        $link = '<a href="https://www.mediafire.com/file/abc123/MelaiNuts-v1.0.0.apk/file" target="_blank" rel="noopener noreferrer">';
+
+        $html = $this->get('/?panel=sign-in')->assertOk()
+            ->assertSee('Get the Melai Nuts app for Android')
+            ->assertSee('Prefer the app?')
+            ->assertSee('Download it for Android')
+            ->assertSee('Android only. Your phone may ask you to allow installs from your browser.')
+            ->getContent();
+        $this->assertSame(1, substr_count($html, $link.'Download it for Android</a>'), 'sign-in panel link');
+        $this->assertStringContainsString('rel="noopener noreferrer"><svg', $html, 'footer link with its icon');
+        $this->assertSame(2, substr_count($html, 'href="https://www.mediafire.com/file/abc123/MelaiNuts-v1.0.0.apk/file" target="_blank" rel="noopener noreferrer"'));
+    }
+
+    public function test_every_app_link_is_hidden_when_the_download_url_is_empty(): void
+    {
+        foreach ([null, '', '   '] as $empty) {
+            config(['melai.shop.app_download_url' => $empty]);
+            $this->get('/?panel=sign-in')->assertOk()
+                ->assertSee('Create an account')
+                ->assertDontSee('Get the Melai Nuts app')
+                ->assertDontSee('Prefer the app?')
+                ->assertDontSee('Android only.');
+        }
+    }
+
     public function test_the_sign_in_panel_says_plainly_how_to_sign_in(): void
     {
         $this->get('/?panel=sign-in')->assertOk()

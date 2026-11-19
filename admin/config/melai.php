@@ -50,6 +50,8 @@ return [
         'supabase_url' => env('SUPABASE_URL'),
         'anon_key' => env('SUPABASE_ANON_KEY'),
         'catalog_cache_seconds' => (int) env('SHOP_CATALOG_CACHE_SECONDS', 60),
+        // Download page of the Android app (e.g. MediaFire). Empty = no app links on the shop.
+        'app_download_url' => env('APP_DOWNLOAD_URL'),
     ],
 
     /*
