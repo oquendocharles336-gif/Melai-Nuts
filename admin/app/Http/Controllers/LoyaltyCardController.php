@@ -31,6 +31,8 @@ class LoyaltyCardController extends Controller
         return view('cards.index', [
             'isOwner' => $isOwner,
             'list' => $isOwner ? $this->repo()->listCards($q ?: null, $status) : null,
+            // Archive (blocked / replaced cards): null = the database has no archive yet.
+            'archive' => $isOwner ? $this->repo()->archivedCards() : null,
             'q' => $q, 'status' => $status,
         ]);
     }
@@ -119,5 +121,31 @@ class LoyaltyCardController extends Controller
             ['card_id' => $card, 'customer' => $result['firebase_uid']]);
 
         return redirect()->route('cards.customer', $result['firebase_uid'])->with('status', "Card {$result['label']} works again.");
+    }
+
+    /** Archive: re-activate a blocked or replaced card (owner only; the database checks it). */
+    public function reactivate(string $card)
+    {
+        abort_unless(Str::isUuid($card), 404);
+        abort_unless($this->identity()->isOwner(), 403);
+        $result = $this->repo()->reactivateArchivedCard($card);
+        ActivityLogger::log('loyalty.card_reactivated', "Re-activated loyalty card {$result['label']} from the archive", null,
+            ['card_id' => $card, 'customer' => $result['firebase_uid']]);
+
+        return redirect()->to(route('cards.index').'#archive')->with('status', "Card {$result['label']} works again.");
+    }
+
+    /** Archive: delete a card for good. The owner types the card label to confirm. */
+    public function destroy(Request $request, string $card)
+    {
+        abort_unless(Str::isUuid($card), 404);
+        abort_unless($this->identity()->isOwner(), 403);
+        $data = $request->validate(['confirm_label' => ['required', 'string', 'max:20']],
+            ['confirm_label.required' => 'Type the card label to confirm the deletion.']);
+        $result = $this->repo()->deleteArchivedCard($card, $data['confirm_label']);
+        ActivityLogger::log('loyalty.card_deleted', "Deleted archived loyalty card {$result['label']}", null,
+            ['card_id' => $card, 'customer' => $result['firebase_uid']]);
+
+        return redirect()->to(route('cards.index').'#archive')->with('status', "Card {$result['label']} was deleted. The customer's points were kept.");
     }
 }

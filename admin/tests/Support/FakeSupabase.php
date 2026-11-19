@@ -31,6 +31,9 @@ class FakeSupabase extends SupabaseGateway
     /** uid => customer_profiles row with its order figures (owner_all_users shape) */
     public array $customers = [];
 
+    /** Loyalty cards (owner_list_loyalty_cards card shape plus archived_at / days_left); the archive functions change them. */
+    public array $cards = [];
+
     /** Product reviews (admin_list_product_reviews row shape, plus is_hidden); staff_moderate_product_review changes them. */
     public array $reviews = [];
 
@@ -113,6 +116,42 @@ class FakeSupabase extends SupabaseGateway
             'payment' => ['id' => "pay-$id", 'method' => 'cash', 'status' => $payment, 'reference_number' => null, 'updated_at' => $at],
             'refund' => null, 'customer_name' => 'Walk-in', 'customer_uid' => null, 'is_pos' => true, 'is_delivery' => false, 'payment_label' => 'Cash',
         ];
+    }
+
+    private function ownerOnly(?array $me, Closure $work): mixed
+    {
+        if (($me['role'] ?? null) !== 'owner') {
+            throw new BackendActionException('Only the owner can do this.');
+        }
+
+        return $work();
+    }
+
+    private function reactivateCard(string $id): array
+    {
+        $c = $this->cards[$id] ?? throw new BackendActionException('That card could not be found. It may have been deleted already.');
+        foreach ($this->cards as $other) {
+            if ($other['firebase_uid'] === $c['firebase_uid'] && $other['status'] === 'active') {
+                throw new BackendActionException('This customer already has another active card. Block that card first, then re-activate this one.');
+            }
+        }
+        $this->cards[$id] = array_merge($c, ['status' => 'active', 'archived_at' => null, 'days_left' => null]);
+
+        return $this->cards[$id];
+    }
+
+    private function deleteCard(string $id, string $label): array
+    {
+        $c = $this->cards[$id] ?? throw new BackendActionException('That card could not be found. It may have been deleted already.');
+        if ($c['status'] === 'active') {
+            throw new BackendActionException('An active card cannot be deleted. Block it first; it then moves to the archive.');
+        }
+        if (strtoupper(trim($label)) !== strtoupper($c['label'])) {
+            throw new BackendActionException("Type the card label ({$c['label']}) to confirm the deletion.");
+        }
+        unset($this->cards[$id]);
+
+        return ['deleted' => true, 'label' => $c['label'], 'firebase_uid' => $c['firebase_uid']];
     }
 
     public function calledFunctions(?string $uid = null): array
@@ -252,6 +291,12 @@ class FakeSupabase extends SupabaseGateway
             // 20261119040000 / 20261119020000: any active staff member or owner (is_active_staff()).
             'admin_list_product_reviews' => $this->reviewList($bindings),
             'staff_moderate_product_review' => $this->moderateReview((string) $bindings[0], (string) $bindings[1]),
+            'owner_list_loyalty_cards' => $this->ownerOnly($me, fn () => ['counts' => ['active' => count(array_filter($this->cards, fn ($c) => $c['status'] === 'active')),
+                'blocked' => count(array_filter($this->cards, fn ($c) => $c['status'] === 'blocked')), 'replaced' => count(array_filter($this->cards, fn ($c) => $c['status'] === 'replaced'))],
+                'cards' => array_values($this->cards)]),
+            'owner_archived_loyalty_cards' => $this->ownerOnly($me, fn () => array_values(array_filter($this->cards, fn ($c) => $c['status'] !== 'active'))),
+            'owner_reactivate_archived_card' => $this->ownerOnly($me, fn () => $this->reactivateCard((string) $bindings[0])),
+            'owner_delete_archived_card' => $this->ownerOnly($me, fn () => $this->deleteCard((string) $bindings[0], (string) $bindings[1])),
             default => throw new BackendUnavailableException("FakeSupabase has no answer for {$fn}()."),
         };
     }

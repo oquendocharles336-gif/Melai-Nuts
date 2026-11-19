@@ -56,6 +56,57 @@
     </div>
 @endif
 
+@if ($isOwner)
+    {{-- Archive: blocked and replaced cards. Re-activate, or delete for good (the card label typed again confirms it).
+         Not re-activated within 30 days = deleted automatically. Points stay on the customer's account. --}}
+    <div class="block-head" id="archive"><h2>Archive</h2></div>
+    @if ($archive === null)
+        <p class="muted">The archive needs the latest database update (migration 20261120010000).</p>
+    @else
+        <p class="muted">Blocked and replaced cards. A card that is not re-activated within 30 days is deleted automatically. Deleting a card never removes the customer's points.</p>
+        <div class="card" style="max-width:none;overflow-x:auto">
+            <table class="table" data-card-archive>
+                <thead><tr><th>Card</th><th>Status</th><th>Customer</th><th>Points</th><th>Archived</th><th>Deletes in</th><th></th></tr></thead>
+                <tbody>
+                @forelse ($archive as $card)
+                    @php $days = (int) ($card['days_left'] ?? 0); @endphp
+                    <tr>
+                        <td><strong>{{ $card['label'] }}</strong></td>
+                        <td><span class="status {{ $card['status'] === 'blocked' ? 'low' : 'info' }}">{{ ucfirst($card['status']) }}</span>
+                            @if (! empty($card['block_reason']))<br><span class="muted">{{ $card['block_reason'] }}</span>@endif</td>
+                        <td>{{ $card['customer_name'] }}<br><span class="muted">{{ $card['email'] }}</span></td>
+                        <td>{{ $card['points_balance'] }}</td>
+                        <td>{{ \Carbon\Carbon::parse($card['archived_at'])->setTimezone(config('app.timezone'))->format('M j, Y') }}</td>
+                        <td>{{ $days <= 0 ? 'today' : ($days === 1 ? '1 day' : $days.' days') }}</td>
+                        <td style="white-space:nowrap">
+                            @if (! empty($card['has_active_card']))
+                                <span class="muted" title="Block the customer's active card first">Has an active card</span>
+                            @else
+                                <form data-hard method="POST" action="{{ route('cards.reactivate', $card['id']) }}" style="display:inline">
+                                    @csrf
+                                    <button class="btn-outline" style="padding:.25rem .8rem" type="submit">Re-activate</button>
+                                </form>
+                            @endif
+                            <details style="display:inline-block;margin-left:.4rem">
+                                <summary class="btn-outline" style="padding:.25rem .8rem;display:inline-block;cursor:pointer">Delete</summary>
+                                <form data-hard method="POST" action="{{ route('cards.destroy', $card['id']) }}" style="margin-top:.5rem">
+                                    @csrf
+                                    <label for="confirm-{{ $card['id'] }}" class="muted">Deletes {{ $card['label'] }} and its history for good. Type <strong>{{ $card['label'] }}</strong> to confirm:</label><br>
+                                    <input class="light-input" id="confirm-{{ $card['id'] }}" name="confirm_label" required maxlength="20" autocomplete="off" placeholder="{{ $card['label'] }}">
+                                    <button class="btn-solid" style="padding:.35rem 1rem" type="submit">Delete permanently</button>
+                                </form>
+                            </details>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="7">No archived cards.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    @endif
+@endif
+
 <script>
     window.onCardTap = async function (uid) {
         var box = document.getElementById('tap-result');
