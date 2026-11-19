@@ -92,13 +92,21 @@
 
                     {{-- Create an account (customers; same rules as the app) ------------------------ --}}
                     @case(AuthPanel::CREATE_ACCOUNT)
-                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…" data-live-validate>
+                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…" data-live-validate data-signup>
                             @csrf
                             <input type="hidden" name="_panel" value="{{ $panel }}">
-                            <div @class(['s-field', 'has-err' => $err($panel, 'name')])>
-                                <label for="ca-name">Full name</label>
-                                <input id="ca-name" type="text" name="name" value="{{ $val($panel, 'name') }}" autocomplete="name" required maxlength="{{ \App\Http\Requests\Rules::NAME_MAX }}">
-                                @if ($e = $err($panel, 'name'))<span class="err">{{ $e }}</span>@endif
+                            {{-- First and last name, like the app's Create Account (PersonNameFields). --}}
+                            <div class="s-two">
+                                <div @class(['s-field', 'has-err' => $err($panel, 'first_name')])>
+                                    <label for="ca-first-name">First name</label>
+                                    <input id="ca-first-name" type="text" name="first_name" value="{{ $val($panel, 'first_name') }}" autocomplete="given-name" autocapitalize="words" required maxlength="{{ \App\Http\Requests\Rules::NAME_PART_MAX }}">
+                                    @if ($e = $err($panel, 'first_name'))<span class="err">{{ $e }}</span>@endif
+                                </div>
+                                <div @class(['s-field', 'has-err' => $err($panel, 'last_name')])>
+                                    <label for="ca-last-name">Last name</label>
+                                    <input id="ca-last-name" type="text" name="last_name" value="{{ $val($panel, 'last_name') }}" autocomplete="family-name" autocapitalize="words" required maxlength="{{ \App\Http\Requests\Rules::NAME_PART_MAX }}">
+                                    @if ($e = $err($panel, 'last_name'))<span class="err">{{ $e }}</span>@endif
+                                </div>
                             </div>
                             <div class="s-two">
                                 <div @class(['s-field', 'has-err' => $err($panel, 'email')])>
@@ -108,7 +116,7 @@
                                 </div>
                                 <div @class(['s-field', 'has-err' => $err($panel, 'phone')])>
                                     <label for="ca-phone">Mobile number</label>
-                                    <input id="ca-phone" type="tel" name="phone" value="{{ $val($panel, 'phone') }}" placeholder="09171234567" autocomplete="tel" inputmode="tel" required maxlength="16">
+                                    <input id="ca-phone" type="tel" name="phone" value="{{ $val($panel, 'phone') }}" placeholder="09171234567" autocomplete="tel-national" inputmode="numeric" required maxlength="11">
                                     @if ($e = $err($panel, 'phone'))<span class="err">{{ $e }}</span>@endif
                                 </div>
                             </div>
@@ -126,9 +134,10 @@
                                 </ul>
                                 @if ($e = $err($panel, 'password'))<span class="err">{{ $e }}</span>@endif
                             </div>
-                            <div class="s-field">
+                            <div @class(['s-field', 'has-err' => $err($panel, 'password_confirmation')])>
                                 <label for="ca-password2">Confirm password</label>
                                 <input id="ca-password2" type="password" name="password_confirmation" autocomplete="new-password" required maxlength="64">
+                                @if ($e = $err($panel, 'password_confirmation'))<span class="err">{{ $e }}</span>@endif
                             </div>
                             <label @class(['s-check', 'has-err' => $err($panel, 'terms')])>
                                 <input type="checkbox" name="terms" value="1" @checked($val($panel, 'terms')) required>
@@ -141,7 +150,7 @@
                                 <input type="checkbox" name="order_updates" value="1" @checked($mine($panel) ? old('order_updates') : true)>
                                 <span>Send me updates about my orders.</span>
                             </label>
-                            {{-- We email a 6-digit code next: the check keeps bots from sending emails. --}}
+                            {{-- Checked by this server before the account is created, then we email a 6-digit code. --}}
                             @include('shop.partials.turnstile', ['action' => 'send_code'])
                             <button type="submit" class="s-btn primary block">Create account</button>
                         </form>

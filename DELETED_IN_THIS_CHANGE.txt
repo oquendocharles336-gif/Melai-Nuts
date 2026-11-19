@@ -1,6 +1,11 @@
-# Branch Inventory tile removed from the staff Inventory tab, and the
-# "Add Inventory" landing screen removed (Add Inventory now opens Receive
-# Stock directly). Delete these from your copy; their routes
-# (/inventory/branch, /inventory/add) were removed from lib/app/routes.dart.
-lib/features/inventory/screens/branch_inventory_screen.dart
-lib/features/inventory/screens/add_inventory_screen.dart
+# Removed in the 2026-11-19 change (phone-number verification; website staff/owner account creation).
+# Delete these from your copy.
+admin/app/Http/Controllers/Shop/PhoneVerificationController.php
+admin/app/Http/Requests/AdminCreateUserRequest.php
+admin/resources/views/admin/users/create.blade.php
+admin/resources/views/shop/auth/verify-phone.blade.php
+admin/tests/Feature/ShopPhoneVerificationTest.php
+docs/PHONE_VERIFICATION.md
+lib/data/repositories/phone_verification_repository.dart
+lib/features/auth/screens/verify_phone_screen.dart
+supabase/tests/verified_phone_first_order_test.sql

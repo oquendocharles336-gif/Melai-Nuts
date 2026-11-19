@@ -331,6 +331,9 @@
 .s-field .hint { color: var(--muted); font-size: 13px; }
 .s-field.has-err input { border-color: var(--bad); }
 .s-field.is-valid input { border-color: var(--ok); }
+.s-field.has-err input:focus { border-color: var(--bad); box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent); }
+.s-field.is-valid input:focus { border-color: var(--ok); }
+.s-field[data-turnstile-field].has-err .js-turnstile { outline: 2px solid var(--bad); outline-offset: 2px; border-radius: 8px; }
 .s-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 560px) { .s-two { grid-template-columns: 1fr; } }
 .s-check { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; color: var(--roast-2); }
@@ -525,3 +528,27 @@ html:has(.s-dlg[open]) { overflow: hidden; }
 .s-details > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; }
 .s-details > summary::-webkit-details-marker { display: none; }
 .s-details[open] > summary { margin-bottom: var(--sp-3); }
+
+/* ---- Product ratings and reviews (shop.product, shop.js "Reviews") ---------------------------- */
+.s-stars { display: inline-flex; gap: 1px; color: var(--honey-deep); line-height: 1; vertical-align: middle; }
+.s-stars svg { width: 1em; height: 1em; }
+.s-card-rating { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); }
+.s-card-rating .s-stars { font-size: 13px; }
+.s-reviews { display: grid; gap: 18px; }
+.s-reviews-summary { display: flex; align-items: center; gap: 14px; }
+.s-reviews-summary b { font-size: 40px; line-height: 1; color: var(--roast); }
+.s-reviews-summary .s-stars { font-size: 20px; }
+.s-review { padding: 14px 0; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.s-review:first-child { border-top: 0; }
+.s-review-head { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.s-review-head b { color: var(--roast); }
+.s-review-head span { color: var(--muted); }
+.s-review p { margin: 0; color: var(--roast-2); white-space: pre-line; overflow-wrap: anywhere; }
+.s-review.mine { background: color-mix(in srgb, var(--honey) 16%, transparent); border-radius: 14px; padding: 14px; border: 0; }
+.s-review-list[aria-busy="true"] { opacity: .6; }
+.s-rate { display: inline-flex; flex-direction: row-reverse; gap: 4px; border: 0; padding: 0; margin: 0; }
+.s-rate input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.s-rate label { cursor: pointer; color: var(--line-strong); font-size: 30px; line-height: 1; transition: color .15s, transform .15s; }
+.s-rate label:hover, .s-rate label:hover ~ label, .s-rate input:checked ~ label { color: var(--honey-deep); }
+.s-rate input:focus-visible + label { outline: 2px solid var(--tan); outline-offset: 2px; border-radius: 6px; }
+.s-review-actions { display: flex; gap: 10px; flex-wrap: wrap; }

@@ -71,13 +71,13 @@ class AllUsersPageTest extends TestCase
 
     public function test_pending_registrations_are_flagged_and_listed_first(): void
     {
-        // The website takes no registrations any more; one made before is still listed for the owner to approve.
+        // The website takes no registrations any more; one made before is still listed (registered in the app, then linked).
         $this->useFakeSupabase();
         $owner = $this->linkedLogin('uid-owner');
         $reg = User::factory()->create(['name' => 'Zed Newcomer', 'email' => 'zed@example.test', 'role' => 'staff', 'has_access' => false]);
         $reg->forceFill(['firebase_uid' => 'uid-zed', 'firebase_email_verified' => true])->save();
 
-        $page = $this->signedIn($owner)->get('/admin/users')->assertOk()->assertSee('Needs approval')->assertSee('Approve');
+        $page = $this->signedIn($owner)->get('/admin/users')->assertOk()->assertSee('Not in the app yet')->assertDontSee('>Approve<', false);
         $this->assertSame('Zed Newcomer', $this->names($page)[0]);
         $this->assertSame(1, $page->viewData('counts')['attention']);
         $this->assertSame(['Zed Newcomer'], $this->names($this->signedIn($owner)->get('/admin/users?type=attention')));

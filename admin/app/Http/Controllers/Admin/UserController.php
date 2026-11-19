@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\AdminCreateUserRequest;
 use App\Models\User;
 use App\Exceptions\BackendActionException;
 use App\Exceptions\BackendUnavailableException;
@@ -14,19 +13,17 @@ use App\Services\Supabase\StaffLinker;
 use App\Services\Supabase\SupabaseRepository;
 use App\Services\UserDirectory;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Admin-only user management: the all-users view (website logins + every app account),
- * create staff accounts, approve website registrations
- * (registers them as app staff/owner, AccountProvisioner), link/unlink, grant/restrict access,
- * activate/deactivate.
+ * link/unlink, grant/restrict access, activate/deactivate. Staff and owner accounts are created
+ * ONLY in the Melai Nuts app (User Management); the website never creates or approves one.
  */
 class UserController extends Controller
 {
     /**
      * All users: website logins merged with every account in the app (owners, staff,
-     * customers; riders are app-only and not listed), filterable by type and searchable. The link / approve / access controls of
+     * customers; riders are app-only and not listed), filterable by type and searchable. The link / access controls of
      * the website logins are unchanged.
      */
     public function index(Request $request, Platform $platform, UserDirectory $people)
@@ -90,22 +87,6 @@ class UserController extends Controller
         return back()->with('status', "{$user->email} is now linked to the app {$profile['role']} account \"{$profile['full_name']}\".");
     }
 
-    /** Approve a website registration: register its Firebase account as app staff/owner and link it. */
-    public function approve(Request $request, User $user, AccountProvisioner $provisioner, Platform $platform)
-    {
-        abort_unless($platform->isSupabase(), 404);
-        $data = $request->validate([
-            'role' => ['required', 'in:staff,owner'],
-            'branch_id' => ['nullable', 'required_if:role,staff', 'uuid'],
-        ]);
-        $token = $provisioner->ownerToken($request->user(), $request->input('owner_password'));
-        $profile = $provisioner->approve($user, $data['role'], $data['branch_id'] ?? null, $request->user(), $token);
-
-        return back()->with('status', "{$user->email} is now registered in the app as {$profile['role']}"
-            .(($profile['branch_name'] ?? null) ? " ({$profile['branch_name']})" : '')
-            .($profile['role'] === 'owner' ? ' and can use the website.' : '. They sign in to the Melai Nuts app (staff do not use the website).'));
-    }
-
     /** Disable / enable a staff member's or customer's app account (see AppAccountStatus). */
     public function setAppActive(Request $request, string $uid, AccountProvisioner $provisioner, \App\Services\Auth\AppAccountStatus $status, Platform $platform)
     {
@@ -129,60 +110,6 @@ class UserController extends Controller
         $linker->unlink($user, $request->user());
 
         return back()->with('status', "{$user->email} is no longer linked to an app account.");
-    }
-
-    public function create(Platform $platform, AccountProvisioner $provisioner)
-    {
-        $branches = [];
-        if ($platform->isSupabase() && auth()->user()->staff_uid) {
-            try {
-                $branches = $platform->branches();
-            } catch (\Throwable) {
-                $branches = [];
-            }
-        }
-
-        return view('admin.users.create', ['liveData' => $platform->isSupabase(), 'branches' => $branches,
-            'needsOwnerPassword' => $platform->isSupabase() && $provisioner->needsOwnerPassword(auth()->user())]);
-    }
-
-    public function store(AdminCreateUserRequest $request, Platform $platform, AccountProvisioner $provisioner)
-    {
-        $data = $request->validated();
-
-        // Staff on the real website are Melai Nuts app accounts: Firebase account + app staff
-        // registration + linked login, created together exactly like the app's User Management.
-        if ($platform->isSupabase() && $data['role'] === User::ROLE_STAFF) {
-            $request->validate(['branch_id' => ['required', 'uuid']]);
-            // The owner's app sign-in (or app password) is checked BEFORE anything is created.
-            $token = $provisioner->ownerToken($request->user(), $request->input('owner_password'));
-            [$user, $profile] = $provisioner->createStaff($data['name'], $data['email'], $data['password'], $request->input('branch_id'), $request->user(), $token);
-            ActivityLogger::log('account.created_by_admin', "Admin created app staff account: {$user->email}", $user, [
-                'role' => $user->role, 'created_by' => $request->user()->id, 'branch' => $profile['branch_name'] ?? null,
-            ]);
-
-            return redirect()->route('admin.users.index')->with('status', "App staff account created for {$user->email} ({$profile['branch_name']}). They sign in to the Melai Nuts app with that email and password (staff do not use the website).");
-        }
-
-        try {
-            $user = (new User)->forceFill([
-                'name' => $data['name'],
-                'email' => $data['email'],
-                'password' => $data['password'],
-                'role' => $data['role'],
-                'is_active' => true,
-                'has_access' => true, // admin created this account on purpose, so it's usable right away
-            ]);
-            $user->save();
-        } catch (\Illuminate\Database\UniqueConstraintViolationException) {
-            throw ValidationException::withMessages(['email' => 'An account with this email already exists.']);
-        }
-
-        ActivityLogger::log('account.created_by_admin', "Admin created account: {$user->email}", $user, [
-            'role' => $user->role, 'created_by' => $request->user()->id,
-        ]);
-
-        return redirect()->route('admin.users.index')->with('status', "Account created for {$user->email}.");
     }
 
     /** Give or restrict dashboard access (has_access). Admins can't be restricted this way. */

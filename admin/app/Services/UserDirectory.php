@@ -124,7 +124,7 @@ class UserDirectory
             $staff && ($staff['account_status'] ?? 'active') !== 'active' => ['bad', 'App '.($staff['account_status'] ?? 'inactive')],
             $staff && array_key_exists('is_active', $staff) && ! $staff['is_active'] => ['bad', 'App inactive'],
             ! $staff && $customer && ($customer['is_active'] ?? true) === false => ['bad', 'Disabled'],
-            $awaitingApproval => ['warn', 'Needs approval'],
+            $awaitingApproval => ['warn', 'Not in the app yet'],
             // An app staff member's record is fine as it is: staff use the app, not the website.
             $login && ! $login->canUseWebsite() => $staff ? ['ok', 'Active'] : ['bad', 'No website access'],
             $login && ! $login->has_access => ['warn', 'Waiting for access'],

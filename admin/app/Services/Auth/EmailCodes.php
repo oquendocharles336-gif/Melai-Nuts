@@ -20,10 +20,18 @@ class EmailCodes
 {
     public function __construct(private SupabaseRest $rest) {}
 
-    /** @throws EmailCodeException */
-    public function send(string $idToken, ?string $captchaToken): void
+    /**
+     * $captchaIdempotencyKey: set when this server already verified $captchaToken with Cloudflare
+     * (sign-up, App\Services\Auth\Turnstile): the function checks the same token with the same key.
+     *
+     * @throws EmailCodeException
+     */
+    public function send(string $idToken, ?string $captchaToken, ?string $captchaIdempotencyKey = null): void
     {
-        $this->post('send-code', ['captcha_token' => (string) $captchaToken], $idToken, false);
+        $this->post('send-code', array_filter([
+            'captcha_token' => (string) $captchaToken,
+            'captcha_idempotency_key' => $captchaIdempotencyKey,
+        ], fn ($v) => $v !== null), $idToken, false);
     }
 
     /** @throws EmailCodeException */

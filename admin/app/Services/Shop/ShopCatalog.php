@@ -198,6 +198,16 @@ class ShopCatalog
             }
             $stockByProduct[$row['product_id']] = ($stockByProduct[$row['product_id']] ?? 0) + $q;
         }
+        // Real customer reviews (product_rating_stats, migration 20261119020000). Without them the
+        // cards simply show no rating, never a made-up one.
+        $ratings = [];
+        try {
+            foreach ($this->rest->select('product_rating_stats', ['select' => 'product_id,average_rating,review_count', 'product_id' => 'in.'.$ids]) as $row) {
+                $ratings[$row['product_id']] = ['average' => round((float) $row['average_rating'], 1), 'count' => (int) $row['review_count']];
+            }
+        } catch (ShopException) {
+            $ratings = [];
+        }
         $badgeQty = null;
         if ($branchId !== null) {
             try {
@@ -223,7 +233,7 @@ class ShopCatalog
             ];
         }
 
-        return array_map(function ($r) use ($byProduct, $stockByProduct, $badgeQty) {
+        return array_map(function ($r) use ($byProduct, $stockByProduct, $badgeQty, $ratings) {
             $stock = $stockByProduct[$r['id']] ?? 0;
             $onlyLeft = $badgeQty !== null && $stock > 0 && $stock <= $badgeQty ? $stock : null;
 
@@ -243,6 +253,8 @@ class ShopCatalog
                 'only_left' => $onlyLeft,
                 'stock_label' => $stock <= 0 ? 'Out of stock' : ($onlyLeft !== null ? "Only $onlyLeft left" : 'In stock'),
                 'art' => self::artFor((string) $r['name']),
+                'rating' => $ratings[$r['id']]['average'] ?? null,
+                'review_count' => $ratings[$r['id']]['count'] ?? 0,
             ];
         }, $rows);
     }

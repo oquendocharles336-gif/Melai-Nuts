@@ -26,6 +26,8 @@ Conventions used by every form (Criterion 6):
 | Field | Required | Length | Allowed / format | Stored as | DB check |
 |---|---|---|---|---|---|
 | Full name | yes | 2–50 | Letters (any language, e.g. ñ, é), spaces, `-` `'` `.`; no digits | trimmed text | ≤120 (profiles, staff) |
+| First name / Last name (Create account, app and website) | yes | 2–23 each | same as Full name; stored separately and composed into Full name | trimmed text | ≤50 each (`customer_profiles.first_name` / `last_name`) |
+| Review comment | no | 0–500 | words, not only emoji or symbols | trimmed text | ≤500 (`product_reviews.comment`) |
 | E-mail | yes | ≤254 | RFC e-mail; lower-cased | text | `customer_profiles`, `suppliers`: e-mail pattern, ≤254 |
 | Password | yes | 8–64 | ≥1 upper, lower, digit, symbol; not a common password (leet variants too); must not contain the name or e-mail; spaces allowed but not only spaces | never stored by the app | Firebase Auth |
 | Confirm password | yes | — | must equal Password | — | — |
@@ -53,7 +55,7 @@ Conventions used by every form (Criterion 6):
 
 | Screen | Fields (rule from the table above) | Notes |
 |---|---|---|
-| Register | Full name, E-mail, Phone (optional), Password, Confirm password, **Terms & Privacy checkbox** (required, unticked), Order-update notifications (optional, unticked) | Password strength shown while typing |
+| Register (app and website) | First name, Last name, E-mail, Mobile number (`09` + 9 digits), Password, Confirm password, **Terms & Privacy checkbox** (required, unticked), Order-update notifications (optional, unticked) | Password strength shown while typing |
 | Sign in / Customer access | E-mail, Password | Brake after repeated failures |
 | Phone sign-in | Phone, 6-digit code | 60 s resend cooldown |
 | E-mail verification / Forgot / Reset password | 6-digit code; E-mail; Password + Confirm | |

@@ -5,6 +5,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../settings/screens/logout_flow.dart';
 import '../../settings/screens/settings_screen.dart';
+import '../../staff/screens/staff_reviews_screen.dart';
 
 /// Owner profile content — the "Profile" tab of the Owner Portal. Mirrors the
 /// Staff profile pattern (avatar header, info card, settings list) and holds
@@ -83,6 +84,16 @@ class OwnerProfileBody extends StatelessWidget {
           ),
           child: Material(type: MaterialType.transparency, child: Column(
             children: [
+              ListTile(
+                leading: const Icon(Icons.reviews_outlined, color: AppColors.darkBrown),
+                title: Text('Product Reviews', style: AppTextStyles.labelLg),
+                subtitle: Text('Hide or delete inappropriate reviews', style: AppTextStyles.bodySm),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StaffReviewsScreen()),
+                ),
+              ),
+              const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.settings_outlined, color: AppColors.darkBrown),
                 title: Text('App Settings', style: AppTextStyles.labelLg),

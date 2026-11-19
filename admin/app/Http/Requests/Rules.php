@@ -3,7 +3,6 @@
 namespace App\Http\Requests;
 
 use Closure;
-use Illuminate\Validation\Rules\Password;
 
 /**
  * The website's field rules, kept identical to the app's
@@ -14,6 +13,9 @@ use Illuminate\Validation\Rules\Password;
 final class Rules
 {
     public const NAME_MAX = 50;
+
+    /** First name / last name each (PersonNameFields._partLimit in the app), so "First Last" fits NAME_MAX. */
+    public const NAME_PART_MAX = 23;
 
     public const EMAIL_MAX = 254;
 
@@ -31,6 +33,9 @@ final class Rules
 
     public const REASON_MAX = 500;
 
+    /** Product review comment (InputLimits.review, product_reviews.comment). */
+    public const REVIEW_MAX = 500;
+
     public const PRODUCT_NAME_MAX = 100;
 
     public const SKU_MAX = 64;
@@ -41,6 +46,15 @@ final class Rules
 
     /** Letters of any alphabet (Ñ, ñ, accents), spaces, hyphens, apostrophes, periods. */
     public const NAME_REGEX = "/^[\\p{L}\\p{M}\\s'’.\\-]+$/u";
+
+    /** A mobile number typed at sign-up: exactly 11 digits starting with 09 (ValidationUtils.validateMobile). */
+    public const MOBILE_REGEX = '/^09\d{9}$/';
+
+    /** Popular mailbox providers: only to catch typos such as gmai.com (ValidationUtils._commonEmailDomains). */
+    public const COMMON_EMAIL_DOMAINS = [
+        'gmail.com', 'yahoo.com', 'yahoo.com.ph', 'outlook.com', 'hotmail.com', 'icloud.com',
+        'live.com', 'msn.com', 'aol.com', 'proton.me', 'protonmail.com',
+    ];
 
     /** Philippine mobile: 09XXXXXXXXX, 9XXXXXXXXX, 639XXXXXXXXX or +639XXXXXXXXX (spaces/dashes allowed). */
     public const PH_MOBILE_REGEX = '/^(?:\+63|63|0)?9\d{9}$/';
@@ -65,6 +79,156 @@ final class Rules
             }];
     }
 
+    /**
+     * First name or last name of the sign-up form, exactly like the app's PersonNameFields
+     * (ValidationUtils.validateName with a 23-character part limit). $label: "First name".
+     *
+     * @return array<int, mixed>
+     */
+    public static function personName(string $label): array
+    {
+        return ['bail', 'required', 'string',
+            function (string $attribute, mixed $value, Closure $fail) use ($label) {
+                if (($error = self::personNameError($label, is_string($value) ? $value : '')) !== null) {
+                    $fail($error);
+                }
+            }];
+    }
+
+    /** The message for one name part, or null when it is fine (same order and words as shop.js). */
+    public static function personNameError(string $label, string $value): ?string
+    {
+        $t = trim($value);
+
+        return match (true) {
+            $t === '' => "$label is required.",
+            preg_match('/\p{N}/u', $t) === 1 => "$label can't contain numbers.",
+            mb_strlen($t) < 2 => "$label must be at least 2 characters.",
+            mb_strlen($t) > self::NAME_PART_MAX => "$label can't be longer than ".self::NAME_PART_MAX.' characters.',
+            preg_match(self::NAME_REGEX, $t) !== 1 => "$label can only use letters, spaces, hyphens, apostrophes and periods.",
+            preg_match_all('/\p{L}/u', $t) < 2 => 'Please enter a real '.mb_strtolower($label).'.',
+            default => null,
+        };
+    }
+
+    /**
+     * A NEW email address (sign-up): the app's ValidationUtils.validateEmail, typo check included
+     * ("Did you mean ana@gmail.com?").
+     *
+     * @return array<int, mixed>
+     */
+    public static function newEmail(): array
+    {
+        return ['bail', 'required', 'string', 'max:'.self::EMAIL_MAX,
+            function (string $attribute, mixed $value, Closure $fail) {
+                if (($error = self::newEmailError(is_string($value) ? $value : '')) !== null) {
+                    $fail($error);
+                }
+            }];
+    }
+
+    public static function newEmailError(string $value): ?string
+    {
+        $t = trim($value);
+        if ($t === '') {
+            return 'Email is required.';
+        }
+        $invalid = 'Email must look like name@example.com.';
+        $at = strpos($t, '@');
+        if (strlen($t) > self::EMAIL_MAX || $at === false || $at === 0 || $at !== strrpos($t, '@')) {
+            return $invalid;
+        }
+        $local = substr($t, 0, $at);
+        $labels = explode('.', substr($t, $at + 1));
+        if (strlen($local) > 64 || ! preg_match("/^[A-Za-z0-9!#$%&'*+\/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+\/=?^_`{|}~-]+)*$/", $local)) {
+            return $invalid;
+        }
+        if (count($labels) < 2 || ! preg_match('/^[A-Za-z]{2,24}$/', end($labels))) {
+            return $invalid;
+        }
+        foreach ($labels as $label) {
+            if (! preg_match('/^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/', $label)) {
+                return $invalid;
+            }
+        }
+        $domain = strtolower(implode('.', $labels));
+        if (! in_array($domain, self::COMMON_EMAIL_DOMAINS, true)) {
+            foreach (self::COMMON_EMAIL_DOMAINS as $known) {
+                if (self::editDistance($domain, $known) === 1) {
+                    return "Did you mean $local@$known? Please check the spelling.";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** Insertions, deletions, substitutions and swaps of two neighbours count 1; 2 = further apart. */
+    private static function editDistance(string $a, string $b): int
+    {
+        $n = strlen($a);
+        $m = strlen($b);
+        if (abs($n - $m) > 1) {
+            return 2;
+        }
+        $d = [];
+        for ($i = 0; $i <= $n; $i++) {
+            $d[$i] = [$i];
+        }
+        for ($j = 0; $j <= $m; $j++) {
+            $d[0][$j] = $j;
+        }
+        for ($i = 1; $i <= $n; $i++) {
+            for ($j = 1; $j <= $m; $j++) {
+                $cost = $a[$i - 1] === $b[$j - 1] ? 0 : 1;
+                $v = min($d[$i - 1][$j] + 1, $d[$i][$j - 1] + 1, $d[$i - 1][$j - 1] + $cost);
+                if ($i > 1 && $j > 1 && $a[$i - 1] === $b[$j - 2] && $a[$i - 2] === $b[$j - 1]) {
+                    $v = min($v, $d[$i - 2][$j - 2] + 1);
+                }
+                $d[$i][$j] = $v;
+            }
+        }
+
+        return $d[$n][$m];
+    }
+
+    /**
+     * The sign-up mobile number: 11 digits starting with 09 (the app's Create Account).
+     *
+     * @return array<int, mixed>
+     */
+    public static function mobile(): array
+    {
+        return ['bail', 'required', 'string',
+            function (string $attribute, mixed $value, Closure $fail) {
+                if (($error = self::mobileError(is_string($value) ? $value : '')) !== null) {
+                    $fail($error);
+                }
+            }];
+    }
+
+    public static function mobileError(string $value): ?string
+    {
+        $t = trim($value);
+
+        return match (true) {
+            $t === '' => 'Mobile number is required.',
+            preg_match('/^\d*$/', $t) !== 1 => 'Mobile number can only contain digits, e.g. 09171234567.',
+            preg_match(self::MOBILE_REGEX, $t) !== 1 => 'Mobile number must be 11 digits starting with 09.',
+            default => null,
+        };
+    }
+
+    /**
+     * A product review comment: optional, at most REVIEW_MAX characters, words (not only emoji).
+     *
+     * @return array<int, mixed>
+     */
+    public static function reviewComment(): array
+    {
+        return self::text(self::REVIEW_MAX);
+    }
+
     /** @return array<int, mixed> */
     public static function email(bool $required = true): array
     {
@@ -72,21 +236,35 @@ final class Rules
     }
 
     /**
-     * New passwords. Never trimmed (a trailing space is part of the password): Laravel's
+     * New passwords, with the app's rules: 8 to 64 characters, an uppercase letter, a number and
+     * a symbol, not the email / name, not a common password. Never trimmed (a trailing space is part of the password): Laravel's
      * TrimStrings middleware already skips password / password_confirmation.
      *
      * @return array<int, mixed>
      */
     public static function newPassword(?string $email = null, ?string $name = null): array
     {
-        return ['required', 'string', 'max:'.self::PASSWORD_MAX,
-            Password::min(self::PASSWORD_MIN)->mixedCase()->numbers()->symbols(),
+        return ['required', 'string',
             function (string $attribute, mixed $value, Closure $fail) use ($email, $name) {
                 if (! is_string($value)) {
                     return;
                 }
                 if (trim($value) === '') {
                     $fail('Password cannot be only spaces.');
+
+                    return;
+                }
+                // The app's ValidationUtils.validatePassword, rule by rule (hasUpper / hasDigit / hasSpecial).
+                $rule = match (true) {
+                    mb_strlen($value) < self::PASSWORD_MIN => 'Password must be at least '.self::PASSWORD_MIN.' characters long.',
+                    mb_strlen($value) > self::PASSWORD_MAX => 'Password cannot exceed '.self::PASSWORD_MAX.' characters.',
+                    preg_match('/[A-Z]/', $value) !== 1 => 'Password must contain at least one uppercase letter (A-Z).',
+                    preg_match('/[0-9]/', $value) !== 1 => 'Password must contain at least one number (0-9).',
+                    preg_match('/[^A-Za-z0-9\s]/u', $value) !== 1 => 'Password must contain at least one special character (!@#$...).',
+                    default => null,
+                };
+                if ($rule !== null) {
+                    $fail($rule);
 
                     return;
                 }

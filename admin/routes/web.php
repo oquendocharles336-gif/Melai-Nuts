@@ -21,11 +21,11 @@ use App\Http\Controllers\PurchaseReceiptController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\Shop\CartController as ShopCartController;
 use App\Http\Controllers\Shop\CheckoutController as ShopCheckoutController;
-use App\Http\Controllers\Shop\PhoneVerificationController as ShopPhoneVerificationController;
 use App\Http\Controllers\Auth\AccountActionController;
 use App\Http\Controllers\Auth\EmailChangeController;
 use App\Http\Controllers\Shop\CustomerAuthController;
 use App\Http\Controllers\Shop\OrderController as ShopOrderController;
+use App\Http\Controllers\Shop\ReviewController as ShopReviewController;
 use App\Http\Controllers\Shop\StorefrontController;
 use App\Http\Controllers\StockController;
 use Illuminate\Support\Facades\Route;
@@ -47,6 +47,7 @@ Route::name('shop.')->group(function () {
     Route::prefix('shop')->group(function () {
         Route::get('/search', [StorefrontController::class, 'search'])->name('search');
         Route::get('/p/{product}', [StorefrontController::class, 'product'])->name('product')->where('product', '[0-9A-Za-z-]{1,64}');
+        Route::get('/p/{product}/reviews.json', [ShopReviewController::class, 'index'])->name('product.reviews')->where('product', '[0-9A-Za-z-]{1,64}')->middleware('throttle:60,1');
         Route::post('/branch', [StorefrontController::class, 'locate'])->name('branch')->middleware('throttle:20,1');
 
         Route::middleware('shop.buyer')->group(function () {
@@ -72,10 +73,6 @@ Route::name('shop.')->group(function () {
             Route::delete('/cart/voucher', [ShopCartController::class, 'removeVoucher'])->name('cart.voucher.remove');
             Route::post('/cart/points', [ShopCartController::class, 'points'])->name('cart.points');
             // Verified mobile number (SMS), needed to check out (migration 20261118040000).
-            Route::get('/verify-phone', [ShopPhoneVerificationController::class, 'show'])->name('phone');
-            Route::post('/verify-phone', [ShopPhoneVerificationController::class, 'send'])->name('phone.send')->middleware('throttle:3,1');
-            Route::post('/verify-phone/code', [ShopPhoneVerificationController::class, 'confirm'])->name('phone.confirm')->middleware('throttle:10,1');
-            Route::post('/verify-phone/restart', [ShopPhoneVerificationController::class, 'restart'])->name('phone.restart');
             Route::get('/checkout', [ShopCheckoutController::class, 'show'])->name('checkout');
             Route::post('/checkout', [ShopCheckoutController::class, 'place'])->name('checkout.place')->middleware('throttle:10,1');
             Route::get('/orders', [ShopOrderController::class, 'index'])->name('orders');
@@ -84,6 +81,9 @@ Route::name('shop.')->group(function () {
             Route::post('/orders/{order}/pay', [ShopOrderController::class, 'pay'])->name('orders.pay')->where('order', '[0-9A-Za-z-]{1,64}')->middleware('throttle:10,1');
             Route::get('/payment/return', [ShopOrderController::class, 'paymentReturn'])->name('payment.return');
             Route::get('/points', [ShopOrderController::class, 'points'])->name('points');
+            // The customer's own product review (a completed order with the product; checked by the database).
+            Route::post('/p/{product}/review', [ShopReviewController::class, 'store'])->name('product.review')->where('product', '[0-9A-Za-z-]{1,64}')->middleware('throttle:10,1');
+            Route::delete('/p/{product}/review', [ShopReviewController::class, 'destroy'])->name('product.review.destroy')->where('product', '[0-9A-Za-z-]{1,64}')->middleware('throttle:10,1');
             Route::get('/account', [CustomerAuthController::class, 'account'])->name('account');
             Route::post('/account/email', [EmailChangeController::class, 'customer'])->name('account.email')->middleware('throttle:5,10');
             Route::get('/terms-update', [CustomerAuthController::class, 'showTerms'])->name('terms');
@@ -143,13 +143,10 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
         Route::get('/activity-logs/export', [ActivityLogController::class, 'export'])->name('logs.export');
 
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
-        Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
-        Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::post('/users/{user}/toggle-access', [UserController::class, 'toggleAccess'])->name('users.toggle-access');
         Route::post('/users/{user}/toggle-active', [UserController::class, 'toggleActive'])->name('users.toggle-active');
         Route::post('/users/{user}/link', [UserController::class, 'link'])->name('users.link');       // Supabase mode
         Route::post('/users/{user}/unlink', [UserController::class, 'unlink'])->name('users.unlink'); // Supabase mode
-        Route::post('/users/{user}/approve', [UserController::class, 'approve'])->name('users.approve')->middleware('throttle:20,1'); // Supabase mode
         Route::post('/app-accounts/{uid}/active', [UserController::class, 'setAppActive'])->name('users.app-active')->middleware('throttle:30,1'); // disable / enable a staff or customer app account
 
         Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');

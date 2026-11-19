@@ -25300,3 +25300,946 @@ revoke all on function public.staff_adjust_batch(uuid, int, text, text, text) fr
 grant execute on function public.staff_adjust_batch(uuid, int, text, text, text) to authenticated;
 
 commit;
+
+
+-- >>>>>>>>>> 20261119000000_remove_phone_verification.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261119000000: no SMS check of the mobile number; the first order
+-- is still paid online first (50% or 100%), with a phone-match safeguard
+-- =============================================================================
+-- Run after 20261118070000_staff_offline_sync.sql. Idempotent, one transaction.
+-- Replaces the verified-number part of 20261118040000 (the phone-number verification step is
+-- gone from the app and the website). The mobile number is an ordinary profile / contact field
+-- again, checked for its format only (09XXXXXXXXX).
+--
+-- FIRST ORDER (unchanged rule, decided on the server only):
+--   * Keyed on the ACCOUNT: customer_profiles.first_paid_order_at (Firebase UID). NULL = the
+--     next order is paid online first, 50% or 100%.
+--   * Set ONLY by the HitPay webhook (hitpay_apply_payment -> _mark_first_paid_order). The guard
+--     trigger of 20261118040000 still refuses every other writer, so the client and the owner's
+--     manual payment confirmation (owner_confirm_online_payment) never use it up.
+--
+-- PHONE-MATCH SAFEGUARD (new). Without an SMS check, a number proves nothing, so it can only
+-- ever ADD the prepayment, never remove it:
+--   * first_order_phones now holds (normalized number, account) for every account that paid an
+--     online order with that number on its profile (written by the webhook; backfilled below
+--     for every customer who already paid, so nobody who paid is penalized).
+--   * _is_first_order(uid) is TRUE (prepay) when the account has no first_paid_order_at, OR when
+--     its profile number matches a number another account already paid with and this account
+--     never paid with that number itself. Signing up is never refused for this reason.
+--   * Numbers are compared normalized with the existing normalize_ph_mobile() (20261025000000):
+--     0917 123 4567, 639171234567 and +639171234567 are the same number.
+--
+-- CLEAN-UP: claim_verified_phone(), _claim_verified_phone(), _require_verified_phone(),
+-- _phone_status(), jwt_verified_phone() and the columns customer_profiles.verified_phone /
+-- phone_verified_at are dropped. A verified number is first copied into customer_profiles.phone
+-- when that is empty, and into first_order_phones, so existing accounts keep their number and
+-- their returning-customer status. first_order_quote no longer returns phone_* fields.
+-- =============================================================================
+begin;
+
+-- 1. Keep what the verified number gave existing accounts ---------------------------------
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'customer_profiles' and column_name = 'verified_phone') then
+    -- The verified number becomes the profile number when the profile has none.
+    execute $q$update public.customer_profiles
+                  set phone = verified_phone
+                where verified_phone is not null and coalesce(trim(phone), '') = ''$q$;
+  end if;
+end $$;
+
+-- first_order_phones: one row per (number, account) instead of one per number, so two accounts
+-- that both paid with a shared family number are both returning customers.
+create table if not exists public.first_order_phones (
+  phone text not null check (phone ~ '^\+639[0-9]{9}$'),
+  firebase_uid text not null,
+  first_paid_at timestamptz not null default now()
+);
+do $$
+declare v_cols text;
+begin
+  select string_agg(a.attname, ',' order by a.attname) into v_cols
+  from pg_constraint c
+  join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+  where c.conrelid = 'public.first_order_phones'::regclass and c.contype = 'p';
+  if v_cols is distinct from 'firebase_uid,phone' then
+    if v_cols is not null then
+      execute (select format('alter table public.first_order_phones drop constraint %I', conname)
+               from pg_constraint where conrelid = 'public.first_order_phones'::regclass and contype = 'p');
+    end if;
+    alter table public.first_order_phones add primary key (phone, firebase_uid);
+  end if;
+end $$;
+create index if not exists first_order_phones_uid_idx on public.first_order_phones (firebase_uid);
+alter table public.first_order_phones enable row level security;
+revoke all on public.first_order_phones from public, anon, authenticated;
+grant select, insert, update, delete on public.first_order_phones to service_role;
+
+-- Every customer who already paid: their current profile number counts as paid with.
+insert into public.first_order_phones (phone, firebase_uid, first_paid_at)
+select public.normalize_ph_mobile(cp.phone), cp.firebase_uid, cp.first_paid_order_at
+from public.customer_profiles cp
+where cp.first_paid_order_at is not null and public.normalize_ph_mobile(cp.phone) ~ '^\+639[0-9]{9}$'
+on conflict (phone, firebase_uid) do nothing;
+
+-- 2. First order: the account, plus the phone-match safeguard -------------------------------
+create or replace function public._is_first_order(p_uid text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p_uid is null
+    or not exists (select 1 from public.customer_profiles cp
+                   where cp.firebase_uid = p_uid and cp.first_paid_order_at is not null)
+    or exists (
+      select 1
+      from public.customer_profiles cp
+      join public.first_order_phones f on f.phone = public.normalize_ph_mobile(cp.phone)
+      where cp.firebase_uid = p_uid
+        and f.firebase_uid <> p_uid
+        and not exists (select 1 from public.first_order_phones own
+                        where own.phone = f.phone and own.firebase_uid = p_uid))
+$$;
+revoke all on function public._is_first_order(text) from public, anon, authenticated;
+
+-- Called only from hitpay_apply_payment (the HitPay webhook). Sets first_paid_order_at once
+-- (only while still NULL: the only writer the guard trigger lets through) and records the
+-- profile number the order was paid with. Never called by owner_confirm_online_payment.
+create or replace function public._mark_first_paid_order(p_order_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text;
+  v_phone text;
+begin
+  select o.firebase_uid, public.normalize_ph_mobile(cp.phone) into v_uid, v_phone
+  from public.orders o
+  join public.customer_profiles cp on cp.firebase_uid = o.firebase_uid
+  where o.id = p_order_id
+    and o.status <> 'cancelled'
+    and not exists (select 1 from public.pos_sales ps where ps.order_id = o.id);
+  if v_uid is null then return; end if;
+
+  perform set_config('app.first_order_mark', 'on', true);
+  update public.customer_profiles
+     set first_paid_order_at = now()
+   where firebase_uid = v_uid and first_paid_order_at is null;
+  perform set_config('app.first_order_mark', 'off', true);
+
+  if v_phone ~ '^\+639[0-9]{9}$' then
+    insert into public.first_order_phones (phone, firebase_uid, first_paid_at)
+    values (v_phone, v_uid, now())
+    on conflict (phone, firebase_uid) do nothing;
+  end if;
+end;
+$$;
+revoke all on function public._mark_first_paid_order(text) from public, anon, authenticated;
+
+-- 3. place_order: the body of 20261118040000 without the verified number --------------------
+create or replace function public._place_order_core(
+  p_cart_id uuid,
+  p_is_delivery boolean,
+  p_delivery_address_id uuid,
+  p_payment_method text,
+  p_customer_notes text,
+  p_first_order_payment text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_cart record;
+  v_item record;
+  v_available int;
+  v_order_id text;
+  v_subtotal numeric;
+  v_voucher_discount numeric := 0;
+  v_loyalty_discount numeric := 0;
+  v_delivery_fee numeric;
+  v_total numeric;
+  v_discount numeric;
+  v_points_used int := 0;
+  v_balance int := 0;
+  v_has_voucher boolean;
+  v_voucher record;
+  v_points_per_peso numeric;
+  v_max_discount_percent numeric;
+  v_address record;
+  v_profile_phone text;
+  v_contact_phone text;
+  v_delivery_address_text text;
+  v_payment_method_code text;
+  v_downpayment numeric;
+  v_first boolean := false;
+  v_choice text;
+  v_pending text;
+  v_expiry int;
+begin
+  if v_uid is null then raise exception 'You must be signed in to place this order.'; end if;
+
+  select c.* into v_cart
+  from public.carts c
+  where c.id = p_cart_id and c.firebase_uid = v_uid and c.status = 'open'
+  for update;
+  if not found then raise exception 'Your cart is no longer available.'; end if;
+
+  -- FIRST ORDER. The customer's profile row is locked for the rest of this transaction,
+  -- so two checkouts of one account run one after the other: the second one sees the
+  -- first one's unpaid first order and is refused (one unpaid first order at a time).
+  perform 1 from public.customer_profiles where firebase_uid = v_uid for update;
+
+  -- 'Online Payment (GCash, QR Ph, Card)' is settled by the HitPay hosted
+  -- checkout; 'online' is only the initial placeholder, the HitPay webhook
+  -- (hitpay_apply_payment) records the method actually used. The three older
+  -- online labels stay accepted, with their old placeholders, for older app builds.
+  if p_payment_method not in (
+    'Online Payment (GCash, QR Ph, Card)', 'Cash on Delivery', 'Cash on Counter Pickup',
+    'Online Payment (GCash, Maya, Card)', 'GCash E-Wallet', 'Maya / Credit Card'
+  ) then
+    raise exception 'Unsupported payment method.';
+  end if;
+  if p_payment_method = 'Cash on Delivery' and not p_is_delivery then
+    raise exception 'Cash on Delivery is only available for delivery orders.';
+  end if;
+  v_payment_method_code := case p_payment_method
+    when 'Online Payment (GCash, QR Ph, Card)' then 'online'
+    when 'Online Payment (GCash, Maya, Card)' then 'card'
+    when 'GCash E-Wallet' then 'gcash'
+    when 'Maya / Credit Card' then 'card'
+    else 'cash'
+  end;
+
+  select phone into v_profile_phone from public.customer_profiles where firebase_uid = v_uid;
+
+  if p_is_delivery then
+    if p_delivery_address_id is null then raise exception 'Please provide a delivery address.'; end if;
+    select * into v_address from public.customer_addresses
+      where id = p_delivery_address_id and firebase_uid = v_uid;
+    if not found then raise exception 'The selected delivery address is invalid.'; end if;
+    select delivery_fee into v_delivery_fee from public.branches
+      where id = v_cart.branch_id and supports_delivery and is_active;
+    if not found then raise exception 'Delivery is not available for this branch.'; end if;
+    v_contact_phone := nullif(trim(v_address.phone), '');
+    v_delivery_address_text := trim(
+      v_address.recipient_name || ', ' || v_address.line1 || ', ' || v_address.city ||
+      case when coalesce(v_address.province, '') <> '' then ', ' || v_address.province else '' end ||
+      case when coalesce(v_address.postal_code, '') <> '' then ' ' || v_address.postal_code else '' end
+    );
+  else
+    if not exists (select 1 from public.branches where id = v_cart.branch_id and supports_pickup and is_active) then
+      raise exception 'Pickup is not available for this branch.';
+    end if;
+    v_delivery_fee := 0;
+    v_contact_phone := nullif(trim(v_profile_phone), '');   -- pickup: the profile's mobile number
+    v_delivery_address_text := null;
+  end if;
+
+  if v_contact_phone is null then
+    raise exception 'Please add a contact phone number to your profile before checking out.';
+  end if;
+
+  -- Prices always come from the catalog, never from the cart row.
+  update public.cart_items ci
+  set current_price = pv.price, variant_label = pv.label, updated_at = now()
+  from public.product_variants pv
+  join public.products p on p.id = pv.product_id
+  where ci.cart_id = v_cart.id and ci.variant_id = pv.id and p.is_active;
+
+  if not exists (select 1 from public.cart_items where cart_id = v_cart.id) then
+    raise exception 'Your cart is empty.';
+  end if;
+
+  -- Validate + lock stock in a fixed order so two checkouts cannot deadlock.
+  for v_item in
+    select ci.product_id, ci.variant_id, ci.quantity, p.name as product_name, p.is_active as product_active
+    from public.cart_items ci
+    join public.products p on p.id = ci.product_id
+    where ci.cart_id = v_cart.id
+    order by ci.product_id, ci.variant_id
+  loop
+    if not v_item.product_active then raise exception '% is no longer available.', v_item.product_name; end if;
+    if v_item.variant_id is null then raise exception '% is no longer available.', v_item.product_name; end if;
+    select bi.quantity into v_available
+    from public.branch_inventory bi
+    where bi.branch_id = v_cart.branch_id
+      and bi.product_id = v_item.product_id
+      and bi.variant_id = v_item.variant_id
+    for update;
+    if v_available is null then raise exception '% is not available at this branch.', v_item.product_name; end if;
+    if v_available < v_item.quantity then
+      raise exception 'Only % of % left at this branch.', v_available, v_item.product_name;
+    end if;
+  end loop;
+
+  -- Lock the loyalty account before recomputing so points cannot be spent twice.
+  insert into public.loyalty_accounts (firebase_uid) values (v_uid) on conflict (firebase_uid) do nothing;
+  select points_balance into v_balance from public.loyalty_accounts where firebase_uid = v_uid for update;
+
+  select coalesce(sum(current_price * quantity), 0) into v_subtotal
+  from public.cart_items where cart_id = v_cart.id;
+
+  v_has_voucher := v_cart.voucher_code is not null and trim(v_cart.voucher_code) <> '';
+  if v_has_voucher then
+    select * into v_voucher
+    from public.vouchers v
+    where upper(v.code) = upper(trim(v_cart.voucher_code))
+      and v.is_active
+      and (v.starts_at is null or v.starts_at <= now())
+      and (v.ends_at is null or v.ends_at >= now())
+    for update;
+    if not found then raise exception 'Voucher is invalid or expired.'; end if;
+    if v_voucher.usage_limit is not null and v_voucher.used_count >= v_voucher.usage_limit then
+      raise exception 'This voucher has reached its usage limit.';
+    end if;
+    if v_voucher.per_customer_limit is not null and
+       (select count(*) from public.voucher_usage vu
+        where vu.voucher_id = v_voucher.id and vu.firebase_uid = v_uid) >= v_voucher.per_customer_limit then
+      raise exception 'You have already used this voucher.';
+    end if;
+    if v_subtotal < v_voucher.minimum_subtotal then
+      raise exception 'This voucher requires a minimum subtotal of ₱%.', v_voucher.minimum_subtotal;
+    end if;
+    if v_voucher.discount_type = 'percent' then
+      v_voucher_discount := round(v_subtotal * v_voucher.discount_value / 100, 2);
+    else
+      v_voucher_discount := v_voucher.discount_value;
+    end if;
+    if v_voucher.maximum_discount is not null then
+      v_voucher_discount := least(v_voucher_discount, v_voucher.maximum_discount);
+    end if;
+    v_voucher_discount := least(v_voucher_discount, v_subtotal);
+  end if;
+
+  if v_cart.redeem_points then
+    select points_per_peso, max_discount_percent into v_points_per_peso, v_max_discount_percent
+    from public.loyalty_cart_settings where id = 'default';
+    if v_points_per_peso is null then raise exception 'Loyalty point redemption is not configured yet.'; end if;
+    if v_balance <= 0 then raise exception 'You do not have loyalty points available to redeem.'; end if;
+    v_points_used := least(
+      v_balance,
+      floor(greatest(0, least(v_subtotal - v_voucher_discount,
+                              v_subtotal * v_max_discount_percent / 100)) * v_points_per_peso)::int
+    );
+    v_loyalty_discount := round(v_points_used / v_points_per_peso, 2);
+  end if;
+
+  v_discount := v_voucher_discount + v_loyalty_discount;
+  v_total := greatest(0, v_subtotal - v_discount + v_delivery_fee);
+
+  -- A customer who never had a paid online order pays 50% or 100% online first
+  -- (migration 20261118015010). Nothing to pay (a fully discounted order) = no rule.
+  -- Decided here, on the server, from the account and its mobile number (_is_first_order).
+  v_first := v_total > 0 and public._is_first_order(v_uid);
+  if v_first then
+    select o.id into v_pending
+    from public.orders o
+    join public.order_downpayments d on d.order_id = o.id
+    where o.firebase_uid = v_uid and o.status = 'awaitingDownpayment' and d.kind = 'first_order'
+    order by o.created_at
+    limit 1;
+    if v_pending is not null then
+      raise exception 'Your first order % is still waiting for its online payment. Please pay for it, or wait for it to expire, before placing another order.', v_pending;
+    end if;
+    if p_payment_method not in (
+      'Online Payment (GCash, QR Ph, Card)', 'Online Payment (GCash, Maya, Card)', 'GCash E-Wallet', 'Maya / Credit Card'
+    ) then
+      raise exception 'Your first order is paid online: choose to pay 50%% or 100%% now. Cash payment is available from your next order.';
+    end if;
+    if not public.online_payment_enabled() then
+      raise exception 'Your first order is paid online, and online payment is unavailable right now. Please try again later.';
+    end if;
+    -- Older app builds send no choice; they already paid online orders in full.
+    v_choice := lower(trim(coalesce(p_first_order_payment, 'full')));
+    if v_choice not in ('half', 'full') then
+      raise exception 'Choose to pay 50%% or 100%% of your first order now.';
+    end if;
+    v_downpayment := case v_choice when 'full' then round(v_total, 2) else round(v_total * 0.5, 2) end;
+    -- What is left is paid in cash at pickup / on delivery. Paid in full = nothing left.
+    if v_downpayment < v_total then v_payment_method_code := 'cash'; end if;
+    select cod_downpayment_expiry_minutes into v_expiry from public.business_settings where id = 'default';
+    v_expiry := coalesce(v_expiry, 30);
+  elsif p_payment_method = 'Cash on Counter Pickup' then
+    v_downpayment := public._cod_downpayment_amount(v_total);
+  end if;
+
+  update public.branch_inventory bi
+  set quantity = bi.quantity - ci.quantity
+  from public.cart_items ci
+  where ci.cart_id = v_cart.id
+    and bi.branch_id = v_cart.branch_id
+    and bi.product_id = ci.product_id
+    and bi.variant_id = ci.variant_id;
+
+  insert into public.orders (
+    firebase_uid, branch_id, branch_name, is_delivery, delivery_address_id,
+    subtotal, discount, delivery_fee, total, payment_method,
+    customer_notes, contact_phone, delivery_address_text, status
+  )
+  -- A pickup order never links an address, whatever an app build sends.
+  select v_uid, v_cart.branch_id, b.name, p_is_delivery,
+    case when p_is_delivery then p_delivery_address_id end,
+    v_subtotal, v_discount, v_delivery_fee, v_total, p_payment_method,
+    left(coalesce(trim(p_customer_notes), ''), 500), v_contact_phone, v_delivery_address_text,
+    case when v_downpayment is null then 'pending' else 'awaitingDownpayment' end
+  from public.branches b where b.id = v_cart.branch_id
+  returning id into v_order_id;
+
+  insert into public.order_items (order_id, product_id, variant_id, product_name, variant_label, quantity, unit_price)
+  select v_order_id, ci.product_id, ci.variant_id, p.name, ci.variant_label, ci.quantity, ci.current_price
+  from public.cart_items ci
+  join public.products p on p.id = ci.product_id
+  where ci.cart_id = v_cart.id;
+
+  -- Created in the same transaction as the order; only a trusted server path
+  -- (gateway webhook / staff tooling) may ever move it past 'pending'.
+  insert into public.payments (order_id, firebase_uid, method, status, amount, reference_number)
+  values (v_order_id, v_uid, v_payment_method_code, 'pending', v_total - coalesce(v_downpayment, 0), v_order_id);
+
+  -- The amount and the time limit are fixed now: changing the settings later does not
+  -- touch an order already placed.
+  if v_first then
+    insert into public.order_downpayments (order_id, firebase_uid, amount, expires_at, pickup_days, percent, kind, choice)
+    values (v_order_id, v_uid, v_downpayment, now() + make_interval(mins => v_expiry), null,
+            case v_choice when 'full' then 100 else 50 end, 'first_order', v_choice);
+  elsif v_downpayment is not null then
+    insert into public.order_downpayments (order_id, firebase_uid, amount, expires_at, pickup_days, percent)
+    select v_order_id, v_uid, v_downpayment, now() + make_interval(mins => s.cod_downpayment_expiry_minutes),
+           s.cod_downpayment_pickup_days,
+           case when s.cod_downpayment_type = 'percent' then s.cod_downpayment_value end
+    from public.business_settings s where s.id = 'default';
+  end if;
+
+  if v_points_used > 0 then
+    update public.loyalty_accounts set points_balance = points_balance - v_points_used
+    where firebase_uid = v_uid;
+    insert into public.loyalty_transactions (firebase_uid, type, points, description, order_id, source)
+    values (v_uid, 'redeem', -v_points_used, 'Applied to order ' || v_order_id, v_order_id, 'order_redeem');
+  end if;
+
+  if v_has_voucher then
+    update public.vouchers set used_count = used_count + 1 where id = v_voucher.id;
+    insert into public.voucher_usage (voucher_id, firebase_uid, order_id, discount_amount)
+    values (v_voucher.id, v_uid, v_order_id, v_voucher_discount);
+  end if;
+
+  delete from public.cart_items where cart_id = v_cart.id;
+  update public.carts
+  set status = 'checked_out', voucher_code = null, redeem_points = false, updated_at = now()
+  where id = v_cart.id;
+
+  return v_order_id;
+end;
+$$;
+
+revoke all on function public._place_order_core(uuid, boolean, uuid, text, text, text) from public, anon, authenticated;
+
+-- 4. Checkout preview: no phone_* fields -------------------------------------------------------
+create or replace function public.first_order_quote(p_cart_id uuid, p_is_delivery boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_total numeric;
+  v_half numeric;
+  v_pending text;
+  v_expiry int;
+begin
+  if v_uid is null then raise exception 'Please sign in to check out.'; end if;
+  if not public._is_first_order(v_uid) then
+    return jsonb_build_object('first_order', false);
+  end if;
+  v_total := round(coalesce((public._calculate_cart_pricing(p_cart_id, coalesce(p_is_delivery, false)) ->> 'total')::numeric, 0), 2);
+  if v_total <= 0 then
+    return jsonb_build_object('first_order', false);
+  end if;
+  v_half := round(v_total * 0.5, 2);
+  select o.id into v_pending
+  from public.orders o join public.order_downpayments d on d.order_id = o.id
+  where o.firebase_uid = v_uid and o.status = 'awaitingDownpayment' and d.kind = 'first_order'
+  order by o.created_at limit 1;
+  select cod_downpayment_expiry_minutes into v_expiry from public.business_settings where id = 'default';
+  return jsonb_build_object(
+    'first_order', true,
+    'total', v_total,
+    'half_amount', v_half,
+    'half_balance', v_total - v_half,
+    'full_amount', v_total,
+    'expiry_minutes', coalesce(v_expiry, 30),
+    'pending_order_id', v_pending,
+    'online_payment_enabled', public.online_payment_enabled());
+end;
+$$;
+revoke all on function public.first_order_quote(uuid, boolean) from public, anon;
+grant execute on function public.first_order_quote(uuid, boolean) to authenticated;
+
+-- 5. Remove the verified-number pieces -----------------------------------------------------
+drop function if exists public.claim_verified_phone();
+drop function if exists public._claim_verified_phone(text, text);
+drop function if exists public._require_verified_phone(text);
+drop function if exists public._phone_status(text);
+drop function if exists public.jwt_verified_phone();
+drop index if exists public.customer_profiles_verified_phone_key;
+alter table public.customer_profiles drop constraint if exists customer_profiles_verified_phone_format;
+alter table public.customer_profiles drop column if exists verified_phone;
+alter table public.customer_profiles drop column if exists phone_verified_at;
+comment on table public.first_order_phones is
+  'Mobile numbers (normalized, +639XXXXXXXXX) each account had on its profile when the HitPay webhook confirmed one of its online payments. A profile number paid with by ANOTHER account (and never by this one) keeps the first-order prepayment on (_is_first_order).';
+
+commit;
+
+
+-- >>>>>>>>>> 20261119010000_customer_name_parts.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261119010000: first and last name stored separately
+-- =============================================================================
+-- Run after 20261119000000_remove_phone_verification.sql. Idempotent, one transaction.
+--
+-- The website's Create account form now asks for First name and Last name, like the app's
+-- (lib/features/auth/screens/register_screen.dart). Both are kept on customer_profiles, next to
+-- full_name, which stays the composed "First Last" every existing screen, report and function
+-- already reads.
+--
+--   * The website sends first_name, last_name AND the composed full_name.
+--   * A writer that sends only full_name (the app's profile row, older builds, staff tools) gets
+--     first_name / last_name filled in by the trigger below, with the same split as the app's
+--     PersonName.parse (a lone middle initial is dropped; "Dela Cruz", "De los Reyes" stay whole).
+--   * Existing rows are filled in once below.
+-- =============================================================================
+begin;
+
+alter table public.customer_profiles add column if not exists first_name text;
+alter table public.customer_profiles add column if not exists last_name text;
+alter table public.customer_profiles drop constraint if exists customer_profiles_first_name_len;
+alter table public.customer_profiles add constraint customer_profiles_first_name_len
+  check (first_name is null or char_length(first_name) <= 50);
+alter table public.customer_profiles drop constraint if exists customer_profiles_last_name_len;
+alter table public.customer_profiles add constraint customer_profiles_last_name_len
+  check (last_name is null or char_length(last_name) <= 50);
+
+-- The app's PersonName.parse (lib/core/utils/person_name.dart), in SQL.
+create or replace function public._split_full_name(p_full_name text, out first_name text, out last_name text)
+language plpgsql
+immutable
+set search_path = public
+as $$
+declare
+  w text[] := regexp_split_to_array(btrim(coalesce(p_full_name, '')), '\s+');
+  n int;
+  i int;
+  last_start int;
+  particles constant text[] := array['de', 'del', 'dela', 'delos', 'la', 'las', 'los', 'san', 'santa',
+                                     'sta', 'sta.', 'sto', 'sto.', 'santo'];
+begin
+  if btrim(coalesce(p_full_name, '')) = '' then return; end if;
+  n := array_length(w, 1);
+  if n = 1 then first_name := w[1]; return; end if;
+  -- A lone middle initial ("Juan D. Dela Cruz") is dropped.
+  for i in 2 .. n - 1 loop
+    if w[i] ~ '^[[:alpha:]]\.?$' then
+      w := w[1:i - 1] || w[i + 1:n];
+      exit;
+    end if;
+  end loop;
+  n := array_length(w, 1);
+  if n = 1 then first_name := w[1]; return; end if;
+  last_start := n;
+  while last_start > 2 and lower(w[last_start - 1]) = any (particles) loop
+    last_start := last_start - 1;
+  end loop;
+  first_name := array_to_string(w[1:last_start - 1], ' ');
+  last_name := array_to_string(w[last_start:n], ' ');
+end;
+$$;
+revoke all on function public._split_full_name(text) from public, anon, authenticated;
+
+create or replace function public._customer_profiles_name_parts()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v record;
+begin
+  new.first_name := nullif(btrim(new.first_name), '');
+  new.last_name := nullif(btrim(new.last_name), '');
+  if (tg_op = 'INSERT' and new.first_name is null and new.last_name is null)
+     or (tg_op = 'UPDATE' and new.full_name is distinct from old.full_name
+         and new.first_name is not distinct from old.first_name
+         and new.last_name is not distinct from old.last_name) then
+    v := public._split_full_name(new.full_name);
+    new.first_name := v.first_name;
+    new.last_name := v.last_name;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._customer_profiles_name_parts() from public, anon, authenticated;
+drop trigger if exists customer_profiles_name_parts on public.customer_profiles;
+create trigger customer_profiles_name_parts
+  before insert or update of full_name, first_name, last_name on public.customer_profiles
+  for each row execute function public._customer_profiles_name_parts();
+
+-- Customers write their own name parts (same as full_name).
+grant insert (first_name, last_name), update (first_name, last_name) on public.customer_profiles to authenticated;
+
+-- Existing rows, once.
+update public.customer_profiles cp
+   set first_name = s.first_name, last_name = s.last_name
+  from public.customer_profiles x
+  cross join lateral public._split_full_name(x.full_name) s
+ where cp.firebase_uid = x.firebase_uid
+   and cp.first_name is null and cp.last_name is null
+   and coalesce(btrim(cp.full_name), '') <> '';
+
+comment on column public.customer_profiles.first_name is
+  'First name as typed at sign-up (website) or split from full_name (app). full_name stays the composed "First Last".';
+comment on column public.customer_profiles.last_name is
+  'Last name as typed at sign-up (website) or split from full_name (app).';
+
+commit;
+
+
+-- >>>>>>>>>> 20261119020000_product_reviews.sql <<<<<<<<<<
+-- =============================================================================
+-- Melai Nuts — Migration 20261119020000: product ratings and reviews
+-- =============================================================================
+-- Run after 20261119010000_customer_name_parts.sql. Idempotent, one transaction.
+--
+-- A signed-in customer rates a product 1-5 stars with an optional comment (at most 500
+-- characters, InputLimits.review / Rules::REVIEW_MAX), only for a product they actually
+-- received: a COMPLETED order of theirs that contains it. One review per customer per product;
+-- they can edit or delete it. Staff and owners can hide / show / delete any review (app only).
+--
+--   product_reviews                  the reviews. RLS: anyone reads visible rows; a customer
+--                                    reads, writes and deletes only their own, and writes only
+--                                    with a completed order for that product (can_review_product).
+--   product_rating_stats (view)      average rating (1 decimal) and count of visible reviews.
+--   get_product_reviews(product, limit, offset)
+--                                    visible reviews with the reviewer shown as "Juan D."
+--                                    (first name + last initial), newest first. Anyone.
+--   my_product_review_status(product)
+--                                    {can_review, order_id, review} for the signed-in customer.
+--   staff_list_product_reviews(product|null, include_hidden, limit, offset)
+--   staff_moderate_product_review(review, 'hide' | 'show' | 'delete')
+--                                    active staff / owner; written to staff_audit_logs.
+--
+-- The customer never chooses the order: when order_id is left out, the trigger takes their
+-- latest completed order with the product (RLS still checks it). The customer can only change
+-- rating and comment (column grants); moderation columns change only through the staff function.
+-- =============================================================================
+begin;
+
+-- 1. Table ---------------------------------------------------------------------------------
+create table if not exists public.product_reviews (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  customer_id text not null references public.customer_profiles(firebase_uid) on delete cascade,
+  order_id text not null references public.orders(id) on delete cascade,
+  rating smallint not null,
+  comment text not null default '',
+  is_hidden boolean not null default false,
+  hidden_at timestamptz,
+  hidden_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint product_reviews_rating_range check (rating between 1 and 5),
+  constraint product_reviews_comment_len check (char_length(comment) <= 500),
+  constraint product_reviews_one_per_customer unique (product_id, customer_id)
+);
+create index if not exists product_reviews_product_visible_idx
+  on public.product_reviews (product_id, created_at desc) where not is_hidden;
+create index if not exists product_reviews_customer_idx on public.product_reviews (customer_id);
+comment on table public.product_reviews is
+  'Customer ratings (1-5) and comments. Only for a product of a completed order of the customer; one per customer per product.';
+
+-- 2. Eligibility ---------------------------------------------------------------------------
+-- The customer's latest completed order that contains the product (null = may not review).
+create or replace function public._reviewable_order(p_uid text, p_product_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select o.id
+  from public.orders o
+  where o.firebase_uid = p_uid and o.status = 'completed'
+    and exists (select 1 from public.order_items oi where oi.order_id = o.id and oi.product_id = p_product_id)
+  order by o.created_at desc
+  limit 1
+$$;
+revoke all on function public._reviewable_order(text, uuid) from public, anon, authenticated;
+
+-- Used by the RLS policies: the order is the CALLER's, completed, and contains the product.
+-- Only about the signed-in customer (no uid parameter), so it reveals nothing about anyone else.
+create or replace function public.can_review_product(p_product_id uuid, p_order_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.current_firebase_uid() is not null and exists (
+    select 1 from public.orders o
+    where o.id = p_order_id and o.firebase_uid = public.current_firebase_uid() and o.status = 'completed'
+      and exists (select 1 from public.order_items oi where oi.order_id = o.id and oi.product_id = p_product_id))
+$$;
+revoke all on function public.can_review_product(uuid, text) from public, anon;
+grant execute on function public.can_review_product(uuid, text) to authenticated;
+
+-- 3. Trigger: fills the order, trims the comment, keeps the keys fixed ----------------------
+create or replace function public._product_reviews_before_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.comment := btrim(coalesce(new.comment, ''));
+  if tg_op = 'INSERT' then
+    if new.order_id is null then
+      new.order_id := public._reviewable_order(new.customer_id, new.product_id);
+      if new.order_id is null then
+        raise exception 'You can review a product only after an order with it is completed.'
+          using errcode = '42501';
+      end if;
+    end if;
+    new.created_at := now();
+    new.updated_at := now();
+    return new;
+  end if;
+  if new.product_id is distinct from old.product_id or new.customer_id is distinct from old.customer_id then
+    raise exception 'A review stays on its product and customer.';
+  end if;
+  if new.order_id is distinct from old.order_id then
+    new.order_id := old.order_id;
+  end if;
+  if new.rating is distinct from old.rating or new.comment is distinct from old.comment then
+    new.updated_at := now();
+  else
+    new.updated_at := old.updated_at;
+  end if;
+  new.created_at := old.created_at;
+  return new;
+end;
+$$;
+revoke all on function public._product_reviews_before_write() from public, anon, authenticated;
+drop trigger if exists product_reviews_before_write on public.product_reviews;
+create trigger product_reviews_before_write
+  before insert or update on public.product_reviews
+  for each row execute function public._product_reviews_before_write();
+
+-- 4. Row-level security ----------------------------------------------------------------------
+alter table public.product_reviews enable row level security;
+revoke all on public.product_reviews from public, anon, authenticated;
+-- Reading: everyone (the shop and the app show reviews to guests too). customer_id and the
+-- moderation columns are not readable through the API; names come from get_product_reviews().
+grant select (id, product_id, rating, comment, is_hidden, created_at, updated_at) on public.product_reviews to anon, authenticated;
+-- Writing: a customer, their own row only (RLS below), rating and comment only.
+grant insert (product_id, customer_id, order_id, rating, comment) on public.product_reviews to authenticated;
+grant update (rating, comment) on public.product_reviews to authenticated;
+grant delete on public.product_reviews to authenticated;
+grant select, insert, update, delete on public.product_reviews to service_role;
+
+drop policy if exists "product_reviews: anyone reads visible" on public.product_reviews;
+create policy "product_reviews: anyone reads visible" on public.product_reviews
+  for select to anon, authenticated using (not is_hidden);
+drop policy if exists "product_reviews: customer reads own" on public.product_reviews;
+create policy "product_reviews: customer reads own" on public.product_reviews
+  for select to authenticated using (customer_id = public.current_firebase_uid());
+drop policy if exists "product_reviews: customer writes own after a completed order" on public.product_reviews;
+create policy "product_reviews: customer writes own after a completed order" on public.product_reviews
+  for insert to authenticated
+  with check (customer_id = public.current_firebase_uid()
+              and not is_hidden
+              and public.can_review_product(product_id, order_id));
+drop policy if exists "product_reviews: customer edits own" on public.product_reviews;
+create policy "product_reviews: customer edits own" on public.product_reviews
+  for update to authenticated
+  using (customer_id = public.current_firebase_uid())
+  with check (customer_id = public.current_firebase_uid()
+              and public.can_review_product(product_id, order_id));
+drop policy if exists "product_reviews: customer deletes own" on public.product_reviews;
+create policy "product_reviews: customer deletes own" on public.product_reviews
+  for delete to authenticated using (customer_id = public.current_firebase_uid());
+
+-- 5. Average rating and count ----------------------------------------------------------------
+create or replace view public.product_rating_stats
+with (security_invoker = true)
+as
+  select r.product_id,
+         round(avg(r.rating)::numeric, 1) as average_rating,
+         count(*)::int as review_count
+  from public.product_reviews r
+  where not r.is_hidden
+  group by r.product_id;
+grant select on public.product_rating_stats to anon, authenticated, service_role;
+comment on view public.product_rating_stats is
+  'Average rating (1 decimal) and number of visible reviews per product. Products without reviews have no row.';
+
+-- 6. Reading reviews (with the reviewer's first name + last initial) -----------------------------
+create or replace function public._reviewer_display_name(p_uid text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(nullif(concat_ws(' ', nullif(btrim(f), ''),
+                                   case when nullif(btrim(l), '') is not null then upper(left(btrim(l), 1)) || '.' end), ''),
+                  'Customer')
+  from (
+    select coalesce(cp.first_name, s.first_name) as f, coalesce(cp.last_name, s.last_name) as l
+    from public.customer_profiles cp
+    cross join lateral public._split_full_name(cp.full_name) s
+    where cp.firebase_uid = p_uid
+  ) x
+$$;
+revoke all on function public._reviewer_display_name(text) from public, anon, authenticated;
+
+create or replace function public.get_product_reviews(p_product_id uuid, p_limit int default 20, p_offset int default 0)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(to_jsonb(t) order by t.created_at desc, t.id), '[]'::jsonb)
+  from (
+    select r.id, r.product_id, r.rating, r.comment, r.created_at, r.updated_at,
+           coalesce(public._reviewer_display_name(r.customer_id), 'Customer') as reviewer_name,
+           (r.customer_id = public.current_firebase_uid()) as is_mine
+    from public.product_reviews r
+    where r.product_id = p_product_id and not r.is_hidden
+    order by r.created_at desc, r.id
+    limit least(greatest(coalesce(p_limit, 20), 1), 50)
+    offset greatest(coalesce(p_offset, 0), 0)
+  ) t
+$$;
+revoke all on function public.get_product_reviews(uuid, int, int) from public;
+grant execute on function public.get_product_reviews(uuid, int, int) to anon, authenticated;
+
+-- What the review form needs: may this customer review, with which order, and their own review.
+create or replace function public.my_product_review_status(p_product_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_review public.product_reviews;
+  v_order text;
+begin
+  if v_uid is null then
+    return jsonb_build_object('signed_in', false, 'can_review', false, 'order_id', null, 'review', null);
+  end if;
+  select * into v_review from public.product_reviews where product_id = p_product_id and customer_id = v_uid;
+  v_order := public._reviewable_order(v_uid, p_product_id);
+  return jsonb_build_object(
+    'signed_in', true,
+    'can_review', v_order is not null,
+    'order_id', v_order,
+    'review', case when v_review.id is null then null else jsonb_build_object(
+      'id', v_review.id, 'product_id', v_review.product_id, 'rating', v_review.rating,
+      'comment', v_review.comment, 'is_hidden', v_review.is_hidden,
+      'created_at', v_review.created_at, 'updated_at', v_review.updated_at,
+      'reviewer_name', public._reviewer_display_name(v_uid), 'is_mine', true) end);
+end;
+$$;
+revoke all on function public.my_product_review_status(uuid) from public, anon;
+grant execute on function public.my_product_review_status(uuid) to authenticated;
+
+-- 7. Staff / owner moderation (the app's staff side) -----------------------------------------
+create or replace function public.staff_list_product_reviews(
+  p_product_id uuid default null,
+  p_include_hidden boolean default true,
+  p_limit int default 50,
+  p_offset int default 0
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_active_staff() then
+    raise exception 'Only active staff can moderate reviews.' using errcode = '42501';
+  end if;
+  return (
+    select coalesce(jsonb_agg(to_jsonb(t) order by t.created_at desc, t.id), '[]'::jsonb)
+    from (
+      select r.id, r.product_id, p.name as product_name, r.order_id, r.rating, r.comment,
+             r.is_hidden, r.hidden_at, r.created_at, r.updated_at,
+             public._reviewer_display_name(r.customer_id) as reviewer_name
+      from public.product_reviews r
+      join public.products p on p.id = r.product_id
+      where (p_product_id is null or r.product_id = p_product_id)
+        and (coalesce(p_include_hidden, true) or not r.is_hidden)
+      order by r.created_at desc, r.id
+      limit least(greatest(coalesce(p_limit, 50), 1), 100)
+      offset greatest(coalesce(p_offset, 0), 0)
+    ) t);
+end;
+$$;
+revoke all on function public.staff_list_product_reviews(uuid, boolean, int, int) from public, anon;
+grant execute on function public.staff_list_product_reviews(uuid, boolean, int, int) to authenticated;
+
+create or replace function public.staff_moderate_product_review(p_review_id uuid, p_action text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := public.current_firebase_uid();
+  v_review public.product_reviews;
+  v_action text := lower(btrim(coalesce(p_action, '')));
+begin
+  if not public.is_active_staff() then
+    raise exception 'Only active staff can moderate reviews.' using errcode = '42501';
+  end if;
+  if v_action not in ('hide', 'show', 'delete') then
+    raise exception 'Choose hide, show or delete.';
+  end if;
+  select * into v_review from public.product_reviews where id = p_review_id for update;
+  if not found then raise exception 'This review no longer exists.'; end if;
+
+  if v_action = 'delete' then
+    delete from public.product_reviews where id = p_review_id;
+  else
+    update public.product_reviews
+       set is_hidden = (v_action = 'hide'),
+           hidden_at = case when v_action = 'hide' then now() end,
+           hidden_by = case when v_action = 'hide' then v_uid end
+     where id = p_review_id;
+  end if;
+
+  insert into public.staff_audit_logs (staff_firebase_uid, action, entity_type, entity_id, metadata)
+  values (v_uid, 'review.' || v_action, 'product_review', p_review_id::text,
+          jsonb_build_object('product_id', v_review.product_id, 'rating', v_review.rating,
+                             'comment', left(v_review.comment, 200)));
+
+  return jsonb_build_object('id', p_review_id, 'action', v_action,
+                            'is_hidden', case v_action when 'hide' then true when 'show' then false end);
+end;
+$$;
+revoke all on function public.staff_moderate_product_review(uuid, text) from public, anon;
+grant execute on function public.staff_moderate_product_review(uuid, text) to authenticated;
+
+commit;

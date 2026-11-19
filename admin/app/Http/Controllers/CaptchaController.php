@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Auth\Turnstile;
 use Illuminate\Http\Request;
 
 /**
@@ -19,7 +20,7 @@ class CaptchaController extends Controller
         $action = (string) $request->query('action', '');
 
         return response()->view('captcha.app', [
-            'siteKey' => (string) config('melai.captcha.turnstile_site_key'),
+            'siteKey' => Turnstile::ready() ? Turnstile::siteKey() : '',
             'action' => in_array($action, self::ACTIONS, true) ? $action : 'sign_in',
         ])->header('Cache-Control', 'no-store');
     }

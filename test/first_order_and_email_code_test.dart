@@ -38,19 +38,6 @@ void main() {
       expect(FirstOrderQuote.fromJson({'first_order': true, 'pending_order_id': '  '}).pendingOrderId, isNull);
     });
 
-    test('checkout needs a verified mobile number (migration 20261118040000)', () {
-      final verified = FirstOrderQuote.fromJson({
-        'first_order': false, 'phone_verified': true, 'verified_phone': '+639171234567', 'phone_claimable': false,
-      });
-      expect(verified.phoneReady, isTrue);
-      expect(verified.verifiedPhone, '+639171234567');
-      // Phone sign-in accounts: the token already holds a number the server takes at checkout.
-      expect(FirstOrderQuote.fromJson({'first_order': true, 'phone_claimable': true}).phoneReady, isTrue);
-      // A typed contact number never counts; an older server (no fields) is treated as not verified.
-      expect(FirstOrderQuote.fromJson({'first_order': false, 'phone_verified': false}).phoneReady, isFalse);
-      expect(FirstOrderQuote.fromJson({'first_order': false}).phoneReady, isFalse);
-    });
-
     test('the choices are sent as the server expects them', () {
       expect(FirstOrderChoice.half.wire, 'half');
       expect(FirstOrderChoice.full.wire, 'full');

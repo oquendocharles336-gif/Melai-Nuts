@@ -92,9 +92,7 @@ class SupabaseIntegrationTest extends TestCase
     private function asAppUser(string $uid, string $sql, array $bindings = []): mixed
     {
         return $this->db()->transaction(function ($db) use ($uid, $sql, $bindings) {
-            $db->select("select set_config('request.jwt.claims', ?, true)", [json_encode(['sub' => $uid, 'role' => 'authenticated', 'email' => "$uid@test.local", 'email_verified' => true,
-                // A verified mobile number (Firebase phone_number claim), needed at checkout since 20261118040000.
-                'phone_number' => '+639'.str_pad((string) (crc32($uid) % 1000000000), 9, '0', STR_PAD_LEFT)])]);
+            $db->select("select set_config('request.jwt.claims', ?, true)", [json_encode(['sub' => $uid, 'role' => 'authenticated', 'email' => "$uid@test.local", 'email_verified' => true])]);
             $db->statement('set local role authenticated');
             $row = (array) $db->selectOne($sql, $bindings);
 
@@ -959,157 +957,21 @@ class SupabaseIntegrationTest extends TestCase
         return $reg;
     }
 
-    public function test_an_old_website_registration_is_approved_by_the_owner_and_works_in_the_app_only(): void
-    {
-        // Nobody can register on the website any more ...
-        $email = "reg-{$this->sfx}@test.local";
-        $this->post('/register', ['name' => 'Rhea Reg', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1'])
-            ->assertNotFound();
-        $this->assertNull(User::firstWhere('email', $email));
-
-        // ... but a registration from before is still waiting for the owner.
-        $reg = $this->oldRegistration($email);
-        $uid = $reg->firebase_uid;
-
-        $owner = $this->portalAdmin();
-        // Not approvable before the email is verified.
-        $this->actingAs($owner)->from('/admin/users')->post(route('admin.users.approve', $reg), ['role' => 'staff', 'branch_id' => $this->fx['branch_b']])
-            ->assertSessionHasErrors('approve');
-        $this->assertNull($this->db()->selectOne('select 1 from public.staff_members where firebase_uid = ?', [$uid]));
-
-        // Registrant verifies the email and tries to sign in once: refused (no waiting page for staff), but the verified e-mail is noted.
-        $this->fb->set($uid, 'verified', true);
-        $this->post('/logout');
-        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12']));
-        $this->assertTrue($reg->fresh()->firebase_email_verified);
-
-        $this->actingAs($owner)->get('/admin/users')->assertOk()->assertSee('Needs approval')->assertSee('Approve');
-        $this->actingAs($owner)->from('/admin/users')->post(route('admin.users.approve', $reg), ['role' => 'staff', 'branch_id' => $this->fx['branch_b']])
-            ->assertSessionHasNoErrors()->assertSessionHas('status', fn ($m) => str_contains($m, 'sign in to the Melai Nuts app'));
-
-        $row = $this->db()->selectOne('select role, branch_id, email, account_status from public.staff_members where firebase_uid = ?', [$uid]);
-        $this->assertSame(['staff', $this->fx['branch_b'], $email, 'active'], [$row->role, $row->branch_id, $row->email, $row->account_status]);
-        $this->assertSame(['role' => 'staff', 'branch' => $this->fx['branch_b_name']], array_intersect_key($this->fb->profiles[$uid], ['role' => 1, 'branch' => 1]));
-        $reg = $reg->fresh();
-        $this->assertSame($uid, $reg->staff_uid);
-        $this->assertTrue(ActivityLog::where('action', 'account.provisioned')->exists());
-        $this->actingAs($owner)->get('/admin/users?q='.$email)->assertOk()->assertSee('App · Staff')->assertDontSee('Needs approval')->assertDontSee('No website access');
-
-        // The new staff member works in branch B in the app (the database knows them) and not on the website.
-        $ctx = json_decode($this->asAppUser($uid, 'select public.get_my_staff_context()::text'), true);
-        $this->assertSame(['active', 'staff', $this->fx['branch_b']], [$ctx['status'], $ctx['profile']['role'], $ctx['profile']['branch_id']]);
-        $this->post('/logout');
-        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12']));
-        $this->assertStaffKeptOut($this->actingAs($reg)->get('/dashboard'));
-    }
-
-    public function test_failed_firestore_write_rolls_back_the_staff_registration(): void
-    {
-        $reg = User::factory()->create(['email' => "rb-{$this->sfx}@test.local", 'role' => 'staff', 'has_access' => false]);
-        $reg->forceFill(['firebase_uid' => "it-rb-{$this->sfx}", 'firebase_email_verified' => true])->save();
-        $this->fb->addAccount($reg->email, "it-rb-{$this->sfx}", 'Rb#Pass123', true);
-        $this->fb->firestoreDenied = true;
-
-        $owner = $this->portalAdmin();
-        $this->actingAs($owner)->from('/admin/users')->post(route('admin.users.approve', $reg), ['role' => 'staff', 'branch_id' => $this->fx['branch_a']])
-            ->assertSessionHasErrors('approve');
-        $this->assertStringContainsString('Nothing was registered', session('errors')->first('approve'));
-        $this->assertNull($this->db()->selectOne('select 1 from public.staff_members where firebase_uid = ?', ["it-rb-{$this->sfx}"]), 'staff row rolled back');
-        $this->assertNull($reg->fresh()->staff_uid);
-        $this->assertFalse($reg->fresh()->has_access);
-    }
-
-    public function test_nobody_can_make_themselves_owner(): void
+    public function test_nobody_can_make_themselves_owner_and_the_website_creates_no_staff(): void
     {
         // There is no registration to slip a role into: the address is gone.
         $email = "self-{$this->sfx}@test.local";
         $this->post('/register', ['name' => 'Self', 'email' => $email, 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12', 'terms' => '1', 'role' => 'admin'])
             ->assertNotFound();
         $this->assertNull(User::firstWhere('email', $email));
-        $self = $this->oldRegistration($email, 'Self', verified: true);   // a registration from before, still pending
+        $self = $this->oldRegistration($email, 'Self', verified: true);   // a registration from before
 
-        // A guest, a pending login or a staff login cannot reach the approval endpoint.
-        $this->post(route('admin.users.approve', $self), ['role' => 'owner'])->assertRedirect(route('login'));
-        $this->assertStaffKeptOut($this->actingAs($self)->post(route('admin.users.approve', $self), ['role' => 'owner']));
-        $staff = $this->portalStaff();
-        $this->assertStaffKeptOut($this->actingAs($staff)->post(route('admin.users.approve', $self), ['role' => 'owner']));
-        $this->assertStaffKeptOut($this->actingAs($staff)->post(route('admin.users.approve', $staff), ['role' => 'owner']));
-        $this->assertSame('staff', $staff->fresh()->role);
-        $this->assertSame('staff', $self->fresh()->role);
-        $this->assertNull($this->db()->selectOne("select 1 from public.staff_members where firebase_uid = ? ", [$self->firebase_uid]));
-
-        // Even if the website's own role column were changed to admin, the app account behind it is staff:
-        // the database (owner-only SQL function) refuses, so no owner can be created.
-        $fakeAdmin = $staff->fresh();
-        $fakeAdmin->forceFill(['role' => 'admin'])->save();
-        $this->actingAs($fakeAdmin)->from('/admin/users')->post(route('admin.users.approve', $self), ['role' => 'owner'])->assertSessionHasErrors('approve');
-        $this->assertNull($this->db()->selectOne('select 1 from public.staff_members where firebase_uid = ?', [$self->firebase_uid]));
-    }
-
-    public function test_admin_creates_an_app_staff_account_that_signs_in_to_the_app_only(): void
-    {
+        // Staff and owner accounts are made only in the app: no create or approve endpoint on the website.
         $owner = $this->portalAdmin();
-        $email = "made-{$this->sfx}@test.local";
-        $this->actingAs($owner)->post(route('admin.users.store'), ['name' => 'Made Staff', 'email' => $email, 'role' => 'staff',
-            'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])
-            ->assertRedirect(route('admin.users.index'))->assertSessionHasNoErrors()
-            ->assertSessionHas('status', fn ($m) => str_contains($m, 'sign in to the Melai Nuts app'));
-
-        // The owner who created it stays signed in (same browser session).
-        $this->get(route('admin.users.index', ['q' => $email]))->assertOk()->assertSee($email)->assertDontSee('e-mail not verified');
-        $this->assertAuthenticatedAs($owner);
-
-        $u = User::firstWhere('email', $email);
-        // Its row shows the app account only: no website-login badge, no Restrict / Grant access.
-        $this->get(route('admin.users.index', ['q' => $email]))->assertOk()->assertSee('App · Staff')
-            ->assertDontSee('Website · Staff')->assertDontSee(route('admin.users.toggle-access', $u), false)
-            ->assertDontSee('No website access');   // an app staff account is not a problem to fix
-        $this->assertNotNull($this->fb->account($u->firebase_uid), 'Firebase account created');
-        $this->assertSame($u->firebase_uid, $u->staff_uid);
-        $this->assertSame('staff', $this->db()->selectOne('select role from public.staff_members where firebase_uid = ?', [$u->firebase_uid])->role);
-        $this->assertSame('staff', $this->fb->profiles[$u->firebase_uid]['role']);
-        // The app knows the new staff member (same check the app makes at sign-in) ...
-        $ctx = json_decode($this->asAppUser($u->firebase_uid, 'select public.get_my_staff_context()::text'), true);
-        $this->assertSame(['active', 'staff', $this->fx['branch_a']], [$ctx['status'], $ctx['profile']['role'], $ctx['profile']['branch_id']]);
-        $this->post('/logout');
-
-        // ... and the website does not let them in: staff sign in to the Melai Nuts app only.
-        $this->assertStaffSignInRefused($this->post('/login', ['email' => $email, 'password' => 'Kasoy#Tanim12']));
-
-        // Same email again: refused, nothing duplicated.
-        $this->actingAs($owner)->from('/admin/users/create')->post(route('admin.users.store'), ['name' => 'Again', 'email' => $email, 'role' => 'staff',
-            'branch_id' => $this->fx['branch_a'], 'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'])->assertSessionHasErrors('email');
-        $this->assertSame(1, User::where('email', $email)->count());
-    }
-
-    public function test_owner_signed_in_with_the_website_password_confirms_with_the_app_password_and_stays_signed_in(): void
-    {
-        // Website-password login of the owner: linked to the owner row, no app (Firebase) sign-in in the session.
-        $owner = User::factory()->create(['email' => "owner-{$this->sfx}@test.local", 'role' => 'admin', 'has_access' => true]);
-        $owner->forceFill(['staff_uid' => $this->fx['owner']])->save();
-        $email = "local-made-{$this->sfx}@test.local";
-        $form = ['name' => 'Local Made', 'email' => $email, 'role' => 'staff', 'branch_id' => $this->fx['branch_a'],
-            'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'];
-
-        $this->actingAs($owner)->get(route('admin.users.create'))->assertOk()->assertSee('Your Melai Nuts app password');
-
-        // No app password / a wrong one: a form error, nothing created, and the owner is NOT signed out.
-        $this->actingAs($owner)->from(route('admin.users.create'))->post(route('admin.users.store'), $form)
-            ->assertRedirect(route('admin.users.create'))->assertSessionHasErrors('owner_password');
-        $this->actingAs($owner)->from(route('admin.users.create'))->post(route('admin.users.store'), $form + ['owner_password' => 'nope'])
-            ->assertSessionHasErrors('owner_password')->assertSessionMissing('_old_input.owner_password');
-        $this->assertAuthenticatedAs($owner);
-        $this->assertNull(User::firstWhere('email', $email));
-        $this->assertNull($this->fb->accounts[$email] ?? null, 'no Firebase account was created');
-
-        // With the app password: created, and the owner keeps working.
-        $this->actingAs($owner)->post(route('admin.users.store'), $form + ['owner_password' => 'Owner#Pass1'])
-            ->assertRedirect(route('admin.users.index'))->assertSessionHasNoErrors();
-        $this->get(route('admin.users.index'))->assertOk()->assertSee($email);
-        $this->assertAuthenticatedAs($owner);
-        $u = User::firstWhere('email', $email);
-        $this->assertSame('staff', $this->db()->selectOne('select role from public.staff_members where firebase_uid = ?', [$u->firebase_uid])->role);
-        $this->assertSame('staff', $this->fb->profiles[$u->firebase_uid]['role']);
+        $this->actingAs($owner)->get('/admin/users/create')->assertNotFound();
+        $this->actingAs($owner)->post('/admin/users/'.$self->id.'/approve', ['role' => 'owner'])->assertNotFound();
+        $this->assertSame('staff', $self->fresh()->role);
+        $this->assertNull($this->db()->selectOne('select 1 from public.staff_members where firebase_uid = ? ', [$self->firebase_uid]));
     }
 
     public function test_owner_disables_and_enables_customer_and_staff_accounts_after_confirming(): void
@@ -1150,28 +1012,6 @@ class SupabaseIntegrationTest extends TestCase
         $this->fb->firestoreDenied = true;
         $this->actingAs($owner)->post(route('admin.users.app-active', $this->fx['customer']), ['active' => 0])->assertSessionHasErrors('account');
         $this->assertTrue((bool) $this->db()->selectOne('select is_active from public.customer_profiles where firebase_uid = ?', [$this->fx['customer']])->is_active);
-        $this->assertAuthenticatedAs($owner);
-    }
-
-    public function test_firestore_refusal_says_exactly_what_to_fix_and_creates_nothing(): void
-    {
-        $owner = $this->portalAdmin();
-        $form = fn ($n) => ['name' => 'Fs Staff', 'email' => "fs{$n}-{$this->sfx}@test.local", 'role' => 'staff', 'branch_id' => $this->fx['branch_a'],
-            'password' => 'Kasoy#Tanim12', 'password_confirmation' => 'Kasoy#Tanim12'];
-        $error = fn ($n) => $this->actingAs($owner)->from(route('admin.users.create'))->post(route('admin.users.store'), $form($n))
-            ->assertSessionHasErrors('approve')->getSession()->get('errors')->first('approve');
-
-        // The owner's Firestore profile says "customer" (e.g. promoted only in the database).
-        $this->fb->profiles[$this->fx['owner']]['role'] = 'customer';
-        $this->assertStringContainsString('has role "customer"', $error(1));
-        // No Firestore profile at all.
-        unset($this->fb->profiles[$this->fx['owner']]);
-        $this->assertStringContainsString('has NO profile in Firestore', $error(2));
-        // Firestore rules that refuse everything (not the app's rules).
-        $this->fb->firestoreDenied = true;
-        $this->assertStringContainsString('firebase deploy --only firestore:rules', $error(3));
-
-        $this->assertSame(0, User::where('email', 'like', "fs%-{$this->sfx}@test.local")->count(), 'nothing created');
         $this->assertAuthenticatedAs($owner);
     }
 

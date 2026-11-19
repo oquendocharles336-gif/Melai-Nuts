@@ -26,6 +26,13 @@
     <div class="s-card-body">
         <h3 class="s-card-name">{{ $p['name'] }}</h3>
         <span class="s-card-meta">{{ $several ? count($p['variants']).' sizes' : ($p['variants'][0]['label'] ?? '') }}</span>
+        {{-- Only real reviews: no "0.0" on products nobody has rated yet. --}}
+        @if (($p['review_count'] ?? 0) > 0)
+            <span class="s-card-rating" aria-label="Rated {{ number_format($p['rating'], 1) }} out of 5 from {{ $p['review_count'] }} {{ \Illuminate\Support\Str::plural('review', $p['review_count']) }}">
+                @include('shop.partials.stars', ['rating' => $p['rating']])
+                <span aria-hidden="true">{{ number_format($p['rating'], 1) }} ({{ $p['review_count'] }})</span>
+            </span>
+        @endif
     </div>
     <div class="s-card-foot">
         <div class="s-price">

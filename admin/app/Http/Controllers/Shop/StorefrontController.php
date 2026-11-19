@@ -80,7 +80,18 @@ class StorefrontController extends ShopController
             }
         }
 
-        return view('shop.product', ['product' => $item, 'related' => $related, 'branch' => $branch, 'inCart' => $inCart]);
+        // The signed-in customer's own review and whether they may write one (a completed order
+        // with this product). The list itself is loaded by shop.js (shop.product.reviews).
+        $myReview = null;
+        if (app(\App\Services\Shop\CustomerSession::class)->check()) {
+            try {
+                $myReview = app(\App\Services\Shop\ShopReviews::class)->mine($item['id']);
+            } catch (ShopException $e) {
+                $myReview = ['error' => true, 'can_review' => false, 'review' => null];
+            }
+        }
+
+        return view('shop.product', ['product' => $item, 'related' => $related, 'branch' => $branch, 'inCart' => $inCart, 'myReview' => $myReview]);
     }
 
     /**

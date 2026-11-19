@@ -9,8 +9,10 @@ import '../../core/services/supabase_service.dart';
 import '../../core/utils/app_error.dart';
 import '../catalog_store.dart';
 import '../models/product.dart';
+import '../models/product_review.dart';
 import '../models/promotion.dart';
 import 'branch_repository.dart' show kBranchColumns;
+import 'product_reviews_repository.dart';
 import 'storefront_settings_repository.dart';
 
 /// Loads the public product catalog (categories, products, variants, and
@@ -384,6 +386,7 @@ class ProductsRepository extends ChangeNotifier {
     final badgeQty = branchId == null
         ? null
         : (await StorefrontSettingsRepository.instance.load()).lowStockBadgeQty;
+    final ratings = await _loadRatings(ids);
     return productRows.map((row) {
       final id = row['id'] as String;
       return Product.fromRow(
@@ -395,8 +398,21 @@ class ProductsRepository extends ChangeNotifier {
         totalStock: stockByProduct[id] ?? 0,
         unitsSoldLast30Days: salesCounts[id] ?? 0,
         lowStockBadgeQty: badgeQty,
+        ratingAverage: ratings[id]?.average ?? 0,
+        ratingCount: ratings[id]?.count ?? 0,
       );
     }).toList();
+  }
+
+  /// Real average rating and review count per product (`product_rating_stats`).
+  /// On any failure the products simply show no rating, never a made-up one.
+  Future<Map<String, ProductRatingStats>> _loadRatings(List<String> ids) async {
+    try {
+      return await ProductReviewsRepository.instance.fetchStats(ids);
+    } catch (caughtError, caughtStack) {
+      AppErrors.report(caughtError, caughtStack, 'products_repository:ratings');
+      return const {};
+    }
   }
 
   /// Real trailing-30-day units-sold count per active product, from

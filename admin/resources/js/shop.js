@@ -207,9 +207,12 @@ document.addEventListener('click', (e) => {
 // messages as admin/app/Http/Requests/Rules.php and the app's ValidationUtils. The server still
 // validates everything; this only gives earlier feedback.
 (() => {
-    const LIMITS = { name: 50, email: 254, pwMin: 8, pwMax: 64 };
+    const LIMITS = { name: 50, namePart: 23, email: 254, pwMin: 8, pwMax: 64 };
     const NAME_RE = /^[\p{L}\p{M}\s'’.\-]+$/u;
     const PH_MOBILE_RE = /^(?:\+63|63|0)?9\d{9}$/;
+    const MOBILE_RE = /^09\d{9}$/;   // the app's Create Account: 11 digits starting with 09
+    const COMMON_EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'yahoo.com.ph', 'outlook.com', 'hotmail.com', 'icloud.com',
+        'live.com', 'msn.com', 'aol.com', 'proton.me', 'protonmail.com'];
     const EMAIL_LOCAL_RE = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
     const EMAIL_LABEL_RE = /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
     const EMAIL_TLD_RE = /^[A-Za-z]{2,24}$/;
@@ -220,6 +223,33 @@ document.addEventListener('click', (e) => {
         'sunshine', 'princess', 'master', 'login', 'changeme', 'secret', 'melainuts',
         'melai', 'nuts', 'test', 'user', 'qazwsx', 'trustno', 'iloveu', 'mahalkita',
     ]);
+
+    // Insertions, deletions, substitutions and swaps of two neighbours count 1 (2 = further apart).
+    const editDistance = (a, b) => {
+        if (Math.abs(a.length - b.length) > 1) return 2;
+        const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+        for (let j = 0; j <= b.length; j++) d[0][j] = j;
+        for (let i = 1; i <= a.length; i++) {
+            for (let j = 1; j <= b.length; j++) {
+                let v = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+                if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, d[i - 2][j - 2] + 1);
+                d[i][j] = v;
+            }
+        }
+        return d[a.length][b.length];
+    };
+
+    // First name / Last name: Rules::personNameError, word for word.
+    const personName = (label, v) => {
+        const t = v.trim();
+        if (t === '') return `${label} is required.`;
+        if (/\p{N}/u.test(t)) return `${label} can't contain numbers.`;
+        if ([...t].length < 2) return `${label} must be at least 2 characters.`;
+        if ([...t].length > LIMITS.namePart) return `${label} can't be longer than ${LIMITS.namePart} characters.`;
+        if (!NAME_RE.test(t)) return `${label} can only use letters, spaces, hyphens, apostrophes and periods.`;
+        if ((t.match(/\p{L}/gu) || []).length < 2) return `Please enter a real ${label.toLowerCase()}.`;
+        return null;
+    };
 
     const isCommonPassword = (password) => {
         const lower = password.toLowerCase();
@@ -241,10 +271,14 @@ document.addEventListener('click', (e) => {
             if ((t.match(/\p{L}/gu) || []).length < 2) return 'Please enter a valid name.';
             return null;
         },
-        email(v) {
+        firstName: (v) => personName('First name', v),
+        lastName: (v) => personName('Last name', v),
+        email(v, _ctx, el) {
             const t = v.trim();
             if (t === '') return 'Email is required.';
-            const invalid = 'Please enter a valid email address (e.g. user@example.com).';
+            // A new address (sign-up) gets the app's wording and its typo check.
+            const signUp = el?.form?.hasAttribute('data-signup');
+            const invalid = signUp ? 'Email must look like name@example.com.' : 'Please enter a valid email address (e.g. user@example.com).';
             if (t.length > LIMITS.email) return invalid;
             const at = t.indexOf('@');
             if (at <= 0 || at !== t.lastIndexOf('@')) return invalid;
@@ -252,11 +286,23 @@ document.addEventListener('click', (e) => {
             const labels = t.slice(at + 1).split('.');
             if (local.length > 64 || !EMAIL_LOCAL_RE.test(local)) return invalid;
             if (labels.length < 2 || !labels.every((l) => EMAIL_LABEL_RE.test(l)) || !EMAIL_TLD_RE.test(labels[labels.length - 1])) return invalid;
+            if (signUp) {
+                const domain = labels.join('.').toLowerCase();
+                if (!COMMON_EMAIL_DOMAINS.includes(domain)) {
+                    const known = COMMON_EMAIL_DOMAINS.find((k) => editDistance(domain, k) === 1);
+                    if (known) return `Did you mean ${local}@${known}? Please check the spelling.`;
+                }
+            }
             return null;
         },
-        phone(v) {
+        phone(v, _ctx, el) {
             const t = v.trim();
             if (t === '') return 'Mobile number is required.';
+            // Sign-up: exactly like the app's Create Account (Rules::mobileError).
+            if (el?.form?.hasAttribute('data-signup')) {
+                if (!/^\d*$/.test(t)) return 'Mobile number can only contain digits, e.g. 09171234567.';
+                return MOBILE_RE.test(t) ? null : 'Mobile number must be 11 digits starting with 09.';
+            }
             return PH_MOBILE_RE.test(t.replace(/[\s\-().]/g, '')) ? null : 'Please enter a valid Philippine mobile number, e.g. 0917 123 4567.';
         },
         password(v, ctx) {
@@ -264,14 +310,15 @@ document.addEventListener('click', (e) => {
             if (v.trim() === '') return 'Password cannot be only spaces.';
             if (v.length < LIMITS.pwMin) return `Password must be at least ${LIMITS.pwMin} characters long.`;
             if (v.length > LIMITS.pwMax) return `Password cannot exceed ${LIMITS.pwMax} characters.`;
-            if (!/\p{Lu}/u.test(v)) return 'Password must contain at least one uppercase letter (A-Z).';
-            if (!/\p{Ll}/u.test(v)) return 'Password must contain at least one lowercase letter (a-z).';
-            if (!/\p{N}/u.test(v)) return 'Password must contain at least one number (0-9).';
-            if (!/[\p{Z}\p{S}\p{P}]/u.test(v)) return 'Password must contain at least one special character (!@#$...).';
+            // The app's ValidationUtils.hasUpper / hasDigit / hasSpecial (and Rules::newPassword).
+            if (!/[A-Z]/.test(v)) return 'Password must contain at least one uppercase letter (A-Z).';
+            if (!/[0-9]/.test(v)) return 'Password must contain at least one number (0-9).';
+            if (!/[^A-Za-z0-9\s]/.test(v)) return 'Password must contain at least one special character (!@#$...).';
             const lower = v.toLowerCase();
             const local = (ctx.value('email') || '').trim().toLowerCase().split('@')[0];
             if (local.length >= 3 && lower.includes(local)) return 'Password must not contain your email address.';
-            for (const part of (ctx.value('name') || '').toLowerCase().split(/[\s\-.]+/)) {
+            const fullName = [ctx.value('name'), ctx.value('firstName'), ctx.value('lastName')].join(' ');
+            for (const part of fullName.toLowerCase().split(/[\s\-.]+/)) {
                 if (part.length >= 3 && lower.includes(part)) return 'Password must not contain your name.';
             }
             if (isCommonPassword(v)) return 'This password is too common. Choose something harder to guess.';
@@ -286,9 +333,10 @@ document.addEventListener('click', (e) => {
         },
     };
     // Which rule a field uses comes from its name attribute.
-    const ruleFor = { name: 'name', email: 'email', phone: 'phone', password: 'password', password_confirmation: 'confirm', terms: 'terms' };
+    const ruleFor = { name: 'name', first_name: 'firstName', last_name: 'lastName', email: 'email', phone: 'phone',
+        password: 'password', password_confirmation: 'confirm', terms: 'terms' };
     // Fields whose result depends on another one, so they re-check when it changes.
-    const dependents = { password: ['confirm'], email: ['password'], name: ['password'] };
+    const dependents = { password: ['confirm'], email: ['password'], name: ['password'], firstName: ['password'], lastName: ['password'] };
 
     const state = new WeakMap();   // field -> { touched, serverValue }
     const formOf = (el) => el.closest('form[data-live-validate]');
@@ -350,7 +398,12 @@ document.addEventListener('click', (e) => {
         const form = formOf(el);
         (dependents[ruleOf(el)] || []).forEach((rule) => {
             const other = form && fieldByRule(form, rule);
-            if (other && st(other).touched) { st(other).serverValue = null; check(other); }
+            // Confirm password follows the password as soon as something is typed in it.
+            if (other && (st(other).touched || (rule === 'confirm' && other.value !== ''))) {
+                st(other).touched = true;
+                st(other).serverValue = null;
+                check(other);
+            }
         });
     };
 
@@ -372,9 +425,11 @@ document.addEventListener('click', (e) => {
     document.addEventListener('input', (e) => {
         const el = e.target;
         if (!(el instanceof HTMLInputElement) || !formOf(el) || !ruleOf(el) || el.type === 'checkbox') return;
-        if (!st(el).touched) return;
-        st(el).serverValue = null;
-        check(el);
+        if (st(el).touched) {
+            st(el).serverValue = null;
+            check(el);
+        }
+        // Even before this field was left once: Confirm password follows every password change.
         rerunDependents(el);
     });
     document.addEventListener('change', (e) => {
@@ -394,7 +449,23 @@ document.addEventListener('click', (e) => {
             st(el).serverValue = null;
             if (run(el) && !first) first = el;
         });
-        if (first) { e.preventDefault(); e.stopImmediatePropagation(); first.focus(); }
+        // The security check must be done too (the server verifies it before creating anything).
+        const captcha = form.querySelector('[data-turnstile-field]');
+        if (captcha) {
+            const token = form.querySelector('input[name="cf-turnstile-response"]')?.value ?? '';
+            const msg = captcha.querySelector('.err');
+            captcha.classList.toggle('has-err', token === '');
+            if (msg) { msg.textContent = token === '' ? 'Please complete the security check.' : ''; msg.hidden = token !== ''; }
+            if (token === '' && !first) first = captcha.querySelector('iframe') || captcha;
+        }
+        if (form.querySelector('[data-turnstile-missing]') && !first) first = form.querySelector('[data-turnstile-missing]');
+        if (first) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (!first.hasAttribute('tabindex') && !first.matches('input, iframe')) first.setAttribute('tabindex', '-1');
+            first.focus();
+            first.scrollIntoView?.({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
+        }
     }, true);
 })();
 
@@ -582,3 +653,119 @@ window.addEventListener('pageshow', (e) => {
     if (!e.persisted) return;   // back from the next page: the buttons work again
     document.querySelectorAll('form[data-busy] button[aria-busy="true"]').forEach((b) => { b.removeAttribute('aria-busy'); if (b.dataset.label) b.textContent = b.dataset.label; });
 });
+
+// ---- Product reviews (shop.product) ------------------------------------------------------------
+// The list comes from shop.product.reviews (JSON): "Loading…", then the reviews, "No reviews yet",
+// or an error with "Try again". Text is set with textContent only (never HTML from the server).
+document.querySelectorAll('[data-reviews]').forEach((box) => {
+    const url = box.dataset.reviews;
+    let offset = 0;
+    const star = (filled) => {
+        const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        s.setAttribute('viewBox', '0 0 24 24');
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('fill', 'currentColor');
+        if (!filled) p.setAttribute('fill-opacity', '.25');
+        p.setAttribute('d', 'M12 17.3l-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7z');
+        s.appendChild(p);
+        return s;
+    };
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    const note = (text, retry = false) => {
+        const p = el('p', 's-note', text);
+        if (retry) {
+            const b = el('button', 's-btn ghost sm', 'Try again');
+            b.type = 'button';
+            b.style.marginLeft = '8px';
+            b.addEventListener('click', () => load(true));
+            p.appendChild(b);
+        }
+        return p;
+    };
+    const render = (r) => {
+        const item = el('article', `s-review${r.mine ? ' mine' : ''}`);
+        const head = el('div', 's-review-head');
+        head.append(el('b', null, r.mine ? `${r.name} (you)` : r.name), el('span', null, r.edited ? `${r.date} · edited` : r.date));
+        const stars = el('span', 's-stars');
+        stars.setAttribute('role', 'img');
+        stars.setAttribute('aria-label', `${r.rating} out of 5 stars`);
+        for (let i = 1; i <= 5; i++) stars.appendChild(star(i <= r.rating));
+        item.append(head, stars);
+        if (r.comment) item.appendChild(el('p', null, r.comment));
+        return item;
+    };
+    const load = async (reset = false) => {
+        if (reset) offset = 0;
+        box.setAttribute('aria-busy', 'true');
+        box.querySelector('[data-reviews-more]')?.remove();
+        if (offset === 0) box.replaceChildren(note('Loading reviews…'));
+        try {
+            const res = await fetch(`${url}?offset=${offset}`, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+            if (!res.ok) throw new Error(String(res.status));
+            const data = await res.json();
+            if (offset === 0) box.replaceChildren();
+            if (offset === 0 && !data.reviews.length) {
+                box.appendChild(note('No reviews yet. Customers who received this product can rate it here.'));
+            }
+            data.reviews.forEach((r) => box.appendChild(render(r)));
+            offset += data.reviews.length;
+            if (data.has_more) {
+                const more = el('button', 's-btn ghost sm', 'Show more reviews');
+                more.type = 'button';
+                more.dataset.reviewsMore = '';
+                more.addEventListener('click', () => load());
+                box.appendChild(more);
+            }
+        } catch {
+            if (offset === 0) box.replaceChildren(note('We couldn\'t load the reviews.', true));
+            else box.appendChild(note('We couldn\'t load more reviews.', true));
+        } finally {
+            box.removeAttribute('aria-busy');
+        }
+    };
+    load();
+});
+
+// The review form: stars required, comment like Rules::reviewComment (≤ 500, words not only emoji).
+document.querySelectorAll('form[data-review-form]').forEach((form) => {
+    const comment = form.querySelector('[data-review-comment]');
+    const count = form.querySelector('[data-review-count]');
+    const max = Number(comment?.getAttribute('maxlength') || 500);
+    const fieldErr = (wrap, text) => {
+        let msg = wrap.querySelector('.err');
+        if (!msg) { msg = document.createElement('span'); msg.className = 'err'; wrap.appendChild(msg); }
+        msg.textContent = text || '';
+        msg.hidden = !text;
+        wrap.classList.toggle('has-err', !!text);
+    };
+    const commentError = () => {
+        const t = (comment?.value || '').trim();
+        if (t.length > max) return `Your review cannot exceed ${max} characters.`;
+        if (t !== '' && !/[\p{L}\p{N}]/u.test(t)) return 'Your review must contain words, not only emoji or symbols.';
+        return null;
+    };
+    comment?.addEventListener('input', () => {
+        if (count) count.textContent = `${[...comment.value].length} / ${max}`;
+        if (comment.closest('.s-field').classList.contains('has-err')) fieldErr(comment.closest('.s-field'), commentError());
+    });
+    form.addEventListener('change', (e) => {
+        if (e.target.name === 'rating') fieldErr(form.querySelector('.s-rate').closest('.s-field'), null);
+    });
+    form.addEventListener('submit', (e) => {
+        const rated = !!form.querySelector('input[name="rating"]:checked');
+        fieldErr(form.querySelector('.s-rate').closest('.s-field'), rated ? null : 'Choose 1 to 5 stars.');
+        const cErr = commentError();
+        if (comment) fieldErr(comment.closest('.s-field'), cErr);
+        if (!rated || cErr) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            (rated ? comment : form.querySelector('input[name="rating"]'))?.focus();
+        }
+    }, true);
+});
+
+// Delete-my-review (and any shop form marked data-confirm): ask first.
+document.addEventListener('submit', (e) => {
+    const form = e.target.closest?.('form[data-confirm]');
+    if (form && !window.confirm(form.dataset.confirm)) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);

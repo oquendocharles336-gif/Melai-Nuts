@@ -17,8 +17,8 @@ return [
     // lib/features/legal). Bump the version when the wording changes; registration records it.
     // Same versions as the app (lib/core/config/legal_config.dart); bump both together.
     'legal' => [
-        'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-18.2'),
-        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-18.2'),
+        'terms_version' => env('MELAI_TERMS_VERSION', '2026-11-19'),
+        'privacy_version' => env('MELAI_PRIVACY_VERSION', '2026-11-19'),
     ],
 
     /*
@@ -44,13 +44,18 @@ return [
 
     /*
     | Cloudflare Turnstile (the one captcha of the app and the website) and the Supabase Edge
-    | Functions behind it. The SITE key is public (it is in the page); the SECRET key is NOT
-    | here: it lives only in the Supabase function secrets, where every token is verified.
+    | Functions behind it. The SITE key is public (it is in the page). The SECRET key lets this
+    | server verify the sign-up token with Cloudflare BEFORE an account is created
+    | (App\Services\Auth\Turnstile); it is the same value as the Supabase function secret
+    | TURNSTILE_SECRET_KEY, which verifies every other token. turnstile_hostnames (optional,
+    | comma-separated) = the hosts the widget may be served from.
     | guard_server_key lets this server pass the visitor's IP to auth-guard (same value as the
     | function secret AUTH_GUARD_SERVER_KEY, 32+ characters).
     */
     'captcha' => [
         'turnstile_site_key' => env('TURNSTILE_SITE_KEY'),
+        'turnstile_secret_key' => env('TURNSTILE_SECRET_KEY'),
+        'turnstile_hostnames' => env('TURNSTILE_ALLOWED_HOSTNAMES'),
         'guard_server_key' => env('AUTH_GUARD_SERVER_KEY'),
     ],
 

@@ -1,9 +1,9 @@
 -- =============================================================================
--- Melai Nuts — verified mobile number, first-order rule keyed on it, owner confirmation never
--- uses up the first order, remaining balance online
--- (migration 20261118040000_verified_phone_first_order.sql)
+-- Melai Nuts — first order without phone verification: account-based flag, phone-match
+-- safeguard, owner confirmation never uses up the first order, remaining balance online
+-- (migration 20261119000000_remove_phone_verification.sql, on top of 20261118015010 / 20261118040000)
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/verified_phone_first_order_test.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/first_order_phone_safeguard_test.sql
 -- DEV / staging only. One transaction, rolled back. Raises if any check fails.
 -- =============================================================================
 begin;
@@ -52,8 +52,6 @@ $$;
 create function pg_temp.f(p_k text) returns text language sql as $$ select v from fx where k = p_k $$;
 grant execute on function pg_temp.f(text) to public;
 create function pg_temp.first(p_uid text) returns boolean language sql as $$ select public.is_first_order(p_uid) $$;
-create function pg_temp.vphone(p_uid text) returns text language sql as $$
-  select verified_phone from public.customer_profiles where firebase_uid = p_uid $$;
 
 -- Fixtures: one unit costs 100 (pickup total 100). ----------------------------------------
 insert into public.branches (name, address, latitude, longitude, delivery_fee)
@@ -71,18 +69,20 @@ values (pg_temp.f('ba')::uuid, pg_temp.f('prod')::uuid, pg_temp.f('var')::uuid, 
 insert into public.staff_members (firebase_uid, full_name, email, role, branch_id, account_status, can_review_refunds)
 values ('vp-sa', 'Staff A', 'vp-sa@test.local', 'staff', pg_temp.f('ba')::uuid, 'active', true),
        ('vp-own', 'Owner', 'vp-own@test.local', 'owner', null, 'active', false);
--- vp-paid: paying customer (verified +639170000101, paid through the webhook earlier).
--- vp-new: brand-new account. vp-legacy: paid before numbers were verified. vp-man: the owner
--- confirms its payment by hand. vp-bal: pays the remaining balance online.
+-- vp-paid: pays its first order through the webhook (number 0917 000 0101).
+-- vp-new: brand-new account that typed vp-paid's number. vp-dup: flagged as paid (grandfathered)
+-- but its profile number is vp-paid's. vp-nophone: paid, no number. vp-man: the owner confirms
+-- its payment by hand. vp-bal / vp-bal2: pay the remaining balance online.
 insert into public.customer_profiles (firebase_uid, full_name, email, phone) values
   ('vp-paid', 'Paid', 'vp-paid@test.local', '09170000101'),
-  ('vp-new', 'New', 'vp-new@test.local', '09170000101'),     -- typed the paying customer's number
-  ('vp-legacy', 'Legacy', 'vp-legacy@test.local', '09170000103'),
+  ('vp-new', 'New', 'vp-new@test.local', '0917 000 0101'),
+  ('vp-dup', 'Dup', 'vp-dup@test.local', '+639170000101'),
+  ('vp-nophone', 'NoPhone', 'vp-nophone@test.local', ''),
   ('vp-man', 'Manual', 'vp-man@test.local', '09170000104'),
   ('vp-bal', 'Balance', 'vp-bal@test.local', '09170000105'),
   ('vp-bal2', 'Balance2', 'vp-bal2@test.local', '09170000106');
 update public.customer_profiles set first_paid_order_at = now() - interval '30 days'
- where firebase_uid in ('vp-paid', 'vp-legacy');
+ where firebase_uid in ('vp-dup', 'vp-nophone');
 update public.payment_settings set online_payment_enabled = true where id = 'default';
 update public.business_settings set cod_downpayment_type = null, cod_downpayment_value = null,
   cod_downpayment_min_order = null, cod_downpayment_expiry_minutes = null, cod_downpayment_pickup_days = null
@@ -102,90 +102,70 @@ begin
   return public.hitpay_apply_payment(p_order, 'success', 'qrph', 'pay-' || p_key, null, 'preq-' || p_key);
 end $$;
 
--- 0. Who may do what -----------------------------------------------------------------------
-select pg_temp.chk('a customer cannot write verified_phone', 'vp-new', '+639170000102',
-  $q$update public.customer_profiles set verified_phone = '+639170000102' where firebase_uid = 'vp-new'$q$, 'error');
-select pg_temp.chk('a customer cannot create a profile with a verified_phone', 'vp-x', '+639170000199',
-  $q$insert into public.customer_profiles (firebase_uid, full_name, email, verified_phone) values ('vp-x', 'X', 'vp-x@test.local', '+639170000199')$q$, 'error');
-select pg_temp.chk('a customer cannot call the internal claim', 'vp-new', '+639170000102',
-  $q$select public._claim_verified_phone('vp-new', '+639170000101')$q$, 'error');
-select pg_temp.chk('a customer cannot read the first-order phone list', 'vp-new', '+639170000102',
+-- 0. The verification pieces are gone; the phone list stays private -----------------------------
+select pg_temp.chk_true('claim_verified_phone() and the other verified-number functions are gone',
+  to_regprocedure('public.claim_verified_phone()') is null
+  and to_regprocedure('public._require_verified_phone(text)') is null
+  and to_regprocedure('public._phone_status(text)') is null
+  and to_regprocedure('public.jwt_verified_phone()') is null);
+select pg_temp.chk_true('customer_profiles.verified_phone / phone_verified_at are gone',
+  not exists (select 1 from information_schema.columns where table_schema = 'public'
+              and table_name = 'customer_profiles' and column_name in ('verified_phone', 'phone_verified_at')));
+select pg_temp.chk('a customer cannot read the first-order phone list', 'vp-new', null,
   $q$select count(*) from public.first_order_phones$q$, 'error');
-select pg_temp.chk_true('claim_verified_phone: signed-in customers only',
-  has_function_privilege('authenticated', 'public.claim_verified_phone()', 'execute')
-  and not has_function_privilege('anon', 'public.claim_verified_phone()', 'execute'));
+select pg_temp.chk('a customer cannot write the first-order phone list', 'vp-new', null,
+  $q$insert into public.first_order_phones (phone, firebase_uid) values ('+639170000101', 'vp-new')$q$, 'error');
+select pg_temp.chk('a customer cannot call is_first_order', 'vp-new', null,
+  $q$select public.is_first_order('vp-paid')$q$, 'error');
 
--- 1. Claiming a verified number -------------------------------------------------------------
-select pg_temp.chk('no verified number in the token: refused', 'vp-new', null,
-  $q$select public.claim_verified_phone()$q$, 'error', '%verify your mobile number%');
-select pg_temp.chk('a non-Philippine number: refused', 'vp-new', '+14155550100',
-  $q$select public.claim_verified_phone()$q$, 'error', '%Philippine mobile number%');
-select pg_temp.chk('the paying customer claims its number', 'vp-paid', '+639170000101',
-  $q$select public.claim_verified_phone()$q$, 'ok');
-select pg_temp.chk_true('claimed: verified_phone and the contact phone are the token''s number',
-  (select verified_phone = '+639170000101' and phone = '+639170000101' and phone_verified_at is not null
-   from public.customer_profiles where firebase_uid = 'vp-paid'));
-select pg_temp.chk_true('paid before verification: the number is recorded for that account, which is returning',
-  exists (select 1 from public.first_order_phones where phone = '+639170000101' and firebase_uid = 'vp-paid')
-  and not pg_temp.first('vp-paid'));
+-- 1. Number normalization (normalize_ph_mobile, 20261025000000) ---------------------------------
+select pg_temp.chk_true('09171234567, 0917 123 4567, 639171234567, +63 917-123-4567 are the same number',
+  public.normalize_ph_mobile('09171234567') = '+639171234567'
+  and public.normalize_ph_mobile('0917 123 4567') = '+639171234567'
+  and public.normalize_ph_mobile('639171234567') = '+639171234567'
+  and public.normalize_ph_mobile('+63 917-123-4567') = '+639171234567');
 
--- 2. A new account and the paying customer's number --------------------------------------------
-select pg_temp.chk_true('a typed phone number does not count: the new account is a first order',
-  pg_temp.first('vp-new') and pg_temp.vphone('vp-new') is null);
-select pg_temp.chk('a second account cannot claim a number verified on another account', 'vp-new', '+639170000101',
-  $q$select public.claim_verified_phone()$q$, 'error', '%already verified on another Melai Nuts account%');
-select pg_temp.chk('...nor check out with it', 'vp-new', '+639170000101',
-  pg_temp.place_sql(pg_temp.cart('vp-new', '+639170000101'), 'Cash on Counter Pickup', null, 'vp-new-1'), 'error',
-  '%already verified on another Melai Nuts account%');
-do $$ begin
-  begin
-    update public.customer_profiles set verified_phone = '+639170000101' where firebase_uid = 'vp-new';
-    insert into results(name, passed, detail) values ('the database itself refuses a duplicate verified number', false, 'no error');
-  exception when unique_violation then
-    insert into results(name, passed, detail) values ('the database itself refuses a duplicate verified number', true, '');
-  end;
-end $$;
-select pg_temp.chk('no verified number: checkout is refused', 'vp-new', null,
-  pg_temp.place_sql(pg_temp.cart('vp-new', null), 'Cash on Counter Pickup', null, 'vp-new-2'), 'error',
-  '%verify your mobile number with an SMS code before checking out%');
+-- 2. Checkout needs no verified number ---------------------------------------------------------
+select pg_temp.chk_true('a brand-new account is a first order', pg_temp.first('vp-paid') and pg_temp.first('vp-new'));
+select pg_temp.chk_true('the quote has no phone_* fields any more',
+  (select (j ->> 'first_order')::boolean and not (j ? 'phone_verified') and not (j ? 'phone_claimable')
+   from (select pg_temp.call_as('vp-paid', null,
+     format('select public.first_order_quote(%L::uuid, false)::text', pg_temp.cart('vp-paid', null)))::jsonb j) t));
+insert into fx values ('o_paid', pg_temp.place('vp-paid', null, 'Online Payment (GCash, QR Ph, Card)', 'full', 'vp-paid-1'));
+select pg_temp.chk_true('placed without any phone_number claim; pickup contact = the profile number',
+  (select status = 'awaitingDownpayment' and contact_phone = '+639170000101' from public.orders where id = pg_temp.f('o_paid')));
+select pg_temp.chk_true('webhook: paid', pg_temp.pay(pg_temp.f('o_paid'), 'paid') = 'success');
+select pg_temp.chk_true('webhook: the account is returning and its number is recorded (normalized)',
+  not pg_temp.first('vp-paid')
+  and exists (select 1 from public.first_order_phones where phone = '+639170000101' and firebase_uid = 'vp-paid'));
+select pg_temp.chk('a returning customer checks out in cash, no SMS step', 'vp-paid', null,
+  pg_temp.place_sql(pg_temp.cart('vp-paid', null), 'Cash on Counter Pickup', null, 'vp-paid-2'), 'ok');
 
--- The paying customer moves to another number; the old one is recycled to the new account.
-update public.customer_profiles set verified_phone = '+639170000111' where firebase_uid = 'vp-paid';
-select pg_temp.chk('the recycled number can be verified by the new account (SMS proves it)', 'vp-new', '+639170000101',
-  $q$select public.claim_verified_phone()$q$, 'ok');
-select pg_temp.chk_true('...and the new account is STILL a first order (the number''s payment was another account''s)',
+-- 3. Phone-match safeguard ----------------------------------------------------------------------
+select pg_temp.chk_true('the new account that typed the paying customer''s number is still a first order',
   pg_temp.first('vp-new'));
-select pg_temp.chk('...so cash checkout is refused: the first order is paid online', 'vp-new', '+639170000101',
-  pg_temp.place_sql(pg_temp.cart('vp-new', '+639170000101'), 'Cash on Counter Pickup', null, 'vp-new-3'), 'error',
+select pg_temp.chk('...so its cash checkout is refused: the first order is paid online', 'vp-new', null,
+  pg_temp.place_sql(pg_temp.cart('vp-new', null), 'Cash on Counter Pickup', null, 'vp-new-1'), 'error',
   '%Your first order is paid online%');
-select pg_temp.chk_true('the quote says: first order, number verified',
-  (select (j ->> 'first_order')::boolean and (j ->> 'phone_verified')::boolean and j ->> 'verified_phone' = '+639170000101'
-   from (select pg_temp.call_as('vp-new', '+639170000101',
-     format('select public.first_order_quote(%L::uuid, false)::text', pg_temp.cart('vp-new', '+639170000101')))::jsonb j) t));
-select pg_temp.chk_true('the quote without a verified number in the token says so',
-  (select not (j ->> 'phone_verified')::boolean
-   from (select pg_temp.call_as('vp-new', null,
-     format('select public.first_order_quote(%L::uuid, false)::text', pg_temp.cart('vp-new', null)))::jsonb j) t));
-
--- The new account pays its first order through the webhook: the recycled number moves over.
-insert into fx values ('o_new', pg_temp.place('vp-new', '+639170000101', 'Online Payment (GCash, QR Ph, Card)', 'full', 'vp-new-4'));
-select pg_temp.chk_true('pickup contact phone is the verified number',
-  (select contact_phone = '+639170000101' from public.orders where id = pg_temp.f('o_new')));
-select pg_temp.chk_true('webhook: paid', pg_temp.pay(pg_temp.f('o_new'), 'new') = 'success');
-select pg_temp.chk_true('webhook: the first order is used up and the recycled number now belongs to the new account',
-  not pg_temp.first('vp-new')
-  and exists (select 1 from public.first_order_phones where phone = '+639170000101' and firebase_uid = 'vp-new'));
-select pg_temp.chk_true('the earlier paying customer is unaffected by the move (own new number, own payment)',
-  not pg_temp.first('vp-paid'));
-
--- 3. Legacy customer ------------------------------------------------------------------------
-select pg_temp.chk_true('legacy (paid, no verified number yet): first order until a number is verified',
-  pg_temp.first('vp-legacy'));
-select pg_temp.chk('legacy: checks out by verifying in the same request (number claimed on the way)', 'vp-legacy', '+639170000103',
-  pg_temp.place_sql(pg_temp.cart('vp-legacy', '+639170000103'), 'Cash on Counter Pickup', null, 'vp-legacy-1'), 'ok');
-select pg_temp.chk_true('legacy: now returning, number recorded',
-  not pg_temp.first('vp-legacy') and pg_temp.vphone('vp-legacy') = '+639170000103'
-  and exists (select 1 from public.first_order_phones where phone = '+639170000103' and firebase_uid = 'vp-legacy'));
+select pg_temp.chk_true('an account flagged as paid whose number another customer paid with: prepayment again',
+  pg_temp.first('vp-dup'));
+select pg_temp.chk_true('...the quote says first order',
+  (select (j ->> 'first_order')::boolean
+   from (select pg_temp.call_as('vp-dup', null,
+     format('select public.first_order_quote(%L::uuid, false)::text', pg_temp.cart('vp-dup', null)))::jsonb j) t));
+insert into fx values ('o_dup', pg_temp.place('vp-dup', null, 'Online Payment (GCash, QR Ph, Card)', 'half', 'vp-dup-1'));
+select pg_temp.chk_true('webhook: vp-dup pays its 50%', pg_temp.pay(pg_temp.f('o_dup'), 'dup') = 'success');
+select pg_temp.chk_true('...and has now paid with that number itself: returning; vp-paid unaffected',
+  not pg_temp.first('vp-dup') and not pg_temp.first('vp-paid')
+  and (select count(*) = 2 from public.first_order_phones where phone = '+639170000101'));
+select pg_temp.chk_true('the new account still prepays (a match it never paid with)', pg_temp.first('vp-new'));
+select pg_temp.chk_true('a paid account without a number is returning', not pg_temp.first('vp-nophone'));
+update public.customer_profiles set phone = '09170000101' where firebase_uid = 'vp-nophone';
+select pg_temp.chk_true('...until it puts a number other customers paid with on its profile', pg_temp.first('vp-nophone'));
+update public.customer_profiles set phone = '09170000199' where firebase_uid = 'vp-nophone';
+select pg_temp.chk_true('...an unused number is fine again', not pg_temp.first('vp-nophone'));
+select pg_temp.chk('signing up with a number a paying customer has is never refused', 'vp-signup', null,
+  $q$insert into public.customer_profiles (firebase_uid, full_name, email, phone) values ('vp-signup', 'Sign Up', 'vp-signup@test.local', '09170000101')$q$, 'ok');
 
 -- 4. Owner's manual confirmation never uses up the first order -------------------------------------
 select pg_temp.chk_true('owner_confirm_online_payment never refers to the first-order flag (source check)',
@@ -194,7 +174,7 @@ select pg_temp.chk_true('owner_confirm_online_payment never refers to the first-
 select pg_temp.chk_true('_cod_downpayment_apply (shared with the owner path) never refers to it either',
   (select prosrc !~ '(_mark_first_paid_order|first_paid_order_at|first_order_mark|first_order_phones)'
    from pg_proc where oid = 'public._cod_downpayment_apply(public.orders,public.order_downpayments,text,text,text,text)'::regprocedure));
-insert into fx values ('o_man', pg_temp.place('vp-man', '+639170000104', 'Online Payment (GCash, QR Ph, Card)', 'full', 'vp-man-1'));
+insert into fx values ('o_man', pg_temp.place('vp-man', null, 'Online Payment (GCash, QR Ph, Card)', 'full', 'vp-man-1'));
 select pg_temp.chk('the owner confirms the online payment by hand', 'vp-own', null,
   format($q$select public.owner_confirm_online_payment(%L, 'HitPay webhook never arrived, checked dashboard', 'REF-VP')$q$, pg_temp.f('o_man')), 'ok');
 select pg_temp.chk_true('owner confirmation: the order is released to staff',
@@ -210,8 +190,8 @@ select pg_temp.chk_true('a late webhook for the same (already confirmed) payment
   and pg_temp.first('vp-man'));
 select pg_temp.chk_true('so the next order shows the 50% / 100% step again',
   (select (j ->> 'first_order')::boolean
-   from (select pg_temp.call_as('vp-man', '+639170000104',
-     format('select public.first_order_quote(%L::uuid, false)::text', pg_temp.cart('vp-man', '+639170000104')))::jsonb j) t));
+   from (select pg_temp.call_as('vp-man', null,
+     format('select public.first_order_quote(%L::uuid, false)::text', pg_temp.cart('vp-man', null)))::jsonb j) t));
 
 -- The guard: an API caller can never set the flag, whatever function it goes through.
 create function pg_temp.guard(p_role text, p_mark boolean) returns text language plpgsql as $$
@@ -234,7 +214,7 @@ select pg_temp.chk_true('guard: inside _mark_first_paid_order (webhook) it is al
 update public.customer_profiles set first_paid_order_at = null where firebase_uid = 'vp-man';   -- fixture reset (SQL editor: allowed)
 
 -- 5. Remaining balance online ---------------------------------------------------------------
-insert into fx values ('o_bal', pg_temp.place('vp-bal', '+639170000105', 'Online Payment (GCash, QR Ph, Card)', 'half', 'vp-bal-1'));
+insert into fx values ('o_bal', pg_temp.place('vp-bal', null, 'Online Payment (GCash, QR Ph, Card)', 'half', 'vp-bal-1'));
 select pg_temp.chk_true('50%: downpayment 50 online, balance 50 on the payments row',
   (select d.amount = 50 and p.amount = 50 and p.method = 'cash'
    from public.order_downpayments d join public.payments p on p.order_id = d.order_id where d.order_id = pg_temp.f('o_bal')));
@@ -264,7 +244,7 @@ select pg_temp.chk_true('balance: the webhook marks the payments row paid with t
 select pg_temp.chk_true('balance paid: no more checkout', public.hitpay_claim_checkout(pg_temp.f('o_bal'), 60) ->> 'action' = 'closed');
 
 -- Cash collected while the online checkout was open, then paid online too: refund opened.
-insert into fx values ('o_bal2', pg_temp.place('vp-bal2', '+639170000106', 'Online Payment (GCash, QR Ph, Card)', 'half', 'vp-bal2-1'));
+insert into fx values ('o_bal2', pg_temp.place('vp-bal2', null, 'Online Payment (GCash, QR Ph, Card)', 'half', 'vp-bal2-1'));
 select pg_temp.pay(pg_temp.f('o_bal2'), 'bal2-dp');
 select public.hitpay_claim_checkout(pg_temp.f('o_bal2'), 60);
 select public.hitpay_set_checkout(pg_temp.f('o_bal2'), 'preq-bal2-1', 'https://pay.example/bal2-1');
@@ -283,6 +263,6 @@ do $$
 declare n int;
 begin
   select count(*) into n from results where not passed;
-  if n > 0 then raise exception '% verified-phone check(s) FAILED — see the report above.', n; end if;
+  if n > 0 then raise exception '% first-order phone safeguard check(s) FAILED — see the report above.', n; end if;
 end $$;
 rollback;

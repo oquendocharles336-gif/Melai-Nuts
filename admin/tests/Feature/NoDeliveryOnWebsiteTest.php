@@ -101,12 +101,18 @@ class NoDeliveryOnWebsiteTest extends TestCase
         $this->assertTrue(User::factory()->make(['role' => 'admin'])->canUseWebsite());
     }
 
-    public function test_a_driver_role_cannot_be_registered_or_created(): void
+    public function test_the_website_cannot_create_or_approve_staff_or_owner_accounts(): void
     {
+        // Staff and owner accounts are made only in the Melai Nuts app (User Management).
         $admin = User::factory()->create(['role' => 'admin', 'has_access' => true]);
-        $this->actingAs($admin)->post('/admin/users', ['name' => 'Rider', 'email' => 'new-rider@example.com', 'role' => 'driver',
-            'password' => 'Rider#Pass1', 'password_confirmation' => 'Rider#Pass1'])->assertSessionHasErrors('role');
+        $this->actingAs($admin)->post('/admin/users', ['name' => 'Rider', 'email' => 'new-rider@example.com', 'role' => 'staff',
+            'password' => 'Rider#Pass1', 'password_confirmation' => 'Rider#Pass1'])->assertStatus(405);
         $this->assertNull(User::firstWhere('email', 'new-rider@example.com'));
-        $this->actingAs($admin)->get('/admin/users/create')->assertOk()->assertDontSee('value="driver"', false);
+        $this->actingAs($admin)->get('/admin/users/create')->assertNotFound();
+        $pending = User::factory()->create(['role' => 'staff', 'has_access' => false]);
+        $this->actingAs($admin)->post('/admin/users/'.$pending->id.'/approve', ['role' => 'owner'])->assertNotFound();
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('admin.users.create'));
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('admin.users.store'));
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('admin.users.approve'));
     }
 }

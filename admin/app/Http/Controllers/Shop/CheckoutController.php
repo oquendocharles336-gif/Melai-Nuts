@@ -38,11 +38,6 @@ class CheckoutController extends ShopController
             $online = $this->orders->onlinePayment();
             // First order (50% or 100% online first): decided by the server for this cart.
             $first = $this->orders->firstOrderQuote($cart);
-            // A verified mobile number first (the database refuses the order without one).
-            if ($first !== null && ! $first['phone_ready']) {
-                return redirect()->route('shop.phone', ['next' => route('shop.checkout', absolute: false)])
-                    ->with('shop_status', 'Please verify your mobile number to place your order.');
-            }
             $quote = $first !== null && ! $first['first_order'] ? $this->orders->downpaymentQuote($cart['total']) : null;
         } catch (ShopException $e) {
             return $this->failed($e, $request, route('shop.cart'));

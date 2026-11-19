@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class AdminUserManagementTest extends TestCase
@@ -23,42 +22,17 @@ class AdminUserManagementTest extends TestCase
     {
         $staff = User::factory()->create(['role' => 'staff', 'has_access' => true]);
         $this->assertStaffKeptOut($this->actingAs($staff)->get('/admin/users'));
-        $this->assertStaffKeptOut($this->actingAs($staff)->post('/admin/users', $this->payload()));
         $this->assertDatabaseMissing('users', ['email' => 'ana@example.com']);
     }
 
-    public function test_admin_creates_staff_account_with_access_already_granted(): void
+    public function test_the_website_creates_no_staff_owner_or_rider_accounts(): void
     {
-        $this->actingAs($this->admin())
-            ->post('/admin/users', $this->payload())
-            ->assertRedirect(route('admin.users.index'));
-
-        $user = User::firstWhere('email', 'ana@example.com');
-        $this->assertNotNull($user);
-        $this->assertSame('staff', $user->role);
-        $this->assertTrue($user->has_access); // granted immediately, unlike self-registration
-        $this->assertTrue($user->is_active);
-        $this->assertTrue(Hash::check('Str0ng!Pass', $user->password));
-        $this->assertDatabaseHas('activity_logs', ['action' => 'account.created_by_admin']);
-    }
-
-    public function test_admin_cannot_create_a_rider_login_on_the_website(): void
-    {
-        // Riders sign in to the Melai Nuts app only; the website creates staff accounts.
-        $this->actingAs($this->admin())->post('/admin/users', $this->payload(['email' => 'rider@example.com', 'role' => 'driver']))
-            ->assertSessionHasErrors('role');
-        $this->assertNull(User::firstWhere('email', 'rider@example.com'));
-    }
-
-    public function test_duplicate_email_rejected(): void
-    {
-        User::factory()->create(['email' => 'ana@example.com']);
-        $this->actingAs($this->admin())->post('/admin/users', $this->payload())->assertSessionHasErrors('email');
-    }
-
-    public function test_invalid_role_rejected(): void
-    {
-        $this->actingAs($this->admin())->post('/admin/users', $this->payload(['role' => 'admin']))->assertSessionHasErrors('role');
+        // Staff, owner and rider accounts are made only in the Melai Nuts app (User Management).
+        foreach (['staff', 'admin', 'driver'] as $role) {
+            $this->actingAs($this->admin())->post('/admin/users', $this->payload(['role' => $role]))->assertStatus(405);
+        }
+        $this->actingAs($this->admin())->get('/admin/users/create')->assertNotFound();
+        $this->assertDatabaseMissing('users', ['email' => 'ana@example.com']);
     }
 
     public function test_admin_can_toggle_access_and_active_for_staff_not_for_admin(): void

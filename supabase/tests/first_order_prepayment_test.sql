@@ -90,7 +90,6 @@ insert into public.customer_profiles (firebase_uid, full_name, email, phone) val
   ('fo-late', 'Late', 'fo-late@test.local', '09170000033'),
   ('fo-pos', 'Pos', 'fo-pos@test.local', '09170000034');
 update public.customer_profiles set first_paid_order_at = now() - interval '30 days' where firebase_uid = 'fo-old';
--- Since 20261118040000 a returning customer also needs its verified number (claimed here).
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city, latitude, longitude)
 values ('fo-new', 'New', '09170000031', '1 Test St', 'Calamba', 14.205, 121.156);
 insert into fx select 'addr', id::text from public.customer_addresses where firebase_uid = 'fo-new';
@@ -117,8 +116,6 @@ begin
   perform public.hitpay_set_checkout(p_order, 'preq-' || p_key, 'https://pay.example/' || p_key);
   return public.hitpay_apply_payment(p_order, 'success', 'qrph', 'pay-' || p_key, null, 'preq-' || p_key);
 end $$;
-
-select pg_temp.call_as('fo-old', 'select public.claim_verified_phone()::text');
 
 -- 0. Who may call what ------------------------------------------------------------------
 select pg_temp.chk('a customer cannot call is_first_order', 'fo-new', $q$select public.is_first_order('fo-old')$q$, 'error');

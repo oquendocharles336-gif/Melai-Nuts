@@ -3,7 +3,7 @@
 @section('page-title', 'All users')
 @section('page-sub', 'Everyone with a Melai Nuts account: website logins, app owners and staff, and customers.')
 @section('page-actions')
-    <a class="btn primary" href="{{ route('admin.users.create') }}"><x-icon name="plus" :size="15" /> Create account</a>
+    <span class="cell-sub">Staff and owner accounts are created in the Melai Nuts app (User Management).</span>
 @endsection
 @section('panel')
 @php
@@ -91,22 +91,7 @@
                                 <span class="cell-sub">Cannot use the website (app-only role)</span>
                             @elseif ($p['awaiting_approval'])
                                 @unless ($u->firebase_email_verified)<x-badge tone="warn">E-mail not verified</x-badge>@endunless
-                                <form method="POST" action="{{ route('admin.users.approve', $u) }}" x-data="{ role: 'staff' }">
-                                    @csrf
-                                    <select class="light-input" name="role" x-model="role" aria-label="App role">
-                                        <option value="staff">Staff</option>
-                                        <option value="owner">Owner</option>
-                                    </select>
-                                    <select class="light-input" name="branch_id" x-show="role === 'staff'" aria-label="Branch">
-                                        @foreach ($branches as $b) <option value="{{ $b['id'] }}">{{ $b['name'] }}</option> @endforeach
-                                    </select>
-                                    @if ($needsOwnerPassword)
-                                        <input class="light-input" type="password" name="owner_password" autocomplete="current-password" required
-                                               placeholder="Your app password" aria-label="Your Melai Nuts app password, to confirm" title="You signed in with the website password: confirm with your Melai Nuts app password (used once, not saved).">
-                                    @endif
-                                    <button class="btn sm primary" type="submit" @disabled(! $u->firebase_email_verified)
-                                            data-confirm="Give {{ $u->email }} OWNER rights in the Melai Nuts app (all branches, user management)?" data-confirm-title="Make this person an owner?" data-confirm-label="Approve as owner" data-confirm-if="role=owner">Approve</button>
-                                </form>
+                                <span class="cell-sub">Not registered in the app: an owner registers staff in the Melai Nuts app (User Management), then links this login here.</span>
                             @elseif (count($directory))
                                 @php $wanted = $u->isAdmin() ? 'owner' : 'staff';
                                      $choices = collect($directory)->filter(fn ($row) => $row['role'] === $wanted && $row['is_active']
@@ -234,9 +219,8 @@
         <summary>How website logins and app accounts fit together</summary>
         <p>Each website login acts in the Melai Nuts app's database as the staff or owner account it is linked to, and sees only what
             that account may see (owners: all branches; staff: their branch). Admins link to an <em>owner</em>, staff to a <em>staff</em>
-            account, with the same e-mail. People who registered on this website have a Firebase app account but no staff registration
-            yet: <strong>Approve</strong> registers them in the app (staff with a branch, or owner) once their e-mail is verified. People
-            with an app account are linked automatically when they sign in.</p>
+            account, with the same e-mail. Staff and owner accounts are created only in the Melai Nuts app (User Management); this website
+            never creates or approves one. People with an app account are linked automatically when they sign in.</p>
         <p>Records are shown as one person only when they share the same app account. Riders and customers are managed in the app
             (User Management); customer points and cards are on the Loyalty pages.</p>
     </details>

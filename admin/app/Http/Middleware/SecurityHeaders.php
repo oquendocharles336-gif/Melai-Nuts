@@ -22,9 +22,6 @@ class SecurityHeaders
 {
     private const TURNSTILE = 'https://challenges.cloudflare.com';
 
-    /** Google reCAPTCHA: Firebase phone verification on the shop's "Verify mobile number" page. */
-    private const RECAPTCHA = 'https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/';
-
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
@@ -59,12 +56,12 @@ class SecurityHeaders
 
         return implode('; ', [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' ".self::TURNSTILE.' '.self::RECAPTCHA,
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' ".self::TURNSTILE,
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: blob:".$images,
-            "connect-src 'self' blob: data: ".self::TURNSTILE.' '.self::RECAPTCHA,
-            "frame-src ".self::TURNSTILE.' '.self::RECAPTCHA,
+            "connect-src 'self' blob: data: ".self::TURNSTILE,
+            "frame-src ".self::TURNSTILE,
             "worker-src 'self' blob:",
             "object-src 'none'",
             "base-uri 'self'",

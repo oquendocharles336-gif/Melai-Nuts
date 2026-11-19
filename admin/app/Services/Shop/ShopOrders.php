@@ -126,9 +126,6 @@ class ShopOrders
             'expiry_minutes' => (int) ($q['expiry_minutes'] ?? 30),
             'pending_order_id' => is_string($q['pending_order_id'] ?? null) && $q['pending_order_id'] !== '' ? $q['pending_order_id'] : null,
             'online_payment_enabled' => ($q['online_payment_enabled'] ?? false) === true,
-            // Checkout needs a verified mobile number (migration 20261118040000).
-            'phone_ready' => ($q['phone_verified'] ?? false) === true || ($q['phone_claimable'] ?? false) === true,
-            'verified_phone' => is_string($q['verified_phone'] ?? null) && $q['verified_phone'] !== '' ? $q['verified_phone'] : null,
         ];
     }
 

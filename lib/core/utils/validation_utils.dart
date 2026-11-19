@@ -25,6 +25,7 @@ class InputLimits {
   static const int reasonMin = 10;
   static const int shortReasonMin = 5;
   static const int shortReason = 300;
+  static const int review = 500; // product review comment (product_reviews.comment)
   static const int verificationCode = 6;
   static const int search = 100;
   static const int quantityDigits = 5; // up to 99,999
@@ -57,6 +58,21 @@ class ValidationUtils {
     if (value == null || value.trim().isEmpty) return null;
     if (value.trim().length > maxLength) {
       return '$fieldName cannot exceed $maxLength characters.';
+    }
+    return null;
+  }
+
+  /// Product review comment: optional, at most [InputLimits.review]
+  /// characters, and words rather than only emoji or symbols (same rules as
+  /// the website's Rules::reviewComment and the database CHECK).
+  static String? validateReviewComment(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) return null;
+    if (text.length > InputLimits.review) {
+      return 'Your review cannot exceed ${InputLimits.review} characters.';
+    }
+    if (!_letterOrDigit.hasMatch(text)) {
+      return 'Your review must contain words, not only emoji or symbols.';
     }
     return null;
   }

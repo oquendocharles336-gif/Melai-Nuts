@@ -129,18 +129,70 @@ class ShopTest extends TestCase
     public function test_sign_up_uses_the_apps_rules(): void
     {
         $this->post('/shop/register', [
-            'name' => 'A1', 'email' => 'not-an-email', 'phone' => '12345', 'password' => 'password1', 'password_confirmation' => 'password1',
-        ])->assertSessionHasErrors(['name', 'email', 'phone', 'password', 'terms']);
+            'first_name' => 'Ana1', 'last_name' => 'D', 'email' => 'not-an-email', 'phone' => '12345', 'password' => 'password1', 'password_confirmation' => 'password2',
+        ])->assertSessionHasErrors([
+            'first_name' => "First name can't contain numbers.",
+            'last_name' => 'Last name must be at least 2 characters.',
+            'email' => 'Email must look like name@example.com.',
+            'phone' => 'Mobile number must be 11 digits starting with 09.',
+            'password' => 'Password must contain at least one uppercase letter (A-Z).',
+            'password_confirmation' => 'Passwords do not match.',
+            'terms',
+        ]);
+        $this->post('/shop/register', ['first_name' => 'Ana', 'last_name' => 'Cruz', 'email' => 'ana@gmial.com', 'phone' => '0917 123 4567'])
+            ->assertSessionHasErrors(['email' => 'Did you mean ana@gmail.com? Please check the spelling.',
+                'phone' => 'Mobile number can only contain digits, e.g. 09171234567.']);
         $this->assertSame([], $this->fb->accounts);
+    }
+
+    public function test_sign_up_verifies_the_security_check_on_the_server_before_creating_anything(): void
+    {
+        $form = ['first_name' => 'Bea', 'last_name' => 'Santos', 'email' => 'bea@example.com', 'phone' => '09171234567',
+            'password' => 'Pili#Nut2026', 'password_confirmation' => 'Pili#Nut2026', 'terms' => '1'];
+        // No token / a refused token: an error under the security check, no Firebase account.
+        $this->post('/shop/register', $form + ['_panel' => 'create-account'])->assertSessionHasErrors(['captcha' => 'Please complete the security check.']);
+        $this->post('/shop/register', $form + ['cf-turnstile-response' => 'bad-token'])->assertSessionHasErrors(['captcha' => 'The security check failed. Please try again.']);
+        $this->assertSame([], $this->fb->accounts);
+        // No secret key on the server: a friendly message, the detail only in the log.
+        config(['melai.captcha.turnstile_secret_key' => '']);
+        \Illuminate\Support\Facades\Log::spy();
+        $this->post('/shop/register', $form + ['cf-turnstile-response' => 'tok'])
+            ->assertSessionHasErrors(['captcha' => 'The security check is not available right now, so we can\'t create accounts at the moment. Please try again later.']);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('error')->withArgs(fn ($m) => str_contains($m, 'TURNSTILE_SECRET_KEY is empty'));
+        $this->assertSame([], $this->fb->accounts);
+    }
+
+    public function test_the_create_account_form_has_first_and_last_name_and_hides_env_names(): void
+    {
+        config(['melai.captcha.turnstile_site_key' => '']);
+        $page = $this->get('/?panel=create-account')->assertOk()
+            ->assertSee('name="first_name"', false)->assertSee('name="last_name"', false)->assertDontSee('name="name"', false)
+            ->assertSee('data-signup', false)
+            ->assertSee('The security check can\'t load right now', false)->assertDontSee('TURNSTILE_SITE_KEY');
+        config(['melai.captcha.turnstile_site_key' => 'site-key-123']);
+        $this->get('/?panel=create-account')->assertOk()->assertSee('data-sitekey="site-key-123"', false);
+        unset($page);
+    }
+
+    public function test_a_website_sign_up_is_always_a_customer_whatever_the_request_says(): void
+    {
+        $this->post('/shop/register', ['first_name' => 'Ola', 'last_name' => 'Owner', 'email' => 'ola@example.com', 'phone' => '09171234500',
+            'password' => 'Pili#Nut2026', 'password_confirmation' => 'Pili#Nut2026', 'terms' => '1',
+            'role' => 'owner', 'is_staff' => '1', 'staff_role' => 'admin', 'cf-turnstile-response' => 'tok'])->assertRedirect(route('shop.verify'));
+        $uid = $this->fb->accounts['ola@example.com']['uid'];
+        $this->shop->onEmailVerified = fn (string $verifiedUid) => $this->fb->set($verifiedUid, 'verified', true);
+        $this->post('/shop/verify-email', ['code' => '123456', 'cf-turnstile-response' => 'tok-2'])->assertRedirect(route('shop.home'));
+        $this->assertSame('customer', $this->fb->profiles[$uid]['role']);
+        $this->assertSame(0, \App\Models\User::count(), 'no website login (staff / admin) is created');
     }
 
     public function test_sign_up_mistakes_show_inside_the_create_account_panel(): void
     {
-        $this->post('/shop/register', ['_panel' => 'create-account', 'name' => 'Bea Santos', 'email' => 'bea@example.com', 'phone' => '12345',
+        $this->post('/shop/register', ['_panel' => 'create-account', 'first_name' => 'Bea', 'last_name' => 'Santos', 'email' => 'bea@example.com', 'phone' => '12345',
             'password' => 'Pili#Nut2026', 'password_confirmation' => 'Pili#Nut2026', 'terms' => '1'])
             ->assertRedirect('/?panel=create-account')->assertSessionHasErrors('phone');
         $page = $this->get('/')->assertOk()->assertSee('data-start-open', false)->assertSee('data-shown="create-account"', false)
-            ->assertSee('value="Bea Santos"', false)->assertDontSee('Pili#Nut2026');
+            ->assertSee('value="Bea"', false)->assertSee('value="Santos"', false)->assertDontSee('Pili#Nut2026');
         $this->assertStringContainsString('has-err', $page->getContent());
         $this->assertSame([], $this->fb->accounts);
     }
@@ -155,11 +207,15 @@ class ShopTest extends TestCase
     public function test_sign_up_verifies_the_email_then_creates_the_same_profiles_as_the_app(): void
     {
         $this->post('/shop/register', [
-            'name' => 'Bea Santos', 'email' => 'bea@example.com', 'phone' => '0917 123 4567',
+            'first_name' => 'Bea', 'last_name' => 'Santos', 'email' => 'bea@example.com', 'phone' => '09171234567',
             'password' => 'Pili#Nut2026', 'password_confirmation' => 'Pili#Nut2026', 'terms' => '1', 'order_updates' => '1',
             'cf-turnstile-response' => 'turnstile-token-1',
         ])->assertRedirect(route('shop.verify'));
         $uid = $this->fb->accounts['bea@example.com']['uid'];
+        // The website verified the token with Cloudflare first, then passed the same key on.
+        $this->assertSame('turnstile-token-1', $this->shop->siteverified[0]['token']);
+        $this->assertSame('test-turnstile-secret', $this->shop->siteverified[0]['secret']);
+        $this->assertSame([$this->shop->siteverified[0]['key']], $this->shop->codeCaptchaKeys);
         // The 6-digit code comes from Melai Nuts' own e-mail function; Firebase sends nothing.
         $this->assertSame([$uid], $this->shop->codesSent);
         $this->assertSame([], $this->fb->verificationEmails);
@@ -179,7 +235,7 @@ class ShopTest extends TestCase
 
         $this->assertSame('customer', $this->fb->profiles[$uid]['role']);
         $this->assertSame('+639171234567', $this->fb->profiles[$uid]['phone']);
-        $this->assertSame(['firebase_uid' => $uid, 'full_name' => 'Bea Santos', 'email' => 'bea@example.com', 'phone' => '+639171234567'], $this->shop->profiles[$uid]);
+        $this->assertSame(['firebase_uid' => $uid, 'full_name' => 'Bea Santos', 'first_name' => 'Bea', 'last_name' => 'Santos', 'email' => 'bea@example.com', 'phone' => '+639171234567'], $this->shop->profiles[$uid]);
         $this->assertSame(config('melai.legal.terms_version'), $this->shop->legal[$uid]['terms_version']);
         $this->assertTrue(session()->has('shop_customer'));
         $this->assertGuest('web');

@@ -243,7 +243,7 @@ class ProductPhotoStorage
         Log::warning("[product-photos] storage refused the $what", ['status' => $r->status(), 'message' => $message]);
 
         if (in_array($r->status(), [401, 403], true) || str_contains(strtolower($message), 'row-level security') || str_contains(strtolower($message), 'unauthorized')) {
-            return new BackendActionException('Supabase refused the photo: only an active owner can change product photos. If you are the owner, check that the migrations up to 20261118040000_verified_phone_first_order.sql are applied (supabase migration list).');
+            return new BackendActionException('Supabase refused the photo: only an active owner can change product photos. If you are the owner, check that all migrations in supabase/migrations are applied (supabase migration list).');
         }
         if ($r->status() === 413 || str_contains(strtolower($message), 'size')) {
             return new BackendActionException('That photo is too large for the photo storage (5 MB at most).');

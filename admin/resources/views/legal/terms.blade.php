@@ -14,7 +14,7 @@
     </section>
     <section id="terms-2">
         <h2>2. Ang iyong account</h2>
-        <p>Ibigay ang iyong totoong pangalan, isang gumaganang email at mobile number na pag-aari mo. Bago ang iyong unang order, iberipika mo ang numerong iyon gamit ang 6-digit na code na ipapadala namin sa SMS; ang isang numero ay maaaring nasa isang Melai Nuts account lang. Ilihim ang iyong password at huwag ipagamit ang iyong account. Ikaw ang mananagot sa anumang ginawa gamit ang iyong account. Sabihan agad ang isang branch kung sa tingin mo ay may ibang gumagamit nito. Maaari naming i-deactivate ang account na lumalabag sa mga tuntuning ito.</p>
+        <p>Ibigay ang iyong totoong pangalan, isang gumaganang email at mobile number na pag-aari mo. Babayaran muna online ang iyong unang order (50% o ang buong halaga); puwede nang magbayad ng cash simula sa susunod mong order. Ilihim ang iyong password at huwag ipagamit ang iyong account. Ikaw ang mananagot sa anumang ginawa gamit ang iyong account. Sabihan agad ang isang branch kung sa tingin mo ay may ibang gumagamit nito. Maaari naming i-deactivate ang account na lumalabag sa mga tuntuning ito.</p>
         <p class="muted" style="color:#91571C">Borador — kukumpirmahin pa ng Melai Nuts.</p>
     </section>
     <section id="terms-3">
@@ -66,7 +66,7 @@
     </section>
     <section id="terms-2">
         <h2>2. Your account</h2>
-        <p>Give your real name, a working email and a mobile number you own. Before your first order you verify that number with a 6-digit code we send by SMS; one number can belong to only one Melai Nuts account. Keep your password secret and do not share your account. You are responsible for what is done with your account. Tell a branch right away if you think someone else is using it. We may deactivate an account that breaks these terms.</p>
+        <p>Give your real name, a working email and a mobile number you own. Your first order is paid online first (50% or the full amount); cash payment is available from your next order. Keep your password secret and do not share your account. You are responsible for what is done with your account. Tell a branch right away if you think someone else is using it. We may deactivate an account that breaks these terms.</p>
         <p class="muted" style="color:#91571C">Draft wording — to be confirmed by Melai Nuts.</p>
     </section>
     <section id="terms-3">

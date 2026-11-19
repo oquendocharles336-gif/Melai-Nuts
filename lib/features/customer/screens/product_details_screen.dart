@@ -18,6 +18,7 @@ import '../../../data/catalog_store.dart';
 import 'cart_screen.dart';
 import '../../../data/repositories/storefront_settings_repository.dart';
 import '../widgets/favorite_button.dart';
+import '../widgets/product_reviews_section.dart';
 
 /// Customer-facing product details: variant/size picker, spice level,
 /// branch availability, Add to Cart and Buy Now (matches the prototype's
@@ -417,6 +418,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     ),
                 ],
               ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            // Real customer reviews (migration 20261119020000); the average on
+            // the cards refreshes with the catalog after a review changes.
+            ProductReviewsSection(
+              productId: product.id,
+              productName: product.name,
+              onChanged: () => ProductsRepository.instance.loadCatalog(branchId: BranchController.instance.selectedBranch?.id),
             ),
           ],
         ),

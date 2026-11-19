@@ -43,12 +43,13 @@ Deno.serve(makeHandler({
   verifyAppCheck: (token) =>
     verifyAppCheckToken(token, (env("FIREBASE_PROJECT_NUMBER") ?? "").trim(), projectId,
       (env("FIREBASE_APP_CHECK_APP_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean)),
-  verifyCaptcha: (token, action, remoteIp) =>
+  verifyCaptcha: (token, action, remoteIp, idempotencyKey) =>
     verifyCaptcha({
       secret: env("TURNSTILE_SECRET_KEY") ?? "",
       token,
       action,
       remoteIp,
+      idempotencyKey,
       hostnames: hostList(env("TURNSTILE_ALLOWED_HOSTNAMES")),
     }),
   rpc: async (fn, args) => {

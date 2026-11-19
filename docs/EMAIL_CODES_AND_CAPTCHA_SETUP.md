@@ -25,7 +25,10 @@ sites, is usually invisible or one tap, and tokens are verified server-side with
 3. Copy the **Site key** (public) and the **Secret key** (private).
    * Site key → website `.env` `TURNSTILE_SITE_KEY` (the app does not need it: it opens the
      website's `/captcha` page).
-   * Secret key → Supabase function secret `TURNSTILE_SECRET_KEY` **only**.
+   * Secret key → Supabase function secret `TURNSTILE_SECRET_KEY` **and** the website's
+     `TURNSTILE_SECRET_KEY` (same value). The website verifies the Create account token with it
+     before it creates the account, then passes the token on with the same idempotency key, so the
+     Edge Function can check it once more (`admin/app/Services/Auth/Turnstile.php`).
 
 ## 2. Sender: Gmail (melainuts@gmail.com) — current setup
 
@@ -107,8 +110,14 @@ client IP on your project; set `AUTH_GUARD_IP_HEADER` if another header carries 
 
 ```dotenv
 TURNSTILE_SITE_KEY=<turnstile site key>
+TURNSTILE_SECRET_KEY=<turnstile secret key, same as the function secret>
+TURNSTILE_ALLOWED_HOSTNAMES=<optional: shop host(s), comma-separated>
 AUTH_GUARD_SERVER_KEY=<the same value as the function secret>
 ```
+
+A missing key never shows its name on the page ("The security check can't load right now");
+the server log says which variable is empty. If a variable is set but the page still says so,
+the config cache is stale: `php artisan optimize:clear && php artisan config:cache`.
 
 Behind a load balancer / reverse proxy, configure Laravel's trusted proxies so `$request->ip()`
 is the visitor's IP (otherwise every visitor shares one IP in the sign-in counter).

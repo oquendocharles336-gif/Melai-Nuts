@@ -5,6 +5,7 @@ namespace App\Services\Shop;
 use App\Http\Requests\Rules;
 use App\Services\Auth\EmailCodeException;
 use App\Services\Auth\EmailCodes;
+use App\Services\Auth\Turnstile;
 use App\Services\Firebase\FirebaseAuthClient;
 use App\Services\Firebase\FirebaseAuthException;
 use App\Services\Firebase\FirebaseTokenVerifier;
@@ -30,6 +31,9 @@ class CustomerAccounts
     /** A sign-up waiting for its email code, kept in the session between pages. */
     public const PENDING = 'shop_pending_signup';
 
+    /** The only role a website sign-up ever gets. */
+    public const ROLE = 'customer';
+
     public function __construct(
         private FirebaseAuthClient $firebase,
         private FirebaseTokenVerifier $verifier,
@@ -37,7 +41,14 @@ class CustomerAccounts
         private SupabaseRest $rest,
         private CustomerSession $session,
         private EmailCodes $codes,
+        private Turnstile $turnstile,
     ) {}
+
+    /** "First Last", like the app's PersonName.fullName: the one value every existing screen reads. */
+    public static function fullName(string $first, string $last): string
+    {
+        return implode(' ', array_filter([preg_replace('/\s+/u', ' ', trim($first)), preg_replace('/\s+/u', ' ', trim($last))], fn ($p) => $p !== ''));
+    }
 
     /**
      * Sign a customer in. Returns 'signed_in', or 'verify' when the account still has to confirm
@@ -92,13 +103,16 @@ class CustomerAccounts
      *
      * @throws ShopException when the account itself could not be created
      */
-    public function startSignUp(string $name, string $email, string $phone, string $password, bool $orderUpdates, ?string $captchaToken = null): ?string
+    public function startSignUp(string $firstName, string $lastName, string $email, string $phone, string $password, bool $orderUpdates, ?string $captchaToken = null, ?string $ip = null): ?string
     {
+        // The security check FIRST: no Firebase account is created for a bot (TurnstileException).
+        $captchaKey = $this->turnstile->verify($captchaToken, 'send_code', $ip);
+        $name = self::fullName($firstName, $lastName);
         $tokens = $this->firebase(fn () => $this->firebase->signUp(trim($email), $password, $name));
         $claims = $this->verify($tokens['id_token']);
-        $this->keepPending($tokens, $claims, $name, (string) Rules::normalizePhone($phone), $orderUpdates);
+        $this->keepPending($tokens, $claims, $name, (string) Rules::normalizePhone($phone), $orderUpdates, trim($firstName), trim($lastName));
         try {
-            $this->codes->send($tokens['id_token'], $captchaToken);
+            $this->codes->send($tokens['id_token'], $captchaToken, $captchaKey);
             $this->markCodeSent();
 
             return null;
@@ -158,8 +172,10 @@ class CustomerAccounts
         }
 
         $name = trim($p['name']) !== '' ? trim($p['name']) : 'Customer';
+        // Always a customer: the role is set here, never read from the request. Staff and owner
+        // accounts are made only in the Melai Nuts app (firestore.rules refuse any other role here).
         $result = $this->firebase(fn () => $this->firestore->create(
-            $p['id_token'], $claims['sub'], (string) $claims['email'], $name, 'customer', null, $p['phone'] !== '' ? $p['phone'] : null,
+            $p['id_token'], $claims['sub'], (string) $claims['email'], $name, self::ROLE, null, $p['phone'] !== '' ? $p['phone'] : null,
         ));
         if ($result === 'exists') {
             $profile = $this->firebase(fn () => $this->firestore->get($p['id_token'], $claims['sub']));
@@ -170,7 +186,7 @@ class CustomerAccounts
         $this->session->start($tokens, $claims, $name, $p['phone']);
         session()->forget(self::PENDING);
 
-        $this->ensureSupabaseProfile($name, (string) $claims['email'], $p['phone']);
+        $this->ensureSupabaseProfile($name, (string) $claims['email'], $p['phone'], (string) ($p['first_name'] ?? ''), (string) ($p['last_name'] ?? ''));
         $this->acceptTerms($p['order_updates'] ?? null);
     }
 
@@ -230,16 +246,20 @@ class CustomerAccounts
      * The customer_profiles row the app creates on first sign-in (CustomerProfileRepository.ensureProfile):
      * the registration phone goes in so checkout has a contact number. Best effort, like the app.
      */
-    public function ensureSupabaseProfile(string $name, string $email, string $phone): void
+    public function ensureSupabaseProfile(string $name, string $email, string $phone, string $firstName = '', string $lastName = ''): void
     {
         try {
             $token = $this->session->idToken();
             $uid = (string) $this->session->uid();
             $rows = $this->rest->select('customer_profiles', ['select' => 'firebase_uid,full_name,phone', 'firebase_uid' => 'eq.'.$uid], $token);
             if ($rows === []) {
+                // first_name / last_name as typed (website sign-up); without them the database
+                // splits full_name like the app does (migration 20261119010000).
                 $this->rest->insert('customer_profiles', array_filter([
                     'firebase_uid' => $uid,
                     'full_name' => $name,
+                    'first_name' => trim($firstName) !== '' ? trim($firstName) : null,
+                    'last_name' => trim($lastName) !== '' ? trim($lastName) : null,
                     'email' => $email,
                     'phone' => trim($phone) !== '' ? trim($phone) : null,
                 ], fn ($v) => $v !== null), $token);
@@ -293,12 +313,14 @@ class CustomerAccounts
         }
     }
 
-    private function keepPending(array $tokens, array $claims, string $name, string $phone, ?bool $orderUpdates = null): void
+    private function keepPending(array $tokens, array $claims, string $name, string $phone, ?bool $orderUpdates = null, string $firstName = '', string $lastName = ''): void
     {
         session()->put(self::PENDING, [
             'uid' => $claims['sub'],
             'email' => (string) ($claims['email'] ?? $tokens['email'] ?? ''),
             'name' => $name,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
             'phone' => $phone,
             'order_updates' => $orderUpdates,
             'id_token' => $tokens['id_token'],

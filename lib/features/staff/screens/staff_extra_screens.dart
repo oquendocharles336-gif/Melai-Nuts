@@ -15,6 +15,7 @@ import '../../notifications/notification_targets.dart';
 import '../../settings/screens/logout_flow.dart';
 import '../../settings/screens/settings_screen.dart';
 import '../widgets/staff_avatar.dart';
+import 'staff_reviews_screen.dart';
 
 /// Staff notifications, read from the database (`staff_notifications`).
 /// A person only ever receives their own: new orders at their branch, low /
@@ -335,6 +336,16 @@ class StaffProfileBody extends StatelessWidget {
                       ),
                       const Divider(height: 1),
                     ],
+                    ListTile(
+                      leading: const Icon(Icons.reviews_outlined, color: AppColors.darkBrown),
+                      title: Text('Product Reviews', style: AppTextStyles.labelLg),
+                      subtitle: Text('Hide or delete inappropriate reviews', style: AppTextStyles.bodySm),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const StaffReviewsScreen()),
+                      ),
+                    ),
+                    const Divider(height: 1),
                     ListTile(
                       leading: const Icon(Icons.settings_outlined, color: AppColors.darkBrown),
                       title: Text('App Settings', style: AppTextStyles.labelLg),

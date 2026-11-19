@@ -59,11 +59,11 @@ class FakeShopSupabase
     /** first_order_quote answer (first_order = false: a returning customer; null = the call fails). */
     public ?array $firstOrder = ['first_order' => false];
 
-    /** The customer's mobile number is verified (first_order_quote's phone_verified). */
-    public bool $phoneVerified = true;
-
     /** email-verification: uids a code was sent to, and the code the fake accepts. */
     public array $codesSent = [];
+
+    /** The captcha idempotency key each send-code call carried (set when the website verified the token). */
+    public array $codeCaptchaKeys = [];
 
     public string $acceptedCode = '123456';
 
@@ -81,9 +81,26 @@ class FakeShopSupabase
     {
         config(['melai.shop.supabase_url' => self::URL, 'melai.shop.anon_key' => self::ANON, 'melai.shop.catalog_cache_seconds' => 0]);
 
-        Http::fake([self::URL.'/*' => fn (Request $r) => $this->handle($r)]);
+        Http::fake([
+            self::URL.'/*' => fn (Request $r) => $this->handle($r),
+            // Cloudflare siteverify (App\Services\Auth\Turnstile): every token passes except "bad-token".
+            'challenges.cloudflare.com/turnstile/v0/siteverify' => fn (Request $r) => $this->siteverify($r),
+        ]);
 
         return $this;
+    }
+
+    /** Tokens the website verified with Cloudflare, with the idempotency key it used. */
+    public array $siteverified = [];
+
+    private function siteverify(Request $r)
+    {
+        $this->siteverified[] = ['token' => $r['response'], 'secret' => $r['secret'], 'key' => $r['idempotency_key'] ?? null];
+        if ($r['response'] === 'bad-token') {
+            return Http::response(['success' => false, 'error-codes' => ['invalid-input-response']]);
+        }
+
+        return Http::response(['success' => true, 'action' => 'send_code', 'hostname' => 'localhost']);
     }
 
     /** Requests to $path made with a customer token (not the anon key). */
@@ -105,7 +122,6 @@ class FakeShopSupabase
         $body = $r->data();
         $this->calls[] = ['method' => $r->method(), 'path' => $path, 'token' => $token, 'query' => $query, 'body' => $body];
         $uid = $token === self::ANON ? null : $this->uid($token);
-        $this->lastToken = $token;
 
         if (str_starts_with($path, '/functions/v1/')) {
             return $this->function(substr($path, 14), $body, $uid);
@@ -131,11 +147,98 @@ class FakeShopSupabase
             'payment_settings' => Http::response([['online_payment_enabled' => $this->onlinePayment, 'online_payment_disabled_message' => 'Online payment is paused.']]),
             'customer_profiles' => $this->profilesTable($method, $eq('firebase_uid'), $body, $uid),
             'orders' => Http::response(array_values(array_filter($this->orders, fn ($o) => $o['firebase_uid'] === $uid && ($eq('id') === null || $o['id'] === $eq('id'))))),
+            'product_reviews' => $this->reviewsTable($method, $eq('id'), $body, $uid),
+            'product_rating_stats' => Http::response($this->ratingStats($in('product_id'))),
             'loyalty_accounts' => Http::response([['points_balance' => 120]]),
             'loyalty_transactions' => Http::response([['id' => 't1', 'points' => 120, 'type' => 'earn', 'description' => 'Order ORD-1', 'order_id' => 'ORD-1', 'created_at' => '2026-11-01T10:00:00Z']]),
             default => Http::response(['message' => 'unknown table '.$table], 404),
         };
     }
+
+    /** Reviews by id (product_reviews). */
+    public array $reviews = [];
+
+    /** uid => product ids of their COMPLETED orders (who may review what, like _can_review_product). */
+    public array $received = [];
+
+    private function ratingStats(?array $productIds): array
+    {
+        $rows = [];
+        foreach (collect($this->reviews)->reject(fn ($r) => $r['is_hidden'])->groupBy('product_id') as $pid => $list) {
+            if ($productIds === null || in_array($pid, $productIds, true)) {
+                $rows[] = ['product_id' => $pid, 'average_rating' => round($list->avg('rating'), 1), 'review_count' => $list->count()];
+            }
+        }
+
+        return $rows;
+    }
+
+    private function reviewRow(array $r, ?string $uid): array
+    {
+        return ['id' => $r['id'], 'product_id' => $r['product_id'], 'rating' => $r['rating'], 'comment' => $r['comment'],
+            'created_at' => $r['created_at'], 'updated_at' => $r['updated_at'], 'reviewer_name' => $r['reviewer_name'],
+            'is_mine' => $r['customer_id'] === $uid, 'is_hidden' => $r['is_hidden']];
+    }
+
+    private function productReviews(string $productId, ?string $uid, int $offset, int $limit): array
+    {
+        return collect($this->reviews)->filter(fn ($r) => $r['product_id'] === $productId && ! $r['is_hidden'])
+            ->sortByDesc('created_at')->slice($offset, $limit)->map(fn ($r) => $this->reviewRow($r, $uid))->values()->all();
+    }
+
+    private function reviewStatus(string $productId, ?string $uid): array
+    {
+        if ($uid === null) {
+            return ['signed_in' => false, 'can_review' => false, 'order_id' => null, 'review' => null];
+        }
+        $mine = collect($this->reviews)->first(fn ($r) => $r['product_id'] === $productId && $r['customer_id'] === $uid);
+        $can = in_array($productId, $this->received[$uid] ?? [], true);
+
+        return ['signed_in' => true, 'can_review' => $can, 'order_id' => $can ? 'ORD-DONE' : null,
+            'review' => $mine ? $this->reviewRow($mine, $uid) : null];
+    }
+
+    private function reviewsTable(string $method, ?string $id, array $body, ?string $uid)
+    {
+        if ($uid === null && $method !== 'GET') {
+            return Http::response(['code' => '42501', 'message' => 'permission denied'], 401);
+        }
+        $denied = Http::response(['code' => '42501', 'message' => 'new row violates row-level security policy for table "product_reviews"'], 403);
+        if ($method === 'POST') {
+            if (($body['customer_id'] ?? null) !== $uid || ! in_array($body['product_id'] ?? null, $this->received[$uid] ?? [], true)) {
+                return $denied;
+            }
+            if (collect($this->reviews)->contains(fn ($r) => $r['product_id'] === $body['product_id'] && $r['customer_id'] === $uid)) {
+                return Http::response(['code' => '23505', 'message' => 'duplicate key value violates unique constraint "product_reviews_one_per_customer"'], 409);
+            }
+            $newId = 'rev-'.(count($this->reviews) + 1);
+            $now = '2026-11-19T02:00:0'.count($this->reviews).'Z';
+            $this->reviews[$newId] = ['id' => $newId, 'product_id' => $body['product_id'], 'customer_id' => $uid, 'rating' => (int) $body['rating'],
+                'comment' => trim((string) ($body['comment'] ?? '')), 'is_hidden' => false, 'created_at' => $now, 'updated_at' => $now,
+                'reviewer_name' => $this->reviewerNames[$uid] ?? 'Customer'];
+
+            return Http::response([['id' => $newId]], 201);
+        }
+        $row = $id !== null ? ($this->reviews[$id] ?? null) : null;
+        if ($row === null || $row['customer_id'] !== $uid) {
+            return Http::response([]);   // RLS: nothing matches
+        }
+        if ($method === 'PATCH') {
+            $this->reviews[$id] = array_merge($row, array_intersect_key($body, ['rating' => 1, 'comment' => 1]), ['updated_at' => '2026-11-19T03:00:00Z']);
+
+            return Http::response([['id' => $id]]);
+        }
+        if ($method === 'DELETE') {
+            unset($this->reviews[$id]);
+
+            return Http::response([['id' => $id]]);
+        }
+
+        return Http::response([]);
+    }
+
+    /** uid => "Ana C." as get_product_reviews shows it. */
+    public array $reviewerNames = [];
 
     private function inventory(?string $branch, ?array $variants): array
     {
@@ -175,31 +278,6 @@ class FakeShopSupabase
         return Http::response(isset($this->profiles[$uid]) && $filterUid === $uid ? [$this->profiles[$uid]] : []);
     }
 
-    private string $lastToken = '';
-
-    /** Verified numbers per uid (claim_verified_phone). */
-    public array $verifiedPhones = [];
-
-    /** claim_verified_phone: the number comes from the token's phone_number claim, like the database. */
-    private function claimPhone(?string $uid)
-    {
-        $parts = explode('.', $this->lastToken);
-        $claims = json_decode(base64_decode(strtr($parts[1] ?? '', '-_', '+/')), true) ?: [];
-        $phone = (string) ($claims['phone_number'] ?? '');
-        if ($uid === null || $phone === '') {
-            return Http::response(['code' => 'P0001', 'message' => 'Please verify your mobile number with the SMS code first.'], 400);
-        }
-        foreach ($this->verifiedPhones as $other => $p) {
-            if ($p === $phone && $other !== $uid) {
-                return Http::response(['code' => 'P0001', 'message' => 'This mobile number is already verified on another Melai Nuts account. Sign in to that account, or verify a different number.'], 400);
-            }
-        }
-        $this->verifiedPhones[$uid] = $phone;
-        $this->phoneVerified = true;
-
-        return Http::response(['verified_phone' => $phone, 'first_order' => true]);
-    }
-
     private function rpc(string $fn, array $p, ?string $uid)
     {
         return match ($fn) {
@@ -209,14 +287,13 @@ class FakeShopSupabase
             'sync_customer_cart' => $this->sync($uid, $p),
             'register_voucher_attempt' => Http::response(null),
             'cod_downpayment_quote' => Http::response($this->quote),
-            // A customer whose mobile number is verified unless the test says otherwise (migration 20261118040000).
             'first_order_quote' => $this->firstOrder === null ? Http::response(['message' => 'unavailable'], 503)
-                : Http::response($this->firstOrder + ['phone_verified' => $this->phoneVerified, 'phone_claimable' => false,
-                    'verified_phone' => $this->phoneVerified ? '+639171234567' : null]),
+                : Http::response($this->firstOrder),
+            'get_product_reviews' => Http::response($this->productReviews((string) $p['p_product_id'], $uid, (int) ($p['p_offset'] ?? 0), (int) ($p['p_limit'] ?? 20))),
+            'my_product_review_status' => Http::response($this->reviewStatus((string) $p['p_product_id'], $uid)),
             'my_legal_acceptance' => Http::response($this->legal[$uid] ?? ['terms_version' => null, 'privacy_version' => null]),
             'accept_legal_terms' => $this->accept($uid, $p),
             'place_order' => $this->place($uid, $p),
-            'claim_verified_phone' => $this->claimPhone($uid),
             default => Http::response(['message' => 'unknown function '.$fn, 'code' => '42883'], 404),
         };
     }
@@ -299,6 +376,7 @@ class FakeShopSupabase
             return Http::response(['error' => 'Please complete the security check.', 'code' => 'captcha_required'], 428);
         }
         $this->codesSent[] = $uid;
+        $this->codeCaptchaKeys[] = $body['captcha_idempotency_key'] ?? null;
 
         return Http::response(['sent' => true, 'expires_in' => 600, 'resend_after' => 60]);
     }

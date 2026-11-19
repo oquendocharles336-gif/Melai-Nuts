@@ -133,3 +133,15 @@ The staff app now works offline (see `CHANGED_FILES.txt`). The Terms and Privacy
 - **Privacy 2 and 4 (changed):** one added bullet about offline staff changes, and one sentence noting that the offline copy on staff phones includes receipts with customer details.
 
 Please confirm: is keeping a customer's name and contact number on the e-receipts on staff phones acceptable? If not, the app can leave those two fields out of the stored receipts.
+
+## No SMS check of the mobile number, product reviews (version `2026-11-19`): to approve
+
+* **Terms 2**: the SMS code before the first order is gone. The first order is still paid online
+  first (50% or the full amount).
+* **Privacy 2**: product reviews (rating, comment, date; shown with first name + last initial);
+  the first-order record keeps the mobile number on the account when it was paid.
+* **Privacy 4**: Firebase SMS only for the optional Android phone log-in; Google reCAPTCHA removed
+  (the website no longer sends codes to mobile numbers).
+* **Privacy 11**: the reCAPTCHA sentence is gone.
+* **Privacy 10**: rewritten. The number is only format-checked; a number that matches another
+  customer with a paid order keeps the first-order prepayment on the new account.

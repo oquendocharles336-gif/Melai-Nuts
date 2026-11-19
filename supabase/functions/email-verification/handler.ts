@@ -14,7 +14,7 @@ export type Deps = {
   verifyIdToken: (token: string) => Promise<FirebaseUser>;
   /** Resolves to the app id, rejects when the App Check token is not valid. */
   verifyAppCheck: (token: string) => Promise<string>;
-  verifyCaptcha: (token: unknown, action: string, remoteIp: string | null) => Promise<CaptchaResult>;
+  verifyCaptcha: (token: unknown, action: string, remoteIp: string | null, idempotencyKey?: unknown) => Promise<CaptchaResult>;
   rpc: Rpc;
   sendMail: SendMail;
   markEmailVerified: (uid: string) => Promise<void>;
@@ -71,8 +71,10 @@ export function makeHandler(deps: Deps) {
 }
 
 /** A valid captcha (single use) -> null; otherwise the error response to return. */
-async function requireCaptcha(deps: Deps, token: unknown, action: string, ip: string | null, pepper: string): Promise<Response | null> {
-  const result = await deps.verifyCaptcha(token, action, ip);
+async function requireCaptcha(
+  deps: Deps, token: unknown, action: string, ip: string | null, pepper: string, idempotencyKey?: unknown,
+): Promise<Response | null> {
+  const result = await deps.verifyCaptcha(token, action, ip, idempotencyKey);
   if (!result.ok) {
     if (result.reason === "missing") return fail(428, "captcha_required", "Please complete the security check.");
     if (result.reason === "unavailable") return fail(503, "captcha_unavailable", "The security check is unavailable. Please try again.");
@@ -102,7 +104,8 @@ async function send(deps: Deps, req: Request, user: FirebaseUser, body: Record<s
     }
   }
   if (!attested) {
-    const problem = await requireCaptcha(deps, body.captcha_token, "send_code", ip, pepper);
+    // captcha_idempotency_key: the website verified this sign-up token already (same key).
+    const problem = await requireCaptcha(deps, body.captcha_token, "send_code", ip, pepper, body.captcha_idempotency_key);
     if (problem) return problem;
   }
 

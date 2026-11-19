@@ -295,7 +295,7 @@ class ProductPhotosTest extends TestCase
             ->assertSee('public &quot;product-images&quot; folder', false)
             ->assertSee('Version '.config('melai.legal.privacy_version'), false);
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('9. Mga larawan ng produkto at access sa mga file');
-        $this->assertSame('2026-11-18.2', config('melai.legal.privacy_version'));
+        $this->assertSame('2026-11-19', config('melai.legal.privacy_version'));
     }
 
     public function test_the_legal_pages_describe_offline_use(): void
@@ -310,13 +310,14 @@ class ProductPhotosTest extends TestCase
             ->assertSee('erased when you sign out');
         $this->get('/terms?lang=fil')->assertOk()->assertSee('10. Paggamit ng app nang offline');
         $this->get('/privacy?lang=fil')->assertOk()->assertSee('12. Pagtatrabaho nang offline (staff at may-ari)');
-        $this->assertSame('2026-11-18.2', config('melai.legal.terms_version'));
+        $this->assertSame('2026-11-19', config('melai.legal.terms_version'));
     }
 
-    public function test_the_privacy_policy_describes_phone_verification_and_sign_in_protection(): void
+    public function test_the_privacy_policy_describes_the_first_order_rule_and_sign_in_protection(): void
     {
         $this->get('/privacy')->assertOk()
             ->assertSee('id="privacy-10"', false)->assertSee('10. Your mobile number and the first-order rule')
+            ->assertSee('we do not send a code to verify it')->assertDontSee('reCAPTCHA')
             ->assertSee('id="privacy-11"', false)->assertSee('Cloudflare Turnstile')->assertSee('Resend')
             ->assertSee('TO BE FILLED IN BY THE OWNER');
         $this->get('/terms')->assertOk()->assertSee('50% or 100%')->assertSee('confirm your payment by hand');

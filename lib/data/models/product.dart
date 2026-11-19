@@ -229,9 +229,9 @@ class Product {
   double get monthlyRevenue => price * unitsSoldLast30Days;
 
   /// Builds a product from a `products` row plus its already-fetched
-  /// `product_variants` rows and per-branch stock. There is no review system
-  /// backing this app yet, so rating/reviewCount stay at 0 (honestly "no
-  /// reviews yet") rather than a made-up number.
+  /// `product_variants` rows and per-branch stock. [rating] / [reviewCount]
+  /// come from the real customer reviews (`product_rating_stats`); a product
+  /// without reviews keeps 0 ("no reviews yet"), never a made-up number.
   factory Product.fromRow(
     Map<String, dynamic> row, {
     required List<Map<String, dynamic>> variantRows,
@@ -240,6 +240,8 @@ class Product {
     required int totalStock,
     int unitsSoldLast30Days = 0,
     int? lowStockBadgeQty,
+    double ratingAverage = 0,
+    int ratingCount = 0,
   }) {
     final variants = variantRows
         .map((v) => ProductVariant.fromRow(v, stockOnHand: stockByVariantId[v['id']]))
@@ -251,8 +253,8 @@ class Product {
       categoryId: (row['category_id'] as String?) ?? '',
       price: (row['price'] as num).toDouble(),
       originalPrice: (row['original_price'] as num?)?.toDouble(),
-      rating: 0,
-      reviewCount: 0,
+      rating: ratingCount > 0 ? ratingAverage : 0,
+      reviewCount: ratingCount,
       stockLabel: stockLabelFor(totalStock, lowStockBadgeQty),
       description: (row['description'] as String?) ?? '',
       branchAvailability: branchAvailability,

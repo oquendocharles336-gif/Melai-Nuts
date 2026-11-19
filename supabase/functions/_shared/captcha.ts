@@ -19,8 +19,16 @@ export type CaptchaOptions = {
   action: string;
   /** Hostnames the widget may be served from (empty = not checked). */
   hostnames?: string[];
+  /**
+   * The idempotency key of a token the website already verified with Cloudflare (sign-up,
+   * admin/app/Services/Auth/Turnstile.php). Cloudflare accepts the same token again only with the
+   * same key. Not a UUID = ignored (a new key is used, so a replayed token still fails).
+   */
+  idempotencyKey?: unknown;
   fetchFn?: typeof fetch;
 };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function verifyCaptcha(o: CaptchaOptions): Promise<CaptchaResult> {
   const token = typeof o.token === "string" ? o.token.trim() : "";
@@ -32,7 +40,8 @@ export async function verifyCaptcha(o: CaptchaOptions): Promise<CaptchaResult> {
   form.set("secret", o.secret);
   form.set("response", token);
   if (o.remoteIp) form.set("remoteip", o.remoteIp);
-  form.set("idempotency_key", crypto.randomUUID());
+  const key = typeof o.idempotencyKey === "string" && UUID.test(o.idempotencyKey) ? o.idempotencyKey : crypto.randomUUID();
+  form.set("idempotency_key", key);
 
   let data: Record<string, unknown>;
   try {

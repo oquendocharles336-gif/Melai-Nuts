@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Shop;
 
 use App\Http\Middleware\EnsureCustomer;
 use App\Http\Requests\Rules;
+use App\Services\Auth\TurnstileException;
 use App\Services\Shop\CustomerAccounts;
 use App\Services\Shop\CustomerSession;
 use App\Services\Shop\ShopCart;
@@ -40,7 +41,11 @@ class CustomerAuthController extends ShopController
         return redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT));
     }
 
-    /** Same rules as the app's Create Account (name, PH mobile, password strength, Terms). */
+    /**
+     * Same rules as the app's Create Account (first / last name, email, 09 mobile, password
+     * strength, Terms). Always creates a CUSTOMER: only the validated fields below are read, so a
+     * `role` (or any other) field in the request is ignored; the role is set by CustomerAccounts.
+     */
     public function register(Request $request)
     {
         try {
@@ -49,8 +54,11 @@ class CustomerAuthController extends ShopController
             throw AuthPanel::back($e, AuthPanel::CREATE_ACCOUNT);
         }
         try {
-            $note = $this->accounts->startSignUp(trim($data['name']), $data['email'], $data['phone'], $data['password'],
-                $request->boolean('order_updates'), $this->captchaToken($request));
+            $note = $this->accounts->startSignUp(trim($data['first_name']), trim($data['last_name']), trim($data['email']), trim($data['phone']),
+                $data['password'], $request->boolean('order_updates'), $this->captchaToken($request), $request->ip());
+        } catch (TurnstileException $e) {
+            // Shown under the security check; nothing was created.
+            throw AuthPanel::back(ValidationException::withMessages(['captcha' => $e->getMessage()]), AuthPanel::CREATE_ACCOUNT);
         } catch (ShopException $e) {
             return redirect()->to(AuthPanel::url(AuthPanel::CREATE_ACCOUNT))
                 ->withInput($request->except(['password', 'password_confirmation', 'cf-turnstile-response']))->with('shop_error', $e->getMessage());
@@ -61,7 +69,7 @@ class CustomerAuthController extends ShopController
             : redirect()->route('shop.verify')->with('shop_note', $note);
     }
 
-    /** The Turnstile token the widget put in the form (checked only by the Edge Functions). */
+    /** The Turnstile token the widget put in the form (checked by Turnstile / the Edge Functions). */
     private function captchaToken(Request $request): ?string
     {
         $t = $request->input('cf-turnstile-response');
@@ -71,16 +79,22 @@ class CustomerAuthController extends ShopController
 
     private function validateSignUp(Request $request): array
     {
+        $name = CustomerAccounts::fullName((string) $request->input('first_name', ''), (string) $request->input('last_name', ''));
+
         return $request->validate([
-            'name' => Rules::name(),
-            'email' => Rules::email(),
-            'phone' => Rules::phone(true),
-            'password' => array_merge(Rules::newPassword($request->input('email'), $request->input('name')), ['confirmed']),
+            'first_name' => Rules::personName('First name'),
+            'last_name' => Rules::personName('Last name'),
+            'email' => Rules::newEmail(),
+            'phone' => Rules::mobile(),
+            'password' => Rules::newPassword($request->input('email'), $name),
+            // Under the Confirm password field, like the live check.
+            'password_confirmation' => ['required', 'same:password'],
             'terms' => ['accepted'],
             'order_updates' => ['nullable', 'boolean'],
         ], [
             'terms.accepted' => 'Please agree to the Terms and Conditions and the Privacy Policy.',
-            'password.confirmed' => 'The two passwords don\'t match.',
+            'password_confirmation.required' => 'Please confirm your password.',
+            'password_confirmation.same' => 'Passwords do not match.',
         ]);
     }
 

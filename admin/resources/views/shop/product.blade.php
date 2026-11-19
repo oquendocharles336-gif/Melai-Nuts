@@ -89,6 +89,72 @@
         </div>
     </div>
 
+    {{-- Ratings and reviews (migration 20261119020000). The list is loaded by shop.js from
+         shop.product.reviews, with loading / empty / error and retry states. --}}
+    @php($count = (int) ($product['review_count'] ?? 0))
+    @php($mine = $myReview['review'] ?? null)
+    @php($editing = $mine !== null || ($myReview['can_review'] ?? false))
+    <section class="s-section" id="reviews" aria-labelledby="rev-title">
+        <div class="s-section-head"><div><span class="s-eyebrow">From customers</span><h2 id="rev-title">Ratings &amp; reviews</h2></div></div>
+        <div class="s-reviews">
+            @if ($count > 0)
+                <div class="s-reviews-summary">
+                    <b>{{ number_format($product['rating'], 1) }}</b>
+                    <div>
+                        @include('shop.partials.stars', ['rating' => $product['rating']])
+                        <div class="s-note">{{ $count }} {{ \Illuminate\Support\Str::plural('review', $count) }}</div>
+                    </div>
+                    <span class="sr-only">Rated {{ number_format($product['rating'], 1) }} out of 5</span>
+                </div>
+            @endif
+
+            {{-- The customer's own review: only for a product they received (a completed order). --}}
+            @if ($myReview !== null && ($myReview['error'] ?? false))
+                <p class="s-note">We couldn't load your review right now. <a href="{{ route('shop.product', $product['id']) }}#reviews">Try again</a></p>
+            @elseif ($editing && ! ($shopStaff ?? null))
+                <form method="POST" action="{{ route('shop.product.review', $product['id']) }}" class="s-form" novalidate data-busy="Saving…" data-review-form>
+                    @csrf
+                    <fieldset @class(['s-field', 'has-err' => $errors->has('rating')]) style="border:0;padding:0;margin:0">
+                        <legend class="lbl">{{ $mine ? 'Your review' : 'Rate this product' }}</legend>
+                        @php($current = (int) old('rating', $mine['rating'] ?? 0))
+                        <div class="s-rate" role="radiogroup" aria-label="Your rating">
+                            @for ($i = 5; $i >= 1; $i--)
+                                <input type="radio" id="rate-{{ $i }}" name="rating" value="{{ $i }}" @checked($current === $i) required>
+                                <label for="rate-{{ $i }}" title="{{ $i }} {{ $i === 1 ? 'star' : 'stars' }}">★<span class="sr-only">{{ $i }} {{ $i === 1 ? 'star' : 'stars' }}</span></label>
+                            @endfor
+                        </div>
+                        @error('rating')<span class="err">{{ $message }}</span>@enderror
+                        @if ($mine && $mine['hidden'])<span class="hint">Hidden by Melai Nuts: other customers don't see it.</span>@endif
+                    </fieldset>
+                    <div @class(['s-field', 'has-err' => $errors->has('comment')])>
+                        <label for="rev-comment">Comment (optional)</label>
+                        <textarea id="rev-comment" name="comment" maxlength="{{ \App\Http\Requests\Rules::REVIEW_MAX }}" placeholder="What did you like about it?" data-review-comment>{{ old('comment', $mine['comment'] ?? '') }}</textarea>
+                        <span class="hint" data-review-count>{{ mb_strlen(old('comment', $mine['comment'] ?? '')) }} / {{ \App\Http\Requests\Rules::REVIEW_MAX }}</span>
+                        @error('comment')<span class="err">{{ $message }}</span>@enderror
+                    </div>
+                    <div class="s-review-actions">
+                        <button type="submit" class="s-btn primary"><x-icon name="check" :size="16" />{{ $mine ? 'Save changes' : 'Post review' }}</button>
+                    </div>
+                </form>
+                @if ($mine)
+                    <form method="POST" action="{{ route('shop.product.review.destroy', $product['id']) }}" data-confirm="Delete your review of {{ $product['name'] }}?" data-confirm-title="Delete your review?" data-confirm-label="Delete">
+                        @csrf @method('DELETE')
+                        <button type="submit" class="s-btn ghost sm">Delete my review</button>
+                    </form>
+                @endif
+            @elseif ($myReview !== null && ! ($shopStaff ?? null))
+                <p class="s-note">You can review this product once an order with it is completed.</p>
+            @elseif (! ($shopStaff ?? null))
+                <p class="s-note"><a href="{{ \App\Support\AuthPanel::url(\App\Support\AuthPanel::SIGN_IN) }}" data-panel-open="{{ \App\Support\AuthPanel::SIGN_IN }}">Sign in</a> to review a product you received.</p>
+            @endif
+
+            <div class="s-review-list" data-reviews="{{ route('shop.product.reviews', $product['id']) }}" aria-live="polite">
+                <p class="s-note" data-reviews-loading>Loading reviews…</p>
+                <noscript><p class="s-note">Turn on JavaScript to read the reviews.</p></noscript>
+            </div>
+        </div>
+    </section>
+
     @if ($related)
         <section class="s-section" aria-labelledby="rel-title">
             <div class="s-section-head"><div><span class="s-eyebrow">More to try</span><h2 id="rel-title">You might also like</h2></div></div>

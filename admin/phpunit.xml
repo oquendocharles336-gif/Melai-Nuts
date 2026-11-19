@@ -28,6 +28,7 @@
         <env name="SUPABASE_URL" value=""/>
         <env name="SUPABASE_ANON_KEY" value=""/>
         <env name="FIREBASE_WEB_API_KEY" value="test-web-api-key"/>
+        <env name="TURNSTILE_SECRET_KEY" value="test-turnstile-secret"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

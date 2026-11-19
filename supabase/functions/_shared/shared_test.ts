@@ -88,6 +88,20 @@ Deno.test("captcha: the secret and the token go to siteverify, with the visitor 
   assert((p.get("idempotency_key") ?? "").length === 36, "idempotency key");
 });
 
+Deno.test("captcha: a token the website already verified is checked again with the website's key", async () => {
+  const keys: string[] = [];
+  const spy: typeof fetch = (_u, init) => {
+    keys.push(new URLSearchParams(String(init?.body)).get("idempotency_key") ?? "");
+    return Promise.resolve(new Response('{"success":true,"action":"send_code"}'));
+  };
+  const key = "6f1c2a8e-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+  await verifyCaptcha({ secret: "s", token: "tok", action: "send_code", idempotencyKey: key, fetchFn: spy });
+  // Anything that is not a UUID is ignored: a fresh key, so a replayed token still fails at Cloudflare.
+  await verifyCaptcha({ secret: "s", token: "tok", action: "send_code", idempotencyKey: "not-a-uuid", fetchFn: spy });
+  assertEquals(keys[0], key);
+  assert(keys[1] !== "not-a-uuid" && keys[1].length === 36, "a fresh key for a non-UUID");
+});
+
 // --- Firebase tokens (local keys) -------------------------------------------------------------
 const { publicKey, privateKey } = await generateKeyPair("RS256");
 const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256" };

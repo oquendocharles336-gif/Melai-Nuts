@@ -76,6 +76,15 @@ class SupabaseRest
         return is_array($r->json()) ? $r->json() : [];
     }
 
+    /** DELETE rows matching $filter (PostgREST syntax) as the signed-in customer; returns the deleted rows. */
+    public function delete(string $table, array $filter, string $idToken): array
+    {
+        $r = $this->send(fn () => $this->client($idToken)->withHeaders(['Prefer' => 'return=representation'])
+            ->delete($this->url().'/rest/v1/'.$table.'?'.http_build_query($filter)));
+
+        return is_array($r->json()) ? $r->json() : [];
+    }
+
     /**
      * Call an Edge Function as the customer (e.g. hitpay-create-payment). Returns the JSON body;
      * an error status throws ShopException with the function's own message when it gave one.

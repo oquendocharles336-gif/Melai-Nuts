@@ -95,10 +95,6 @@ class FakeFirebase
             'identitytoolkit.googleapis.com/v1/accounts:signUp*' => fn (Request $r) => $this->signUp($r),
             'identitytoolkit.googleapis.com/v1/accounts:sendOobCode*' => fn (Request $r) => $this->oob($r),
             'identitytoolkit.googleapis.com/v1/accounts:delete*' => fn (Request $r) => $this->delete($r),
-            // Phone verification (SMS) of a signed-in account: the code is always 123456 here.
-            'identitytoolkit.googleapis.com/v1/recaptchaParams*' => fn () => Http::response(['recaptchaSiteKey' => 'test-site-key']),
-            'identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode*' => fn (Request $r) => $this->sendPhoneCode($r),
-            'identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber*' => fn (Request $r) => $this->linkPhone($r),
             'securetoken.googleapis.com/*' => fn (Request $r) => $this->refresh($r),
             'www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig*' => fn () => $this->offline ? Http::failedConnection()
                 : Http::response(['projectId' => $this->keyProject ?? self::PROJECT]),
@@ -110,44 +106,6 @@ class FakeFirebase
 
 
         return $this;
-    }
-
-    /** Numbers already on another Firebase account (linking them is refused). */
-    public array $phonesTaken = [];
-
-    /** Numbers an SMS was sent to. */
-    public array $phoneCodesSent = [];
-
-    private function sendPhoneCode(Request $r)
-    {
-        if (($r['recaptchaToken'] ?? '') === '') {
-            return Http::response(['error' => ['message' => 'MISSING_RECAPTCHA_TOKEN']], 400);
-        }
-        $this->phoneCodesSent[] = (string) $r['phoneNumber'];
-
-        return Http::response(['sessionInfo' => 'session-'.$r['phoneNumber']]);
-    }
-
-    private function linkPhone(Request $r)
-    {
-        $phone = substr((string) $r['sessionInfo'], strlen('session-'));
-        if ((string) $r['code'] !== '123456') {
-            return Http::response(['error' => ['message' => 'INVALID_CODE']], 400);
-        }
-        if (in_array($phone, $this->phonesTaken, true)) {
-            return Http::response(['error' => ['message' => 'PHONE_NUMBER_EXISTS']], 400);
-        }
-        $parts = explode('.', (string) $r['idToken']);
-        $claims = json_decode(base64_decode(strtr($parts[1] ?? '', '-_', '+/')), true) ?: [];
-        $uid = (string) ($claims['sub'] ?? '');
-
-        return Http::response([
-            'localId' => $uid,
-            'idToken' => $this->token($uid, (string) ($claims['email'] ?? ''), (bool) ($claims['email_verified'] ?? false), ['phone_number' => $phone]),
-            'refreshToken' => 'refresh-'.$uid,
-            'expiresIn' => '3600',
-            'phoneNumber' => $phone,
-        ]);
     }
 
     public function addAccount(string $email, string $uid, string $password, bool $verified = false): self

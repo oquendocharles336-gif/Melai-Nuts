@@ -1,21 +1,86 @@
 CHANGED_FILES.txt
-supabase/functions/_shared/email-template.ts        (button labels, greeting, dark mode, phone layout, support line)
-supabase/functions/_shared/email_template_test.ts
-supabase/functions/_shared/shared_test.ts
-supabase/functions/_shared/firebase_admin.ts        (lookupAccountByEmail: uid + display name)
-supabase/functions/_shared/firebase_token.ts        (name claim)
-supabase/functions/account-email/handler.ts         (greeting name, generic reset message)
-supabase/functions/account-email/handler_test.ts
-supabase/functions/account-email/index.ts
-supabase/functions/email-verification/handler.ts    (greeting name, support fallback)
-supabase/config.toml                                (account-email verify_jwt = false)
-scripts/preview-emails.ts
-lib/features/auth/screens/forgot_password_screen.dart (generic success message)
-admin/app/Http/Controllers/Auth/LoginController.php
+# 2026-11-19: product reviews, no phone verification (first-order prepayment kept + phone-match safeguard),
+# website sign-up: Turnstile verified on the server, First/Last name, live validation, customer-only role.
+DELETED_IN_THIS_CHANGE.txt
+admin/.env.example
+admin/app/Http/Controllers/Admin/UserController.php
+admin/app/Http/Controllers/CaptchaController.php
+admin/app/Http/Controllers/Shop/CheckoutController.php
 admin/app/Http/Controllers/Shop/CustomerAuthController.php
-admin/app/Http/Controllers/Auth/TwoFactorController.php
-admin/app/Services/Auth/AccountEmails.php
+admin/app/Http/Controllers/Shop/ReviewController.php
+admin/app/Http/Controllers/Shop/StorefrontController.php
+admin/app/Http/Middleware/SecurityHeaders.php
+admin/app/Http/Requests/Rules.php
+admin/app/Services/Auth/AccountProvisioner.php
+admin/app/Services/Auth/EmailCodes.php
+admin/app/Services/Auth/Turnstile.php
+admin/app/Services/Auth/TurnstileException.php
+admin/app/Services/Firebase/FirebaseAuthClient.php
+admin/app/Services/Firebase/FirebaseAuthException.php
+admin/app/Services/Shop/CustomerAccounts.php
+admin/app/Services/Shop/CustomerSession.php
+admin/app/Services/Shop/ShopCatalog.php
+admin/app/Services/Shop/ShopOrders.php
+admin/app/Services/Shop/ShopReviews.php
+admin/app/Services/Shop/SupabaseRest.php
+admin/app/Services/Supabase/ProductPhotoStorage.php
+admin/app/Services/UserDirectory.php
+admin/config/melai.php
+admin/phpunit.xml
+admin/resources/css/shop.css
+admin/resources/js/shop.js
+admin/resources/views/admin/users/index.blade.php
+admin/resources/views/legal/privacy.blade.php
+admin/resources/views/legal/terms.blade.php
+admin/resources/views/shop/partials/auth-panel.blade.php
+admin/resources/views/shop/partials/card.blade.php
+admin/resources/views/shop/partials/stars.blade.php
+admin/resources/views/shop/partials/turnstile.blade.php
+admin/resources/views/shop/product.blade.php
+admin/routes/web.php
+admin/tests/Feature/AdminUserManagementTest.php
+admin/tests/Feature/AllUsersPageTest.php
+admin/tests/Feature/NoDeliveryOnWebsiteTest.php
+admin/tests/Feature/ProductPhotosTest.php
+admin/tests/Feature/SecurityHeadersTest.php
+admin/tests/Feature/ShopReviewsTest.php
 admin/tests/Feature/ShopTest.php
-admin/public/images/email-logo.png                  (new; PNG of assets/images/logo/melai_nuts_logo.svg)
-docs/ACCOUNT_EMAILS_SETUP.md                        (audit, Firebase console safety net, deploy)
-docs/PASSWORD_RESET.md                              (rewritten: was describing the old Firebase flow)
+admin/tests/Feature/SupabaseIntegrationTest.php
+admin/tests/Support/FakeFirebase.php
+admin/tests/Support/FakeShopSupabase.php
+docs/EMAIL_CODES_AND_CAPTCHA_SETUP.md
+docs/FIRST_ORDER_RULE.md
+docs/FORM_FIELDS.md
+docs/PRODUCT_REVIEWS.md
+docs/owner-approval.md
+lib/core/config/legal_config.dart
+lib/core/services/auth_service.dart
+lib/core/utils/app_error.dart
+lib/core/utils/validation_utils.dart
+lib/data/models/cod_downpayment.dart
+lib/data/models/product.dart
+lib/data/models/product_review.dart
+lib/data/repositories/product_reviews_repository.dart
+lib/data/repositories/products_repository.dart
+lib/features/customer/screens/checkout_screen.dart
+lib/features/customer/screens/product_details_screen.dart
+lib/features/customer/widgets/product_reviews_section.dart
+lib/features/owner/screens/owner_profile_screen.dart
+lib/features/staff/screens/staff_extra_screens.dart
+lib/features/staff/screens/staff_reviews_screen.dart
+lib/l10n/app_en.arb
+lib/l10n/app_fil.arb
+supabase/functions/_shared/captcha.ts
+supabase/functions/_shared/shared_test.ts
+supabase/functions/email-verification/handler.ts
+supabase/functions/email-verification/index.ts
+supabase/migrations/20261119000000_remove_phone_verification.sql
+supabase/migrations/20261119010000_customer_name_parts.sql
+supabase/migrations/20261119020000_product_reviews.sql
+supabase/repair/20261010_resync_live_database.sql
+supabase/tests/first_order_phone_safeguard_test.sql
+supabase/tests/first_order_prepayment_test.sql
+supabase/tests/panel_compliance_test.sql
+supabase/tests/product_reviews_test.sql
+test/first_order_and_email_code_test.dart
+test/product_reviews_test.dart

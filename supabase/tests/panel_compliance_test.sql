@@ -151,7 +151,9 @@ select pg_temp.chk_true('anon reads only the public catalog tables',
   not exists (select 1 from information_schema.role_table_grants
                where table_schema = 'public' and grantee = 'anon' and privilege_type = 'SELECT'
                  and table_name not in ('branches', 'branch_inventory', 'products', 'product_variants',
-                                        'product_categories', 'promotions', 'rewards', 'payment_settings')),
+                                        'product_categories', 'promotions', 'rewards', 'payment_settings',
+                                        -- average rating + count of visible reviews (20261119020000)
+                                        'product_rating_stats')),
   (select string_agg(table_name, ', ') from information_schema.role_table_grants
     where table_schema = 'public' and grantee = 'anon' and privilege_type = 'SELECT'));
 select pg_temp.chk_true('every public table has Row Level Security',
