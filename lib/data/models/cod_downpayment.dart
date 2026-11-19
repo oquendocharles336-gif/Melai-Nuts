@@ -96,7 +96,8 @@ class OrderDownpayment {
   final double? percent;
   final int? pickupDays;
 
-  /// 'cod' (pickup downpayment setting) or 'first_order'.
+  /// 'cod' (pickup downpayment setting), 'first_order', or 'online' (a returning
+  /// customer's Online Payment, paid in full first: migration 20261119080000).
   final String kind;
 
   /// First orders: 'half' or 'full'.
@@ -113,6 +114,9 @@ class OrderDownpayment {
   });
 
   bool get isFirstOrder => kind == 'first_order';
+
+  /// Shown as an online payment, not a downpayment: a first order, or an Online Payment order.
+  bool get isOnlinePayment => kind == 'first_order' || kind == 'online';
 
   bool get isPaid => status == 'success' || status == 'refunded' || status == 'forfeited';
 

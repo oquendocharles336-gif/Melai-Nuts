@@ -22,6 +22,9 @@
 
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 create temp table results (
   id serial primary key,
   name text not null,
@@ -377,6 +380,8 @@ select pg_temp.chk_true('redemption deducted exactly the reward cost (500 -> 400
 
 -- Staff confirms the cash payment, then completes Bob's order (simulated as the table
 -- owner, i.e. a trusted server path). An unpaid order cannot be completed.
+-- The 50% downpayment is paid online first (migration 20261119080000).
+select pg_temp.pay_online((select v from fx where k = 'order_b'));
 update public.payments set status = 'success' where order_id = (select v from fx where k = 'order_b');
 update public.orders set status = 'completed' where id = (select v from fx where k = 'order_b');
 select pg_temp.chk_true('points ARE awarded once the order completes (200 / 50 = 4)',

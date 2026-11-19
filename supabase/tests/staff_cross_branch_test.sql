@@ -14,6 +14,9 @@
 
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 -- These checks cover online-paid orders: switch online payment on inside this
 -- rolled-back transaction (it is off by default, migration 20261017000000).
 do $$ begin
@@ -134,6 +137,7 @@ begin
         (select v from fx where k='bb'), (select v from fx where k='prod'), (select v from fx where k='var')));
     v_order := pg_temp.call_as('x-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', %L)$q$,
         v_cart, 'xb-key-' || i));
+    perform pg_temp.pay_online(v_order);   -- the 50% downpayment, paid online first
     insert into fx values ('order' || i, v_order);
   end loop;
 end $$;

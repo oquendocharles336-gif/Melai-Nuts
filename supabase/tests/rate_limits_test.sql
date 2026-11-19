@@ -6,6 +6,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
 create temp table fx (k text primary key, v text);
 grant select on fx to public;

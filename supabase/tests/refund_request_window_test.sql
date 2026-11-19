@@ -10,6 +10,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 set local timezone = 'Asia/Manila';
 
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
@@ -90,11 +93,9 @@ values ('rw-c1', 'Cust One', 'rw-c1@test.local', '09170000021');
 -- not the first-order prepayment (first_order_prepayment_test.sql covers that).
 update public.customer_profiles set first_paid_order_at = now() where first_paid_order_at is null;
 
--- No downpayment: the order goes straight to staff and is paid in cash.
-update public.business_settings
-   set cod_downpayment_type = null, cod_downpayment_value = null, cod_downpayment_min_order = null,
-       cod_downpayment_expiry_minutes = null, cod_downpayment_pickup_days = null, refund_request_days = null
- where id = 'default';
+-- No refund window set yet. The 50% downpayment (online_first_setup.sql) is paid online
+-- first, then the rest in cash at pickup (migration 20261119080000).
+update public.business_settings set refund_request_days = null where id = 'default';
 
 create function pg_temp.picked_up_order(p_key text) returns text language plpgsql as $$
 declare v_cart text; v_order text;
@@ -104,6 +105,7 @@ begin
     pg_temp.f('ba'), pg_temp.f('prod'), pg_temp.f('var')));
   v_order := pg_temp.call_as('rw-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', %L)$q$,
     v_cart, p_key));
+  perform pg_temp.pay_online(v_order);
   perform pg_temp.run_as('rw-sa', format($q$select public.staff_update_order_status(%L, s)
     from unnest(array['confirmed', 'preparing', 'readyForPickup']) s$q$, v_order));
   perform pg_temp.run_as('rw-sa', format($q$select public.staff_confirm_payment(%L)$q$, v_order));

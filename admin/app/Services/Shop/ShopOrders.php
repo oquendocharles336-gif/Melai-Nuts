@@ -28,7 +28,7 @@ class ShopOrders
         .'order_downpayments(amount,status,expires_at,percent,pickup_days,kind,choice)';
 
     public const STATUS_LABELS = [
-        'awaitingDownpayment' => 'Awaiting downpayment',
+        'awaitingDownpayment' => 'Awaiting online payment',
         'pending' => 'Placed',
         'confirmed' => 'Confirmed',
         'preparing' => 'Preparing',
@@ -42,9 +42,15 @@ class ShopOrders
 
     public function __construct(private CustomerSession $customer, private SupabaseRest $rest) {}
 
-    /** @return array{enabled: bool, message: string} */
+    /**
+     * `read` is false when the switch could not be read: only a switch read as off pauses
+     * ordering (place_order decides either way).
+     *
+     * @return array{enabled: bool, message: string, read: bool}
+     */
     public function onlinePayment(): array
     {
+        $read = true;
         try {
             $row = $this->rest->select('payment_settings', ['select' => 'online_payment_enabled,online_payment_disabled_message', 'id' => 'eq.default'], $this->customer->idToken())[0] ?? [];
         } catch (ShopException $e) {
@@ -52,12 +58,14 @@ class ShopOrders
                 throw $e;
             }
             $row = [];
+            $read = false;
         }
         $message = trim((string) ($row['online_payment_disabled_message'] ?? ''));
 
         return [
             'enabled' => ($row['online_payment_enabled'] ?? false) === true,
-            'message' => $message !== '' ? $message : 'Online payment is not available right now. You can pay in cash when you pick up your order.',
+            'message' => $message !== '' ? $message : 'Online payment is not available right now. Please try again later.',
+            'read' => $read,
         ];
     }
 

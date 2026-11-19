@@ -128,6 +128,13 @@ class SupabaseIntegrationTest extends TestCase
         // A returning customer (migration 20261118015010): these tests use the normal checkout,
         // not the first-order online prepayment.
         $db->update('update public.customer_profiles set first_paid_order_at = now() where firebase_uid = ?', [$this->fx['customer']]);
+        // Every order is paid online first (migration 20261119080000): the owner's Cash on Counter
+        // Pickup downpayment, as set on live (50%, unpaid orders cancelled after 30 minutes, 2 days).
+        $db->statement("insert into public.business_settings (id, cod_downpayment_type, cod_downpayment_value, cod_downpayment_min_order,
+                                                              cod_downpayment_expiry_minutes, cod_downpayment_pickup_days)
+                        values ('default', 'percent', 50, null, 30, 2)
+                        on conflict (id) do update set cod_downpayment_type = 'percent', cod_downpayment_value = 50,
+                          cod_downpayment_min_order = null, cod_downpayment_expiry_minutes = 30, cod_downpayment_pickup_days = 2");
         // Test fixture: loyalty rules (a new database has none; the owner sets them).
         $db->statement("insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_percent, earn_pesos_per_point) values ('default', 1, 50, 50)
                         on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50");
@@ -140,19 +147,29 @@ class SupabaseIntegrationTest extends TestCase
             "select public.sync_customer_cart(?::uuid, jsonb_build_array(jsonb_build_object('product_id', ?::text, 'variant_id', ?::text, 'quantity', ?::int)), null, false)::text",
             [$this->fx["branch_$branch"], $this->fx['product'], $this->fx['variant'], $qty]), true)['cart_id'];
 
-        // Online payment is switched off by default (migration 20261017000000); tests of online-paid
-        // orders switch it on for that one order and back off right after.
+        // Online payment is switched off by default (migration 20261017000000), and since migration
+        // 20261119080000 no order is taken while it is off: switch it on for this one order and back
+        // off right after.
         $online = in_array($method, ['Online Payment (GCash, QR Ph, Card)', 'Online Payment (GCash, Maya, Card)', 'GCash E-Wallet', 'Maya / Credit Card'], true);
-        if ($online) {
-            $this->db()->update("update public.payment_settings set online_payment_enabled = true where id = 'default'");
-        }
+        $this->db()->update("update public.payment_settings set online_payment_enabled = true where id = 'default'");
         try {
-            return $this->asAppUser($this->fx['customer'], 'select public.place_order(?::uuid, false, null, ?, \'\', ?)', [$cart, $method, Str::uuid()->toString()]);
-        } finally {
-            if ($online) {
-                $this->db()->update("update public.payment_settings set online_payment_enabled = false where id = 'default'");
+            $order = $this->asAppUser($this->fx['customer'], 'select public.place_order(?::uuid, false, null, ?, \'\', ?)', [$cart, $method, Str::uuid()->toString()]);
+            if (! $online) {
+                // A cash order pays its 50% downpayment online first; HitPay confirms it, as the webhook does.
+                $this->payOnline($order);
             }
+
+            return $order;
+        } finally {
+            $this->db()->update("update public.payment_settings set online_payment_enabled = false where id = 'default'");
         }
+    }
+
+    /** HitPay confirms the order's online part (downpayment or Online Payment), exactly as the webhook does. */
+    private function payOnline(string $orderId): void
+    {
+        $this->db()->select('select public.hitpay_set_checkout(?, ?, ?)', [$orderId, "preq-$orderId", "https://pay.example/$orderId"]);
+        $this->db()->select("select public.hitpay_apply_payment(?, 'success', 'qrph', ?, null, ?)", [$orderId, "pay-$orderId", "preq-$orderId"]);
     }
 
     private function completeOrder(string $orderId, ?string $reference = null): void
@@ -334,10 +351,13 @@ class SupabaseIntegrationTest extends TestCase
 
         // A completed refund lowers net sales but not gross paid sales.
         $this->requestRefund($paid);
-        $this->actingAs($admin)->post(route('admin.refunds.approve', $paid))->assertSessionHas('status'); // cash: one step
+        // Every order has an online downpayment (migration 20261119080000): approve, then mark it
+        // refunded with the HitPay reference.
+        $this->actingAs($admin)->post(route('admin.refunds.approve', $paid))->assertSessionHas('status');
+        $this->actingAs($admin)->post(route('admin.refunds.complete', $paid), ['reference' => 'HP-RF-KPI-1'])->assertSessionHas('status');
         $refundRow = $this->db()->selectOne('select status, amount from public.refund_requests where order_id = ?', [$paid]);
         $final = $this->actingAs($admin)->get('/dashboard')->assertOk()->viewData('kpis');
-        $this->assertSame('completed', $refundRow->status, 'cash refunds complete in one step');
+        $this->assertSame('completed', $refundRow->status, 'approved, then marked refunded');
         $this->assertEqualsWithDelta($after['gross_sales'], $final['gross_sales'], 0.001);
         $this->assertEqualsWithDelta($after['refunds'] + (float) $refundRow->amount, $final['refunds'], 0.001);
         $this->assertEqualsWithDelta($after['net_sales'] - (float) $refundRow->amount, $final['net_sales'], 0.001);
@@ -455,11 +475,14 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertNotSame('success', $this->db()->selectOne('select status from public.payments where order_id = ?', [$order])->status);
 
         $this->actingAs($admin)->post(route('admin.payments.confirm-online', $order), ['reason' => 'HitPay shows it paid', 'reference' => 'HP-1'])->assertSessionHas('status');
-        $pay = $this->db()->selectOne('select status, reference_number from public.payments where order_id = ?', [$order]);
+        // The order was paid 100% online first (migration 20261119080000): its online part is the
+        // order_downpayments row, so the owner's confirmation pays that, and nothing is left.
+        $pay = $this->db()->selectOne('select status from public.payments where order_id = ?', [$order]);
         $this->assertSame('success', $pay->status);
-        $this->assertSame('HP-1', $pay->reference_number);
+        $this->assertSame('success', $this->db()->selectOne('select status from public.order_downpayments where order_id = ?', [$order])->status);
         $log = $this->db()->selectOne("select metadata::text as m from public.staff_audit_logs where action = 'payment.owner_confirmed_online' and entity_id = ?", [$order]);
         $this->assertSame('HitPay shows it paid', json_decode($log->m, true)['reason']);
+        $this->assertSame('HP-1', json_decode($log->m, true)['reference']);
 
         // Second click: refused.
         $this->actingAs($admin)->post(route('admin.payments.confirm-online', $order), ['reason' => 'HitPay shows it paid'])->assertSessionHasErrors('order');
@@ -476,14 +499,18 @@ class SupabaseIntegrationTest extends TestCase
 
         $this->actingAs($admin)->get('/admin/refunds')->assertOk()->assertSee($order)->assertSee($refund);
         $this->actingAs($admin)->post(route('admin.refunds.approve', $order), ['amount' => 1])->assertSessionHasErrors('amount');
+        // Every order has an online downpayment (migration 20261119080000), so no refund is cash-only:
+        // approve, then mark it refunded with the HitPay reference (the cash half at the counter).
         $this->actingAs($admin)->post(route('admin.refunds.approve', $order))->assertSessionHas('status');
+        $this->actingAs($admin)->post(route('admin.refunds.complete', $order), ['reference' => 'HP-RF-CASH-1'])->assertSessionHas('status');
 
         $row = $this->db()->selectOne('select r.status as refund, o.status as ord, p.status as pay from public.refund_requests r
             join public.orders o on o.id = r.order_id join public.payments p on p.order_id = o.id where r.id = ?', [$refund]);
         $this->assertSame(['completed', 'refunded', 'refunded'], [$row->refund, $row->ord, $row->pay]);
         $this->assertSame(0, (int) $this->db()->selectOne('select points_balance from public.loyalty_accounts where firebase_uid = ?', [$this->fx['customer']])->points_balance);
-        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.approve_cash'", [$refund])->n);
-        $this->assertTrue(ActivityLog::where('action', 'refund.approved_cash')->exists());
+        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action = 'refund.approve'", [$refund])->n);
+        $this->assertTrue(ActivityLog::where('action', 'refund.approved')->exists());
+        $this->assertTrue(ActivityLog::where('action', 'refund.completed')->exists());
 
         // Approving again is refused by the portal and, underneath, by the database.
         $this->actingAs($admin)->post(route('admin.refunds.approve', $order))->assertSessionHasErrors('refund');
@@ -1129,7 +1156,10 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertEqualsWithDelta((float) $before['pending_refunds']['amount'] + 100, $pending['pending_refund_amount'], 0.001);
         $this->actingAs($admin)->get('/admin/refunds')->assertOk()->assertSee('(partial)')->assertSee('Left to refund on this order');
 
-        $this->actingAs($admin)->post(route('admin.refunds.approve', $order))->assertSessionHas('status'); // cash: completed now
+        // Approve, then mark refunded with the HitPay reference: every order has an online
+        // downpayment (migration 20261119080000).
+        $this->actingAs($admin)->post(route('admin.refunds.approve', $order))->assertSessionHas('status');
+        $this->actingAs($admin)->post(route('admin.refunds.complete', $order), ['reference' => 'HP-RF-PART-1'])->assertSessionHas('status');
         $after = $ov();
         $k = $dash(); // no ?fresh=1: the refund action bumped the cache version
         $this->assertEqualsWithDelta((float) $before['summary']['net_sales'] - 100, (float) $after['summary']['net_sales'], 0.001);
@@ -1177,9 +1207,11 @@ class SupabaseIntegrationTest extends TestCase
         $this->assertSame(['Partially refunded', 100.0], [collect($rows)->firstWhere('id', $order)['statusLabel'], (float) collect($rows)->firstWhere('id', $order)['refunded']]);
         $this->actingAs($admin)->get('/admin/payments?branch='.$a)->assertOk()->assertSee('Partially refunded')->assertSee('net sales');
 
-        // The decision is in the app's audit log exactly once, and in the website's log.
-        $this->assertSame(1, (int) $this->db()->selectOne("select count(*) as n from public.staff_audit_logs where entity_id = ? and action like 'refund.%'", [$refund])->n);
-        $this->assertTrue(ActivityLog::where('action', 'refund.approved_cash')->exists());
+        // Each decision (approve, then complete) is in the app's audit log exactly once, and in the website's log.
+        $this->assertSame(['refund.approve', 'refund.complete'], array_map(fn ($r) => $r->action, $this->db()->select(
+            "select action from public.staff_audit_logs where entity_id = ? and action like 'refund.%' order by created_at, action", [$refund])));
+        $this->assertTrue(ActivityLog::where('action', 'refund.approved')->exists());
+        $this->assertTrue(ActivityLog::where('action', 'refund.completed')->exists());
     }
 
     public function test_reports_are_for_the_owner_and_staff_get_none_even_with_the_view_reports_permission(): void
@@ -1236,7 +1268,15 @@ class SupabaseIntegrationTest extends TestCase
         $cart = json_decode($this->asAppUser($this->fx['customer'],
             "select public.sync_customer_cart(?::uuid, jsonb_build_array(jsonb_build_object('product_id', ?::text, 'variant_id', ?::text, 'quantity', 1)), null, false)::text",
             [$this->fx['branch_a'], $this->fx['product'], $this->fx['variant']]), true)['cart_id'];
-        $order = $this->asAppUser($this->fx['customer'], "select public.place_order(?::uuid, true, ?::uuid, 'Cash on Delivery', '', ?)", [$cart, $addr, Str::uuid()->toString()]);
+        // Every order is paid online first (migration 20261119080000): online payment on while it is
+        // placed, and its 50% downpayment paid before the branch sees it.
+        $db->update("update public.payment_settings set online_payment_enabled = true where id = 'default'");
+        try {
+            $order = $this->asAppUser($this->fx['customer'], "select public.place_order(?::uuid, true, ?::uuid, 'Cash on Delivery', '', ?)", [$cart, $addr, Str::uuid()->toString()]);
+            $this->payOnline($order);
+        } finally {
+            $db->update("update public.payment_settings set online_payment_enabled = false where id = 'default'");
+        }
         $this->asAppUser($this->fx['owner'], "select public.staff_update_order_status(?, 'confirmed')::text", [$order]);
         $driver = "it-drv-{$this->sfx}";
         $this->asAppUser($this->fx['owner'], "select public.owner_upsert_driver(?, 'IT Rider', 'r@x', ?::uuid)::text", [$driver, $this->fx['branch_a']]);

@@ -14,6 +14,9 @@
 
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
 create temp table fx (k text primary key, v text);
 grant select on fx to public;
@@ -105,6 +108,7 @@ begin
         (select v from fx where k=b), (select v from fx where k='prod'), (select v from fx where k='var')));
     v_order := pg_temp.call_as('ap-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', %L)$q$,
         v_cart, 'ap-key-' || b));
+    perform pg_temp.pay_online(v_order);   -- the 50% downpayment, paid online first
     insert into fx values ('order_' || b, v_order);
   end loop;
 end $$;
@@ -192,8 +196,14 @@ select pg_temp.chk('reject without a reason refused', 'ap-sb',
   format($q$select public.admin_portal_review_refund(%L, 'reject', ' ')$q$, (select v from fx where k='refund_bb')), 'error');
 select pg_temp.chk('unknown action refused', 'ap-sb',
   format($q$select public.admin_portal_review_refund(%L, 'delete', null)$q$, (select v from fx where k='refund_bb')), 'error');
-select pg_temp.chk('staff B refunds its cash order in one step', 'ap-sb',
-  format($q$select public.admin_portal_review_refund(%L, 'approve_cash', 'Cash returned at counter')$q$, (select v from fx where k='refund_bb')), 'ok');
+-- Every order now has an online part (the downpayment, migration 20261119080000), so the
+-- one-step cash refund no longer applies: the online part goes back through the provider.
+select pg_temp.chk('an order paid partly online cannot be refunded as cash in one step', 'ap-sb',
+  format($q$select public.admin_portal_review_refund(%L, 'approve_cash', 'Cash returned at counter')$q$, (select v from fx where k='refund_bb')), 'error');
+select pg_temp.chk('staff B approves its refund', 'ap-sb',
+  format($q$select public.admin_portal_review_refund(%L, 'approve', null)$q$, (select v from fx where k='refund_bb')), 'ok');
+select pg_temp.chk('staff B completes it with the provider reference', 'ap-sb',
+  format($q$select public.admin_portal_review_refund(%L, 'complete', 'HP-REFUND-BB')$q$, (select v from fx where k='refund_bb')), 'ok');
 select pg_temp.chk_true('refund completed, order refunded, payment refunded',
   (select r.status = 'completed' and o.status = 'refunded' and p.status = 'refunded'
    from public.refund_requests r join public.orders o on o.id = r.order_id join public.payments p on p.order_id = o.id
@@ -208,7 +218,7 @@ select pg_temp.chk('owner rejects the approved refund with a reason', 'ap-own',
   format($q$select public.admin_portal_review_refund(%L, 'reject', 'Item was opened and used')$q$, (select v from fx where k='refund_ba')), 'ok');
 select pg_temp.chk_true('customer received the rejection reason',
   exists (select 1 from public.notifications where firebase_uid = 'ap-c1' and body like '%Item was opened and used%'));
-select pg_temp.chk_true('refund actions are audited (approve_cash, approve, reject)',
+select pg_temp.chk_true('refund actions are audited (approve, approve, reject)',
   (select count(*) from public.staff_audit_logs where action in ('refund.approve_cash', 'refund.approve', 'refund.reject')
      and entity_id in ((select v from fx where k='refund_bb'), (select v from fx where k='refund_ba'))) = 3);
 
@@ -285,6 +295,7 @@ begin
       jsonb_build_array(jsonb_build_object('product_id', %L, 'variant_id', %L, 'quantity', 2)), null, false) ->> 'cart_id')$q$,
       (select v from fx where k='ba'), (select v from fx where k='prod'), (select v from fx where k='var')));
   v_order := pg_temp.call_as('ap-c1', format($q$select public.place_order(%L::uuid, false, null, 'Cash on Counter Pickup', '', 'ap-key-rate')$q$, v_cart));
+  perform pg_temp.pay_online(v_order);
   insert into fx values ('order_rate', v_order);
 end $$;
 select pg_temp.chk_true('next order earns at the new rate (PHP 200 / 10 = 20 points; old rule gave 4)',

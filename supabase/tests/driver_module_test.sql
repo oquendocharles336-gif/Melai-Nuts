@@ -6,6 +6,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 -- These checks cover online-paid orders: switch online payment on inside this
 -- rolled-back transaction (it is off by default, migration 20261017000000).
 do $$ begin
@@ -102,13 +105,18 @@ insert into public.loyalty_cart_settings (id, points_per_peso, max_discount_perc
 values ('default', 1, 50, 50)
   on conflict (id) do update set points_per_peso = 1, max_discount_percent = 50, earn_pesos_per_point = 50;
 
-create function pg_temp.order_for(p_cust text, p_method text, p_key text) returns text language sql as $$
-  select pg_temp.call_as(p_cust, format($q$select public.place_order(%L::uuid, true, %L::uuid, %L, '', %L)$q$,
+create function pg_temp.order_for(p_cust text, p_method text, p_key text) returns text language plpgsql as $$
+declare v_order text;
+begin
+  v_order := pg_temp.call_as(p_cust, format($q$select public.place_order(%L::uuid, true, %L::uuid, %L, '', %L)$q$,
     pg_temp.call_as(p_cust, format($q$select (public.sync_customer_cart(%L::uuid,
       jsonb_build_array(jsonb_build_object('product_id', %L, 'variant_id', %L, 'quantity', 1)), null, false) ->> 'cart_id')$q$,
       pg_temp.f('ba'), pg_temp.f('prod'), pg_temp.f('var'))),
-    pg_temp.f('addr1'), p_method, p_key))
-$$;
+    pg_temp.f('addr1'), p_method, p_key));
+  -- The online part (downpayment or Online Payment) is paid first (migration 20261119080000).
+  perform pg_temp.pay_online(v_order);
+  return v_order;
+end $$;
 insert into fx values ('o1', pg_temp.order_for('d-c1', 'Cash on Delivery', 'drv-key-1'));
 insert into fx values ('o2', pg_temp.order_for('d-c1', 'Cash on Delivery', 'drv-key-2'));
 insert into fx values ('o3', pg_temp.order_for('d-c1', 'Cash on Delivery', 'drv-key-3'));
@@ -227,23 +235,25 @@ select pg_temp.chk('driver 2 cannot update driver 1''s stop', 'drv-2',
   format($q$select public.driver_update_stop(%L::uuid, 'enRoute')$q$, pg_temp.f('stop1')), 'error');
 select pg_temp.chk('stop 1 en route', 'drv-1', format($q$select public.driver_update_stop(%L::uuid, 'enRoute')$q$, pg_temp.f('stop1')), 'ok');
 select pg_temp.chk_true('run is in transit', (select driver_status = 'in_transit' and status = 'inTransit' from public.deliveries where id = pg_temp.f('run1')));
+-- The 50% downpayment was paid online first (migration 20261119080000): the rider
+-- collects the other 50 of the 100 total.
 select pg_temp.chk('delivered without proof refused', 'drv-1',
-  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, null, 100)$q$, pg_temp.f('stop1')), 'error');
+  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, null, 50)$q$, pg_temp.f('stop1')), 'error');
 select pg_temp.chk('COD delivered without collecting cash refused', 'drv-1',
   format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Cust One')$q$, pg_temp.f('stop1')), 'error');
 select pg_temp.chk('COD delivered with the wrong cash amount refused', 'drv-1',
-  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Cust One', 50)$q$, pg_temp.f('stop1')), 'error');
+  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Cust One', 100)$q$, pg_temp.f('stop1')), 'error');
 select pg_temp.chk('proof photo outside the run folder refused', 'drv-1',
-  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, 'DEL-other/x.jpg', null, 100)$q$, pg_temp.f('stop1')), 'error');
+  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, 'DEL-other/x.jpg', null, 50)$q$, pg_temp.f('stop1')), 'error');
 select pg_temp.chk('stop 1 delivered with cash + photo + recipient', 'drv-1',
-  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, 'Left with guard', %L, 'Cust One', 100)$q$,
+  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, 'Left with guard', %L, 'Cust One', 50)$q$,
     pg_temp.f('stop1'), pg_temp.f('run1') || '/stop1.jpg'), 'ok');
 select pg_temp.chk_true('order 1 completed and COD payment confirmed',
   (select o.status = 'completed' and p.status = 'success' from public.orders o join public.payments p on p.order_id = o.id where o.id = pg_temp.f('o1')));
 select pg_temp.chk_true('COD collection audited',
   (select count(*) = 1 from public.staff_audit_logs where action = 'payment.cod_collected' and entity_id = pg_temp.f('o1')));
 select pg_temp.chk('delivered replay is harmless', 'drv-1',
-  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Cust One', 100)$q$, pg_temp.f('stop1')), 'ok');
+  format($q$select public.driver_update_stop(%L::uuid, 'delivered', null, null, null, 'Cust One', 50)$q$, pg_temp.f('stop1')), 'ok');
 select pg_temp.chk('failing a delivered stop refused', 'drv-1',
   format($q$select public.driver_update_stop(%L::uuid, 'failed', 'oops')$q$, pg_temp.f('stop1')), 'error');
 select pg_temp.chk_true('customer tracking stops showing the driver after delivery',

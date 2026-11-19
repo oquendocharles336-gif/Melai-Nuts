@@ -49,8 +49,11 @@ delete from public.product_categories where label like 'FOC-%';
 delete from public.branches where name like 'FOC-%';
 SQL
 }
-trap cleanup EXIT
+# Every order is paid online first (migration 20261119080000).
+. "$(dirname "$0")/online_first_settings.sh"
+trap 'cleanup; online_first_restore' EXIT
 cleanup
+online_first_on
 
 as_user() { # uid sql
   "${PSQL[@]}" <<SQL
@@ -117,14 +120,15 @@ BAD=$(grep -l 'ERROR' "$tmp"/p* 2>/dev/null | wc -l)
   && ok "$N paid events at once -> released once, first order used up" \
   || bad "paid events" "row=$ROW errors=$BAD"
 
-# --- 3. Now returning: N cash orders at once are normal orders --------------------------
+# --- 3. Now returning: N cash orders at once are normal orders, each with its 50% ------
+# --- downpayment online first (migration 20261119080000) --------------------------------
 for i in $(seq 1 "$N"); do echo "$(cart_for "$i")" > "$tmp/rc$i"; done
 for i in $(seq 1 "$N"); do
   ( as_user foc-new "select public.place_order('$(cat "$tmp/rc$i")', false, null, 'Cash on Counter Pickup', '', 'foc-ret-$i', null)" > "$tmp/r$i" 2>&1 ) &
 done
 wait
-RET=$("${PSQL[@]}" -c "select count(*) from public.orders o where o.firebase_uid = 'foc-new' and o.status = 'pending' and o.payment_method = 'Cash on Counter Pickup' and not exists (select 1 from public.order_downpayments d where d.order_id = o.id)")
-[ "$RET" = "$N" ] && ok "returning customer: $N cash orders at once all accepted normally" \
+RET=$("${PSQL[@]}" -c "select count(*) from public.orders o join public.order_downpayments d on d.order_id = o.id where o.firebase_uid = 'foc-new' and o.status = 'awaitingDownpayment' and o.payment_method = 'Cash on Counter Pickup' and d.kind = 'cod' and d.amount = round(o.total * 0.5, 2)")
+[ "$RET" = "$N" ] && ok "returning customer: $N cash orders at once all accepted, each awaiting its 50% downpayment" \
   || bad "returning orders" "accepted=$RET of $N ($(cat "$tmp"/r* | grep -m1 ERROR))"
 
 rm -rf "$tmp"

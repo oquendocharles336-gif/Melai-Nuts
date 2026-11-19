@@ -29,7 +29,7 @@ void main() {
     test('an order awaiting its downpayment can be read', () {
       final o = Order.fromRow(orderRow('awaitingDownpayment'), itemRows: items);
       expect(o.status, OrderStatus.awaitingDownpayment);
-      expect(o.status.label, 'Awaiting Downpayment');
+      expect(o.status.label, 'Awaiting Online Payment');
       expect(o.status.isActive, isTrue);
     });
 
@@ -37,7 +37,7 @@ void main() {
       final steps = OrderTimelineStep.fromEventRows([
         {'status': 'awaitingDownpayment', 'created_at': '2026-11-01T02:00:00Z'},
       ]);
-      expect(steps.single.label, 'Awaiting Downpayment');
+      expect(steps.single.label, 'Awaiting Online Payment');
     });
   });
 

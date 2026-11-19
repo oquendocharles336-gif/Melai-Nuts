@@ -10,6 +10,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 do $$ begin
   if to_regclass('public.payment_settings') is not null then
     update public.payment_settings set online_payment_enabled = true where id = 'default';
@@ -98,11 +101,16 @@ create function pg_temp.owner_confirm(p_order text, p_reason text, p_reference t
   select format($q$select public.owner_confirm_online_payment(%L, %L, %L)$q$, p_order, p_reason, p_reference) $$;
 create function pg_temp.pay_status(p_order text) returns text language sql as $$
   select status from public.payments where order_id = p_order $$;
+-- Online Payment is paid 100% online before staff see the order (migration 20261119080000):
+-- its HitPay money is the order_downpayments row of kind 'online', the payments row is 0.
+create function pg_temp.online_status(p_order text) returns text language sql as $$
+  select status from public.order_downpayments where order_id = p_order $$;
 
 insert into fx values ('o_online', pg_temp.order_for('Online Payment (GCash, QR Ph, Card)', 'op-online'));
 insert into fx values ('o_failed', pg_temp.order_for('Online Payment (GCash, QR Ph, Card)', 'op-failed'));
 insert into fx values ('o_cancel', pg_temp.order_for('Online Payment (GCash, QR Ph, Card)', 'op-cancel'));
 insert into fx values ('o_cash', pg_temp.order_for('Cash on Counter Pickup', 'op-cash'));
+select pg_temp.pay_online(pg_temp.f('o_cash'));   -- its 50% downpayment, paid online first
 
 -- 1. Staff can no longer mark online money as paid --------------------------------
 select pg_temp.chk('staff cannot mark an online order paid, even with a reference', 'op-sa',
@@ -110,7 +118,7 @@ select pg_temp.chk('staff cannot mark an online order paid, even with a referenc
 select pg_temp.chk('the owner cannot use the staff function for an online order either', 'op-own',
   format($q$select public.staff_confirm_payment(%L, 'REF-12345')$q$, pg_temp.f('o_online')), 'error');
 select pg_temp.chk_true('the online payment is still unpaid',
-  pg_temp.pay_status(pg_temp.f('o_online')) in ('pending', 'processing'), pg_temp.pay_status(pg_temp.f('o_online')));
+  pg_temp.online_status(pg_temp.f('o_online')) in ('pending', 'processing'), pg_temp.online_status(pg_temp.f('o_online')));
 
 -- 2. Cash still works for staff ---------------------------------------------------
 select pg_temp.chk('staff can still confirm cash', 'op-sa',
@@ -133,21 +141,23 @@ select pg_temp.chk('the owner needs a reason', 'op-own',
 select pg_temp.chk('a too short reason is refused', 'op-own',
   pg_temp.owner_confirm(pg_temp.f('o_online'), 'paid'), 'error');
 select pg_temp.chk_true('refused attempts changed nothing and logged nothing',
-  pg_temp.pay_status(pg_temp.f('o_online')) in ('pending', 'processing')
+  pg_temp.online_status(pg_temp.f('o_online')) in ('pending', 'processing')
   and not exists (select 1 from public.staff_audit_logs where entity_id = pg_temp.f('o_online')));
 
 -- 5. The owner fallback on a full online payment ----------------------------------
 select pg_temp.chk('the owner can confirm with a reason', 'op-own',
   pg_temp.owner_confirm(pg_temp.f('o_online'), '  Paid, webhook never arrived  ', 'HP-REF-1'), 'ok');
-select pg_temp.chk_true('the payment is paid and keeps its reference',
-  (select status = 'success' and reference_number = 'HP-REF-1' from public.payments where order_id = pg_temp.f('o_online')));
+select pg_temp.chk_true('the online payment is paid and the order goes to staff, nothing left to pay',
+  pg_temp.online_status(pg_temp.f('o_online')) = 'success'
+  and pg_temp.pay_status(pg_temp.f('o_online')) = 'success'
+  and (select status = 'pending' from public.orders where id = pg_temp.f('o_online')));
 select pg_temp.chk_true('the reason and the owner are in the audit log',
   exists (select 1 from public.staff_audit_logs
           where action = 'payment.owner_confirmed_online' and entity_id = pg_temp.f('o_online')
             and staff_firebase_uid = 'op-own'
             and metadata ->> 'reason' = 'Paid, webhook never arrived'
             and metadata ->> 'reference' = 'HP-REF-1'
-            and metadata ->> 'kind' = 'payment'));
+            and metadata ->> 'kind' = 'downpayment'));
 select pg_temp.chk_true('the customer is told',
   exists (select 1 from public.notifications where firebase_uid = 'op-c1' and category = 'payment'
           and body like '%' || pg_temp.f('o_online') || '%'));
@@ -155,18 +165,21 @@ select pg_temp.chk('a second confirmation is refused', 'op-own',
   pg_temp.owner_confirm(pg_temp.f('o_online'), 'Paid, webhook never arrived'), 'error');
 select pg_temp.chk_true('a late webhook changes nothing',
   public.hitpay_apply_payment(pg_temp.f('o_online'), 'success', 'gcash', 'pay-late', 'HP-LATE', null) = 'success');
-select pg_temp.chk_true('the late webhook did not overwrite the reference',
-  (select reference_number = 'HP-REF-1' from public.payments where order_id = pg_temp.f('o_online')));
+select pg_temp.chk_true('the late webhook did not overwrite the confirmed payment',
+  (select status = 'success' and gateway_payment_id is distinct from 'pay-late'
+   from public.order_downpayments where order_id = pg_temp.f('o_online')));
 
 -- 6. A failed payment and a cancelled order ---------------------------------------
 select public.hitpay_set_checkout(pg_temp.f('o_failed'), 'preq-f', 'https://pay.example/f');
 select public.hitpay_apply_payment(pg_temp.f('o_failed'), 'failed', 'gcash', 'pay-f', null, 'preq-f');
-select pg_temp.chk_true('fixture: the payment failed', pg_temp.pay_status(pg_temp.f('o_failed')) = 'failed');
+select pg_temp.chk_true('fixture: the payment failed', pg_temp.online_status(pg_temp.f('o_failed')) = 'failed');
 select pg_temp.chk('the owner can confirm a payment HitPay reported as failed', 'op-own',
   pg_temp.owner_confirm(pg_temp.f('o_failed'), 'Bank shows the money arrived'), 'ok');
-select pg_temp.chk_true('the failed payment is now paid', pg_temp.pay_status(pg_temp.f('o_failed')) = 'success');
+select pg_temp.chk_true('the failed payment is now paid', pg_temp.online_status(pg_temp.f('o_failed')) = 'success');
 
-select pg_temp.call_as('op-sa', format($q$select public.staff_update_order_status(%L, 'cancelled')::text$q$, pg_temp.f('o_cancel')));
+-- Not paid in time: the expiry job cancels it (staff never see an unpaid order).
+update public.order_downpayments set expires_at = now() - interval '1 minute' where order_id = pg_temp.f('o_cancel');
+select public.expire_unpaid_cod_downpayments();
 select pg_temp.chk('a cancelled order cannot be confirmed', 'op-own',
   pg_temp.owner_confirm(pg_temp.f('o_cancel'), 'Paid, webhook never arrived'), 'error');
 select pg_temp.chk('the fallback refuses a cash order', 'op-own',

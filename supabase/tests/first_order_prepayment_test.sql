@@ -8,6 +8,9 @@
 -- =============================================================================
 begin;
 
+-- Every order is paid online first (migration 20261119080000).
+\ir online_first_setup.sql
+
 set local timezone = 'Asia/Manila';
 
 create temp table results (id serial primary key, name text not null, passed boolean not null, detail text);
@@ -93,11 +96,8 @@ update public.customer_profiles set first_paid_order_at = now() - interval '30 d
 insert into public.customer_addresses (firebase_uid, recipient_name, phone, line1, city, latitude, longitude)
 values ('fo-new', 'New', '09170000031', '1 Test St', 'Calamba', 14.205, 121.156);
 insert into fx select 'addr', id::text from public.customer_addresses where firebase_uid = 'fo-new';
-update public.payment_settings set online_payment_enabled = true where id = 'default';
--- No pickup downpayment setting: returning customers pay pickup fully in cash.
-update public.business_settings set cod_downpayment_type = null, cod_downpayment_value = null,
-  cod_downpayment_min_order = null, cod_downpayment_expiry_minutes = null, cod_downpayment_pickup_days = null
- where id = 'default';
+-- Online payment on and the owner's 50% pickup downpayment come from online_first_setup.sql:
+-- returning customers pay their orders online first too (migration 20261119080000).
 
 create function pg_temp.cart(p_uid text) returns text language sql as $$
   select pg_temp.call_as(p_uid, format($q$select (public.sync_customer_cart(%L::uuid,
@@ -245,20 +245,30 @@ select pg_temp.chk_true('6-arg call, first order, online: 100% due online',
 update public.order_downpayments set expires_at = now() - interval '1 minute' where order_id = pg_temp.f('o_six');
 select public.expire_unpaid_cod_downpayments();
 
--- 7. Returning customer: normal checkout ------------------------------------------------
+-- 7. Returning customer: online first too (migration 20261119080000) --------------------
 insert into fx values ('o_ret', pg_temp.place('fo-new', 'Cash on Counter Pickup', null, 'fo-ret'));
-select pg_temp.chk_true('returning: Cash on Counter Pickup goes straight to staff, full cash',
-  (select o.status = 'pending' and p.amount = 100 and p.method = 'cash'
-   from public.orders o join public.payments p on p.order_id = o.id where o.id = pg_temp.f('o_ret'))
-  and not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o_ret')));
+select pg_temp.chk_true('returning: Cash on Counter Pickup pays the 50% downpayment online first, the rest cash',
+  (select o.status = 'awaitingDownpayment' and p.amount = 50 and p.method = 'cash' and d.kind = 'cod' and d.amount = 50
+   from public.orders o join public.payments p on p.order_id = o.id join public.order_downpayments d on d.order_id = o.id
+   where o.id = pg_temp.f('o_ret')));
 insert into fx values ('o_old', pg_temp.place('fo-old', 'Cash on Counter Pickup', null, 'fo-old-1'));
-select pg_temp.chk_true('grandfathered: Cash on Counter Pickup as before',
-  (select status = 'pending' from public.orders where id = pg_temp.f('o_old')));
+select pg_temp.chk_true('grandfathered: Cash on Counter Pickup with its downpayment online first',
+  (select status = 'awaitingDownpayment' from public.orders where id = pg_temp.f('o_old')));
 insert into fx values ('o_old_online', pg_temp.place('fo-old', 'Online Payment (GCash, QR Ph, Card)', 'half', 'fo-old-2'));
-select pg_temp.chk_true('returning + online: the choice is ignored, the normal online order',
-  (select o.status = 'pending' and p.amount = 100 and p.method = 'online'
+select pg_temp.chk_true('returning + online: the 50% choice is ignored, 100% is paid online before staff see it',
+  (select o.status = 'awaitingDownpayment' and p.amount = 0 and p.method = 'online'
+          and d.kind = 'online' and d.choice is null and d.amount = 100 and d.percent = 100
+          and d.expires_at > now() + interval '29 minutes' and d.expires_at <= now() + interval '30 minutes'
+   from public.orders o join public.payments p on p.order_id = o.id join public.order_downpayments d on d.order_id = o.id
+   where o.id = pg_temp.f('o_old_online')));
+select pg_temp.chk_true('returning + online: staff are not told before it is paid',
+  not exists (select 1 from public.staff_notifications where reference = pg_temp.f('o_old_online')));
+select pg_temp.chk_true('returning + online: paid', pg_temp.pay_online(pg_temp.f('o_old_online')) = 'success');
+select pg_temp.chk_true('returning + online: once paid it reaches staff, fully paid',
+  (select o.status = 'pending' and p.status = 'success'
    from public.orders o join public.payments p on p.order_id = o.id where o.id = pg_temp.f('o_old_online'))
-  and not exists (select 1 from public.order_downpayments where order_id = pg_temp.f('o_old_online')));
+  and exists (select 1 from public.staff_notifications where reference = pg_temp.f('o_old_online') and body like '%Fully paid online%')
+  and exists (select 1 from public.notifications where firebase_uid = 'fo-old' and body like '%' || pg_temp.f('o_old_online') || '. Your order is fully paid.%'));
 
 -- 8. Refunded first order still counts as used -----------------------------------------
 select pg_temp.call_as('fo-sa', format($q$select public.staff_update_order_status(%L, s)::text

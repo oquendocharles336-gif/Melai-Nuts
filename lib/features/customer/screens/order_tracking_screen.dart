@@ -126,7 +126,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (!o.isDelivery) return o.status.label;
     switch (o.status) {
       case OrderStatus.awaitingDownpayment:
-        return 'Waiting for your downpayment';
+        return 'Waiting for your online payment';
       case OrderStatus.pending:
       case OrderStatus.confirmed:
         return 'Order received';

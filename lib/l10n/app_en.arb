@@ -472,7 +472,7 @@
   "verifyCompleteCheckFirst": "Complete the security check above, then tap Verify.",
   "verifySpamHint": "Can't find it? Check your spam or promotions folder. The email comes from Melai Nuts and has no link, only the code.",
   "firstOrderTitle": "Your first order",
-  "firstOrderExplain": "Welcome to Melai Nuts! Your first order is paid online, half or in full, before we prepare it. This is a one-time step: from your next order you can also pay in cash.",
+  "firstOrderExplain": "Welcome to Melai Nuts! Your first order is paid online, half or in full, before we prepare it. This is a one-time step: from your next order you can also choose Cash on Counter Pickup, paying a downpayment online first and the rest in cash.",
   "firstOrderHalfTitle": "Pay 50% now",
   "firstOrderHalfPickup": "{amount} online now, then {balance} in cash when you pick it up",
   "@firstOrderHalfPickup": {"placeholders": {"amount": {"type": "String"}, "balance": {"type": "String"}}},
@@ -494,5 +494,7 @@
   "firstOrderBalancePickup": "Cash at pickup",
   "firstOrderBalanceDelivery": "Cash on delivery",
   "firstOrderPayNow": "Pay online now",
-  "firstOrderPaidInFull": "Fully paid online"
+  "firstOrderPaidInFull": "Fully paid online",
+  "orderingPaused": "Ordering is paused because online payment is unavailable right now. Every order is paid online first, in full or as a downpayment. Please try again later.",
+  "cashOnPickupUnavailable": "Cash on Counter Pickup is not available for this order right now. Please choose Online Payment."
 }
