@@ -104,7 +104,9 @@ class NotificationsRepository {
   Future<Map<String, dynamic>?> fetchPreferences(String firebaseUid) async {
     return _client
         .from('notification_preferences')
-        .select('firebase_uid,order_updates,promos,loyalty_updates,delivery_updates')
+        // No delivery_updates: that setting is no longer offered (the column stays,
+        // untouched, so older app versions keep working).
+        .select('firebase_uid,order_updates,promos,loyalty_updates')
         .eq('firebase_uid', firebaseUid)
         .maybeSingle();
   }

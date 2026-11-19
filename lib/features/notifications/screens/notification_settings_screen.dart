@@ -20,7 +20,6 @@ class NotificationSettingsScreen extends StatefulWidget {
 class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
   bool _pushEnabled = true;
   bool _orderUpdates = true;
-  bool _deliveryUpdates = true;
   bool _loyaltyUpdates = true;
   bool _promos = false;
   bool _systemAnnouncements = true;
@@ -62,7 +61,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
       setState(() {
         _loadingPrefs = false;
         _orderUpdates = unsynced?['order_updates'] ?? (prefs['order_updates'] as bool?) ?? _orderUpdates;
-        _deliveryUpdates = unsynced?['delivery_updates'] ?? (prefs['delivery_updates'] as bool?) ?? _deliveryUpdates;
         _loyaltyUpdates = unsynced?['loyalty_updates'] ?? (prefs['loyalty_updates'] as bool?) ?? _loyaltyUpdates;
         _promos = unsynced?['promos'] ?? (prefs['promos'] as bool?) ?? _promos;
       });
@@ -88,7 +86,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         {
           'prefs': {
             'order_updates': _orderUpdates,
-            'delivery_updates': _deliveryUpdates,
             'loyalty_updates': _loyaltyUpdates,
             'promos': _promos,
           },
@@ -161,14 +158,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                   subtitle: 'Confirmations, packing, and readiness',
                   value: _orderUpdates,
                   onChanged: _pushEnabled ? (v) => setState(() => _orderUpdates = v) : null,
-                ),
-                const Divider(height: 1),
-                _ToggleTile(
-                  icon: Icons.local_shipping_rounded,
-                  title: 'Delivery Updates',
-                  subtitle: 'Rider dispatch and live ETA changes',
-                  value: _deliveryUpdates,
-                  onChanged: _pushEnabled ? (v) => setState(() => _deliveryUpdates = v) : null,
                 ),
                 const Divider(height: 1),
                 _ToggleTile(

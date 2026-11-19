@@ -7,7 +7,7 @@
         "build:check": "node scripts/build-stamp.mjs --check",
         "dev": "vite",
         "vendor:ocr": "node scripts/vendor-ocr.mjs",
-        "test:js": "node --test tests/js/sale-key.test.js tests/js/product-photos.test.js"
+        "test:js": "node --test tests/js/sale-key.test.js tests/js/product-photos.test.js tests/js/blocked-words.test.js"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",

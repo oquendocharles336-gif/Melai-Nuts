@@ -1513,4 +1513,42 @@ class SupabaseIntegrationTest extends TestCase
         $this->actingAs($admin)->post(route('admin.refunds.hitpay.check', $order), ['attempt_id' => $pending])->assertSessionHas('status');
         $this->assertSame('completed', $db->selectOne('select status from public.refund_requests where id = ?', [$refund])->status);
     }
+
+    // ---- Product reviews on the admin website + blocked words (20261119030000 / 20261119040000) ----
+
+    public function test_reviews_saved_in_the_app_reach_the_owners_reviews_page_and_can_be_hidden_and_deleted(): void
+    {
+        $order = $this->placeOrder('a');
+        $this->completeOrder($order);
+        $insert = 'insert into public.product_reviews (product_id, customer_id, rating, comment) values (?::uuid, ?, ?, ?) returning id::text';
+
+        // The database itself refuses an offensive comment, whatever client sends it.
+        try {
+            $this->asAppUser($this->fx['customer'], $insert, [$this->fx['product'], $this->fx['customer'], 1, 'p u t a n g i n a']);
+            $this->fail('an offensive review was saved');
+        } catch (\Illuminate\Database\QueryException $e) {
+            $this->assertStringContainsString('Please keep your message respectful.', $e->getMessage());
+        }
+        $id = $this->asAppUser($this->fx['customer'], $insert, [$this->fx['product'], $this->fx['customer'], 4, 'Masarap, will order again']);
+
+        // The owner sees it (real admin_list_product_reviews as the owner, through melai_admin_portal).
+        $this->actingAs($this->portalAdmin())->get('/admin/reviews')->assertOk()
+            ->assertSee("IT-{$this->sfx} Garlic Peanuts")->assertSee("IT Customer {$this->sfx}")->assertSee('Masarap, will order again');
+        $owner = User::where('email', "owner-{$this->sfx}@test.local")->first();
+        $this->actingAs($owner)->get('/admin/reviews?q='.urlencode("IT Customer {$this->sfx}").'&product='.$this->fx['product'])->assertOk()->assertSee('Masarap');
+        $this->actingAs($owner)->get('/admin/reviews?q=nobody-like-this')->assertOk()->assertSee('No reviews match these filters.');
+
+        // Hide: customers no longer see it, the owner still does.
+        $this->actingAs($owner)->post("/admin/reviews/$id/moderate", ['action' => 'hide'])->assertSessionHas('status');
+        $visible = json_decode((string) $this->asAppUser($this->fx['customer'], 'select public.get_product_reviews(?::uuid)::text', [$this->fx['product']]), true);
+        $this->assertSame([], array_values(array_filter($visible, fn ($r) => ! $r['is_mine'])));
+        $this->assertTrue((bool) $this->db()->selectOne('select is_hidden from public.product_reviews where id = ?::uuid', [$id])->is_hidden);
+        $this->actingAs($owner)->get('/admin/reviews?status=hidden')->assertOk()->assertSee('Masarap');
+
+        // Delete: gone, and in the app's audit log.
+        $this->actingAs($owner)->post("/admin/reviews/$id/moderate", ['action' => 'delete'])->assertSessionHas('status', 'Review deleted.');
+        $this->assertNull($this->db()->selectOne('select id from public.product_reviews where id = ?::uuid', [$id]));
+        $this->assertNotNull($this->db()->selectOne("select 1 from public.staff_audit_logs where action = 'review.delete' and entity_id = ?", [$id]));
+    }
 }
+

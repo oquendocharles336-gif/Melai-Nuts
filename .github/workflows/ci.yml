@@ -33,6 +33,8 @@ jobs:
         run: bash scripts/build-resync.sh --check
       - name: Website Terms / Privacy pages match the app text
         run: python3 scripts/gen_legal_pages.py --check
+      - name: Blocked words copies match moderation/blocked_words.json (Python reference + generated files)
+        run: python3 scripts/test_blocked_words.py
 
   flutter:
     name: Flutter analyze + test

@@ -243,6 +243,16 @@ class ShopTest extends TestCase
 
     // ---- Checkout ------------------------------------------------------------------------------
 
+    public function test_special_instructions_with_offensive_words_are_refused(): void
+    {
+        $this->signIn();
+        $this->postJson('/shop/cart', ['product' => 'p-1', 'variant' => 'v-1', 'qty' => 1])->assertOk();
+        $this->get('/shop/checkout')->assertOk()->assertSee('id="melai-blocked-words"', false)->assertSee('data-moderate', false);
+        $this->post('/shop/checkout', ['payment' => 'counter', 'notes' => 'bilisan nyo tang1na'])
+            ->assertSessionHasErrors(['notes' => 'Please keep your message respectful.']);
+        $this->assertSame([], $this->shop->orders, 'no order was placed');
+    }
+
     public function test_a_cash_pickup_order_is_placed_through_place_order_as_store_pickup(): void
     {
         $this->signIn();

@@ -12,8 +12,8 @@ import '../widgets/reward_redeem_action.dart';
 
 /// "Golden Kernel Club" — the customer loyalty home. Matches the
 /// prototype's Customer Loyalty Dashboard: profile row, membership card,
-/// RFID tap banner, a 2x2 points ledger, available rewards, and recent
-/// point activity.
+/// RFID card banner, the points ledger (balance and lifetime earned; points
+/// spent are in the history), available rewards, and recent point activity.
 class LoyaltyDashboardScreen extends StatelessWidget {
   const LoyaltyDashboardScreen({super.key});
 
@@ -31,13 +31,10 @@ class LoyaltyDashboardScreen extends StatelessWidget {
     final lifetimeEarned = CustomerDataStore.instance.loyaltyTransactions
         .where((t) => t.type == LoyaltyTransactionType.earn)
         .fold<int>(0, (sum, t) => sum + t.points);
-    // Points taken back by refunds are not points the customer spent.
-    final pointsSpent = CustomerDataStore.instance.loyaltyTransactions
-        .where((t) => t.type == LoyaltyTransactionType.redeem && !t.isRefundReversal)
-        .fold<int>(0, (sum, t) => sum + t.points);
-    final pointsReversed = CustomerDataStore.instance.loyaltyTransactions
-        .where((t) => t.isRefundReversal)
-        .fold<int>(0, (sum, t) => sum + t.points);
+    // The customer's RFID card: only a card actually registered to this account
+    // (customer_profiles.rfid_card_number, kept equal to the ACTIVE card by the database).
+    final cardNumber = store.profile?.rfidCardNumber?.trim();
+    final hasCard = cardNumber != null && cardNumber.isNotEmpty;
     final claimableRewards = CustomerDataStore.instance.rewards.where((r) => r.pointsRequired <= availablePoints).toList();
 
     return Scaffold(
@@ -132,6 +129,8 @@ class LoyaltyDashboardScreen extends StatelessWidget {
             LoyaltyPointsCard(
               points: availablePoints,
               status: 'Kernel Member',
+              cardNumber: hasCard ? cardNumber : null,
+              onTap: () => Navigator.pushNamed(context, '/customer/loyalty/rfid-tap'),
             ),
             const SizedBox(height: AppSpacing.md),
             InkWell(
@@ -150,16 +149,21 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                       width: 40,
                       height: 40,
                       decoration: const BoxDecoration(color: AppColors.primaryContainer, shape: BoxShape.circle),
-                      child: const Icon(Icons.contactless_rounded, color: AppColors.primary),
+                      child: Icon(hasCard ? Icons.contactless_rounded : Icons.add_link_rounded, color: AppColors.primary),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Tap RFID Card at Store Counter', style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
                           Text(
-                            'Tap your card at the counter of any Melai Nuts branch',
+                            hasCard ? 'Tap RFID Card at Store Counter' : 'No card linked · Link an RFID card',
+                            style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark),
+                          ),
+                          Text(
+                            hasCard
+                                ? 'Tap your card at the counter of any Melai Nuts branch'
+                                : 'See how to get a Golden Kernel card linked to your account',
                             style: AppTextStyles.bodySm,
                           ),
                         ],
@@ -198,18 +202,6 @@ class LoyaltyDashboardScreen extends StatelessWidget {
                   value: '+$lifetimeEarned pts',
                   footer: 'Earn points to level up',
                   icon: Icons.workspace_premium_outlined,
-                ),
-                _LedgerTile(
-                  label: 'POINTS SPENT',
-                  value: '$pointsSpent pts',
-                  footer: pointsReversed > 0 ? '$pointsReversed pts reversed by refunds' : 'Vouchers will appear here',
-                  icon: Icons.shopping_bag_outlined,
-                ),
-                _LedgerTile(
-                  label: 'ACTIVE PERKS',
-                  value: '0 ready',
-                  footer: 'Earn points to unlock',
-                  icon: Icons.local_offer_outlined,
                 ),
               ],
             ),

@@ -103,6 +103,7 @@
 .s-btn:disabled, .s-btn[aria-disabled="true"] { background: var(--sand); color: var(--muted); border-color: var(--line); box-shadow: none; cursor: not-allowed; transform: none; }
 .s-btn.primary { background: var(--brand); color: var(--on-brand); box-shadow: 0 10px 22px -12px rgba(191, 68, 9, .75); }
 .s-btn.primary:hover { background: var(--brand-strong); box-shadow: 0 14px 28px -14px rgba(191, 68, 9, .85); }
+.s-btn.primary:disabled, .s-btn.primary[aria-disabled="true"] { background: var(--sand); color: var(--muted); border-color: var(--line); box-shadow: none; cursor: not-allowed; }
 .s-btn.ghost { background: var(--surface); color: var(--roast); border-color: var(--line); }
 .s-btn.ghost:hover { border-color: var(--tan); }
 .s-btn.dark { background: var(--roast); color: var(--bg); }
@@ -329,7 +330,7 @@
 .s-field input:focus, .s-field textarea:focus { outline: none; border-color: var(--tan); box-shadow: 0 0 0 4px color-mix(in srgb, var(--honey) 40%, transparent); }
 .s-field .err { color: var(--bad); font-size: 13px; font-weight: 600; }
 .s-field .hint { color: var(--muted); font-size: 13px; }
-.s-field.has-err input { border-color: var(--bad); }
+.s-field.has-err input, .s-field.has-err textarea { border-color: var(--bad); }
 .s-field.is-valid input { border-color: var(--ok); }
 .s-field.has-err input:focus { border-color: var(--bad); box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent); }
 .s-field.is-valid input:focus { border-color: var(--ok); }
@@ -499,6 +500,107 @@ html:has(.s-dlg[open]) { overflow: hidden; }
     .s-rules { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .s-dlg::backdrop { animation: none; } }
+
+/* ---- Create account: the same look as the app's "Create your account" screen ------------------
+   Warm cream-to-golden gradient with a faint lattice, round back button, the mascot badge, a bold
+   title with a diamond ornament, then the form on a rounded cream sheet that slides up over the
+   gradient. A centred card (max 560 px) on desktop, the whole screen on phones. */
+.s-dlg {
+    --ca-fill: #FFF6E6;            /* input fill (app surfaceContainerHigh, a touch lighter) */
+    --ca-border: #F4D9B3;          /* soft orange input border */
+    --ca-sheet: #FFFCF5;           /* the sheet */
+    --ca-label: #B8460B;           /* "ABOUT YOU" labels and the ornament */
+    --ca-hero-a: #FFF8EC;
+    --ca-hero-b: #FCE2AE;
+    --ca-lattice: rgba(214, 160, 84, .16);
+}
+:root[data-theme="dark"] .s-dlg {
+    --ca-fill: #2B1F16; --ca-border: #4D3A2C; --ca-sheet: #1E150F; --ca-label: #F0A065;
+    --ca-hero-a: #2A1C12; --ca-hero-b: #3A2615; --ca-lattice: rgba(240, 180, 90, .07);
+}
+.s-dlg[data-shown="create-account"] .s-dlg-card {
+    max-width: 560px; padding: 0; gap: 0; overflow: hidden; border-color: color-mix(in srgb, var(--honey) 40%, var(--line));
+    background:
+        radial-gradient(360px 240px at 88% 0%, color-mix(in srgb, var(--honey) 45%, transparent), transparent 70%),
+        repeating-linear-gradient(45deg, transparent 0 27px, var(--ca-lattice) 27px 28px),
+        repeating-linear-gradient(-45deg, transparent 0 27px, var(--ca-lattice) 27px 28px),
+        linear-gradient(180deg, var(--ca-hero-a) 0%, var(--ca-hero-b) 100%);
+}
+.s-dlg[data-shown="create-account"] .s-dlg-close { display: none; }   /* the round back button replaces it */
+.s-dlg-sec[data-panel="create-account"] { gap: 0; }
+
+.ca-hero { position: relative; display: grid; justify-items: center; text-align: center; gap: 10px; padding: 28px 28px 34px; }
+.ca-back { position: absolute; top: 18px; left: 18px; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%;
+    background: var(--ca-sheet); color: var(--brand-strong); box-shadow: 0 6px 18px -8px rgba(122, 36, 6, .35); text-decoration: none;
+    transition: transform .2s var(--ease), box-shadow .2s; }
+.ca-back:hover { transform: translateX(-2px); box-shadow: 0 10px 22px -10px rgba(122, 36, 6, .45); }
+.ca-mascot { width: 112px; height: 112px; margin-top: 30px; border-radius: 50%; background: #FFF8EA; padding: 3px;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, .85), 0 14px 30px -12px rgba(191, 68, 9, .55); animation: ca-pop .5s var(--ease) both; }
+.ca-mascot img { width: 100%; height: 100%; display: block; }
+.ca-hero h2 { margin: 6px 0 0; font-family: var(--font-body); font-weight: 800; font-size: clamp(1.85rem, 6.4vw, 2.35rem); line-height: 1.1; letter-spacing: -.015em; color: var(--roast); text-wrap: balance; }
+.ca-ornament { display: inline-flex; align-items: center; gap: 10px; }
+.ca-ornament span { width: 64px; height: 1.5px; background: linear-gradient(90deg, transparent, var(--ca-label)); border-radius: 2px; }
+.ca-ornament span:last-child { transform: scaleX(-1); }
+.ca-ornament i { width: 9px; height: 9px; background: var(--ca-label); transform: rotate(45deg); border-radius: 1.5px; }
+.ca-hero p { margin: 2px 0 0; max-width: 42ch; color: var(--roast-2); font-size: 15.5px; line-height: 1.6; }
+
+.ca-sheet { display: grid; gap: 18px; padding: 30px clamp(22px, 5vw, 36px) 30px; background: var(--ca-sheet);
+    border-radius: 32px 32px 0 0; box-shadow: 0 -10px 30px -18px rgba(122, 36, 6, .28); animation: ca-sheet-up .5s .05s var(--ease) both; }
+.ca-sheet .s-dlg-foot { border-top-color: color-mix(in srgb, var(--ca-border) 70%, transparent); }
+.ca-form { gap: 18px; }
+.ca-group { display: flex; align-items: center; gap: 16px; margin: 6px 0 -4px; font-size: 12.5px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--ca-label); }
+.ca-group::after { content: ''; flex: 1; height: 1px; background: color-mix(in srgb, var(--ca-label) 22%, var(--ca-border)); }
+.ca-group:not(:first-of-type) { margin-top: 14px; }
+.ca-form .s-field label { font-size: 14.5px; font-weight: 600; color: var(--roast-2); }
+.ca-form .s-field input[type=text], .ca-form .s-field input[type=email], .ca-form .s-field input[type=tel], .ca-form .s-field input[type=password] {
+    min-height: 56px; padding: 0 20px; border-radius: 14px; border: 1px solid var(--ca-border); background: var(--ca-fill); color: var(--roast); font-size: 16px; letter-spacing: .01em; }
+.ca-form .s-field input::placeholder { color: color-mix(in srgb, var(--roast-2) 62%, transparent); }
+.ca-form .s-field input:focus { border-color: var(--brand); background: var(--ca-sheet); box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 14%, transparent); }
+.ca-form .s-field.has-err input, .s-field.has-err textarea { border-color: var(--bad); }
+.ca-form .s-field.has-err input:focus { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 18%, transparent); }
+.ca-form .s-field.is-valid input { border-color: var(--ok); }
+.ca-form .s-field .hint { font-size: 13.5px; color: var(--muted); margin-top: -1px; }
+.ca-form .s-field.has-err .hint { display: none; }   /* the error message takes its place */
+.ca-form .s-pw input { padding-right: 60px; }
+.s-pw .s-pw-eye { width: 44px; height: 44px; padding: 0; display: grid; place-items: center; right: 8px; color: var(--roast-2); border-radius: 50%; }
+.s-pw .s-pw-eye:hover { color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, transparent); }
+.s-pw-eye .when-shown, .s-pw-eye[aria-pressed="true"] .when-hidden { display: none; }
+.s-pw-eye[aria-pressed="true"] .when-shown { display: block; }
+
+/* Password Strength Check: a small card under the password, with a live badge. */
+.ca-strength { display: grid; gap: 12px; padding: 18px 20px; margin-top: -4px; border: 1px solid var(--ca-border); border-radius: 16px; background: var(--ca-sheet); }
+.ca-strength-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ca-strength-head b { font-size: 15.5px; font-weight: 600; color: var(--roast); min-width: 0; }
+.ca-badge { flex: none; padding: 4px 12px; border-radius: var(--radius-pill); font-size: 13.5px; font-weight: 600; transition: background-color .25s, color .25s;
+    background: color-mix(in srgb, var(--bad) 10%, var(--ca-fill)); color: var(--brand-strong); }
+.ca-strength[data-level="2"] .ca-badge { background: var(--warn-soft); color: var(--warn); }
+.ca-strength[data-level="3"] .ca-badge { background: color-mix(in srgb, var(--honey) 30%, var(--ca-sheet)); color: #7A4A06; }
+.ca-strength[data-level="4"] .ca-badge { background: var(--ok-soft); color: var(--ok); }
+:root[data-theme="dark"] .ca-strength[data-level="3"] .ca-badge { color: var(--honey); }
+.ca-strength ul { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.ca-strength li { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--roast-2); transition: color .2s; }
+.ca-strength li::before { content: ''; flex: none; width: 18px; height: 18px; border-radius: 50%; border: 1.6px solid color-mix(in srgb, var(--roast-2) 80%, transparent);
+    background: center / 12px no-repeat; transition: background-color .2s, border-color .2s; }
+.ca-strength li.ok { color: var(--ok); }
+.ca-strength li.ok::before { border-color: var(--ok); background-color: var(--ok);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+.ca-form .s-btn.primary { min-height: 56px; font-size: 16px; }
+.ca-form .s-check { font-size: 14.5px; }
+@keyframes ca-sheet-up { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+@keyframes ca-pop { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
+@media (max-width: 600px) {
+    .s-dlg[data-shown="create-account"] .s-dlg-card { padding: 0; min-height: 100%; display: flex; flex-direction: column; }
+    .s-dlg[data-shown="create-account"] .s-dlg-sec[data-panel="create-account"] { flex: 1; display: flex; flex-direction: column; }
+    .ca-hero { padding: max(16px, env(safe-area-inset-top, 0px)) 22px 30px; }
+    .ca-back { top: max(14px, env(safe-area-inset-top, 0px)); left: 14px; }
+    .ca-mascot { margin-top: 52px; width: 104px; height: 104px; }
+    .ca-sheet { flex: 1; padding-bottom: max(30px, env(safe-area-inset-bottom, 0px)); align-content: start; }
+    .ca-strength { padding: 16px; }
+    .ca-strength-head b { font-size: 14.5px; white-space: nowrap; }
+    .ca-badge { font-size: 12.5px; padding: 3px 10px; }
+    .ca-strength li { font-size: 14px; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .ca-sheet, .ca-mascot { animation: none; } }
 
 /* ---- After a staff sign-in: two-step code, waiting for approval (same card, on its own page) -------- */
 .s-card-page { min-height: 100vh; background: radial-gradient(900px 520px at 100% 0%, color-mix(in srgb, var(--honey) 20%, transparent), transparent 70%), var(--bg); }

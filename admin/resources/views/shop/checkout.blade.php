@@ -35,9 +35,10 @@
                 @endif
                 <div class="s-field @error('notes') has-err @enderror">
                     <label for="notes">Notes for the branch <span class="hint">(optional)</span></label>
-                    <textarea id="notes" name="notes" maxlength="{{ \App\Http\Requests\Rules::NOTE_MAX }}" placeholder="Pasalubong packing, pickup time…">{{ old('notes') }}</textarea>
+                    <textarea id="notes" name="notes" maxlength="{{ \App\Http\Requests\Rules::NOTE_MAX }}" placeholder="Pasalubong packing, pickup time…" data-moderate>{{ old('notes') }}</textarea>
                     @error('notes')<span class="err">{{ $message }}</span>@enderror
                 </div>
+                @include('shop.partials.blocked-words')
             </section>
 
             <section class="s-panel" aria-labelledby="pay-title">

@@ -128,7 +128,7 @@
                     </fieldset>
                     <div @class(['s-field', 'has-err' => $errors->has('comment')])>
                         <label for="rev-comment">Comment (optional)</label>
-                        <textarea id="rev-comment" name="comment" maxlength="{{ \App\Http\Requests\Rules::REVIEW_MAX }}" placeholder="What did you like about it?" data-review-comment>{{ old('comment', $mine['comment'] ?? '') }}</textarea>
+                        <textarea id="rev-comment" name="comment" maxlength="{{ \App\Http\Requests\Rules::REVIEW_MAX }}" placeholder="What did you like about it?" data-review-comment data-moderate>{{ old('comment', $mine['comment'] ?? '') }}</textarea>
                         <span class="hint" data-review-count>{{ mb_strlen(old('comment', $mine['comment'] ?? '')) }} / {{ \App\Http\Requests\Rules::REVIEW_MAX }}</span>
                         @error('comment')<span class="err">{{ $message }}</span>@enderror
                     </div>
@@ -136,6 +136,7 @@
                         <button type="submit" class="s-btn primary"><x-icon name="check" :size="16" />{{ $mine ? 'Save changes' : 'Post review' }}</button>
                     </div>
                 </form>
+                @include('shop.partials.blocked-words')
                 @if ($mine)
                     <form method="POST" action="{{ route('shop.product.review.destroy', $product['id']) }}" data-confirm="Delete your review of {{ $product['name'] }}?" data-confirm-title="Delete your review?" data-confirm-label="Delete">
                         @csrf @method('DELETE')

@@ -104,7 +104,7 @@ class ShopReviewsTest extends TestCase
         $this->assertSame([], $this->shop->reviews);
     }
 
-    public function test_a_customer_cannot_change_someone_elses_review_and_there_is_no_staff_moderation_on_the_website(): void
+    public function test_a_customer_cannot_change_someone_elses_review_and_moderation_is_owner_only(): void
     {
         $this->review('r1', 'p-1', 'other-1', 5, 'Good');
         $this->signIn();
@@ -112,7 +112,24 @@ class ShopReviewsTest extends TestCase
         $this->delete('/shop/p/p-1/review');                // has no review of their own: nothing happens
         $this->assertArrayHasKey('r1', $this->shop->reviews);
         $this->assertFalse(Route::has('shop.product.review.hide'));
-        $this->assertSame([], array_filter(array_keys(Route::getRoutes()->getRoutesByName()),
-            fn ($n) => str_contains($n, 'review') && str_contains($n, 'moderat')));
+        // No moderation on the shop side; the owner's moderation lives on the admin website only.
+        $this->assertSame(['admin.reviews.moderate'], array_values(array_filter(array_keys(Route::getRoutes()->getRoutesByName()),
+            fn ($n) => str_contains($n, 'review') && str_contains($n, 'moderat'))));
+        $this->assertContains('role:admin', Route::getRoutes()->getByName('admin.reviews.moderate')->gatherMiddleware());
+    }
+
+    public function test_a_review_with_offensive_words_is_refused_with_a_friendly_message(): void
+    {
+        $this->signIn();
+        $this->shop->received['cust-1'] = ['p-1'];
+        // The page carries the shared list for the live check and marks the comment field.
+        $this->get('/shop/p/p-1')->assertOk()->assertSee('id="melai-blocked-words"', false)->assertSee('data-moderate', false);
+        foreach (['Ang pangit, g@go', 'f u c k this', 'PUTANG INA', 'sh1t'] as $bad) {
+            $this->post('/shop/p/p-1/review', ['rating' => 1, 'comment' => $bad])
+                ->assertSessionHasErrors(['comment' => 'Please keep your message respectful.']);
+        }
+        $this->assertSame([], $this->shop->reviews, 'nothing reached the database');
+        $this->post('/shop/p/p-1/review', ['rating' => 5, 'comment' => 'Classic garlic flavor, assess it yourself!'])->assertSessionHas('shop_status');
+        $this->assertCount(1, $this->shop->reviews);
     }
 }

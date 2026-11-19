@@ -8,6 +8,7 @@ use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\Admin\LoyaltyController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ProductPhotoController;
+use App\Http\Controllers\Admin\ProductReviewController;
 use App\Http\Controllers\Admin\RefundController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\LoginController;
@@ -175,6 +176,12 @@ Route::middleware(['no.customers', 'auth', 'active', 'bumps.cache', 'two.factor'
         Route::post('/branches', [BusinessSettingsController::class, 'saveBranch'])->name('branches.store')->middleware('throttle:20,1');
         Route::put('/branches/{branch}', [BusinessSettingsController::class, 'saveBranch'])->name('branches.update')->middleware('throttle:20,1');
         Route::post('/loyalty/{member}/adjust', [LoyaltyController::class, 'adjust'])->name('loyalty.adjust')->middleware('password.recent');
+
+        // Product reviews from customers (the app's database; owner): list, filter, hide / show / delete.
+        Route::middleware('supabase')->group(function () {
+            Route::get('/reviews', [ProductReviewController::class, 'index'])->name('reviews.index');
+            Route::post('/reviews/{review}/moderate', [ProductReviewController::class, 'moderate'])->name('reviews.moderate')->middleware('throttle:60,1');
+        });
     });
 
     // Admin-only actions on the shared catalog (Supabase mode)

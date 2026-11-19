@@ -32,17 +32,29 @@
 
         @foreach ($titles as $panel => $title)
             <section class="s-dlg-sec" data-panel="{{ $panel }}" @if ($panel !== $shown) hidden @endif aria-labelledby="ap-{{ $panel }}-title">
+                @if ($panel === AuthPanel::CREATE_ACCOUNT)
+                    {{-- Same look as the app's "Create your account" screen: warm gradient hero with the
+                         mascot, then the form on a rounded sheet that slides up over it. --}}
+                    <header class="ca-hero">
+                        <a href="{{ AuthPanel::url(AuthPanel::SIGN_IN) }}" class="ca-back" data-panel-open="{{ AuthPanel::SIGN_IN }}" aria-label="Back to sign in"><x-icon name="arrow-left" :size="22" :stroke="2.2" /></a>
+                        <span class="ca-mascot"><img src="{{ asset('images/melai-logo.svg') }}" width="112" height="112" alt="" decoding="async"></span>
+                        <h2 id="ap-{{ $panel }}-title">{{ $title }}</h2>
+                        <span class="ca-ornament" aria-hidden="true"><span></span><i></i><span></span></span>
+                        <p>Order online, track your orders and earn Golden Kernel loyalty points.</p>
+                    </header>
+                @else
                 <header class="s-dlg-head">
                     @include('partials.logo')
                     <h2 id="ap-{{ $panel }}-title">{{ $title }}</h2>
                     <p>
                         @switch($panel)
                             @case(AuthPanel::SIGN_IN) One sign-in for the shop (and the owner's dashboard), with your Melai Nuts app email and password. @break
-                            @case(AuthPanel::CREATE_ACCOUNT) One account for the website and the Melai Nuts app: same cart, orders and points. @break
                             @case(AuthPanel::RESET_PASSWORD) Enter your account's email and we'll send you a link to choose a new password. It works in the app too. @break
                         @endswitch
                     </p>
                 </header>
+                @endif
+                @if ($panel === AuthPanel::CREATE_ACCOUNT)<div class="ca-sheet">@endif
 
                 @if ($panel === $shown)
                     @foreach ($messages as $tone => $text)
@@ -92,51 +104,68 @@
 
                     {{-- Create an account (customers; same rules as the app) ------------------------ --}}
                     @case(AuthPanel::CREATE_ACCOUNT)
-                        <form method="POST" action="{{ route('shop.register') }}" class="s-form" novalidate data-busy="Creating your account…" data-live-validate data-signup>
+                        <form method="POST" action="{{ route('shop.register') }}" class="s-form ca-form" novalidate data-busy="Creating your account…" data-live-validate data-signup>
                             @csrf
                             <input type="hidden" name="_panel" value="{{ $panel }}">
-                            {{-- First and last name, like the app's Create Account (PersonNameFields). --}}
-                            <div class="s-two">
-                                <div @class(['s-field', 'has-err' => $err($panel, 'first_name')])>
-                                    <label for="ca-first-name">First name</label>
-                                    <input id="ca-first-name" type="text" name="first_name" value="{{ $val($panel, 'first_name') }}" autocomplete="given-name" autocapitalize="words" required maxlength="{{ \App\Http\Requests\Rules::NAME_PART_MAX }}">
-                                    @if ($e = $err($panel, 'first_name'))<span class="err">{{ $e }}</span>@endif
-                                </div>
-                                <div @class(['s-field', 'has-err' => $err($panel, 'last_name')])>
-                                    <label for="ca-last-name">Last name</label>
-                                    <input id="ca-last-name" type="text" name="last_name" value="{{ $val($panel, 'last_name') }}" autocomplete="family-name" autocapitalize="words" required maxlength="{{ \App\Http\Requests\Rules::NAME_PART_MAX }}">
-                                    @if ($e = $err($panel, 'last_name'))<span class="err">{{ $e }}</span>@endif
-                                </div>
+
+                            {{-- About you: first and last name (like the app's PersonNameFields) and the mobile number. --}}
+                            <p class="ca-group" id="ca-about">About you</p>
+                            <div @class(['s-field', 'has-err' => $err($panel, 'first_name')])>
+                                <label for="ca-first-name">First Name</label>
+                                <input id="ca-first-name" type="text" name="first_name" value="{{ $val($panel, 'first_name') }}" placeholder="Juan" autocomplete="given-name" autocapitalize="words" required maxlength="{{ \App\Http\Requests\Rules::NAME_PART_MAX }}">
+                                @if ($e = $err($panel, 'first_name'))<span class="err">{{ $e }}</span>@endif
                             </div>
-                            <div class="s-two">
-                                <div @class(['s-field', 'has-err' => $err($panel, 'email')])>
-                                    <label for="ca-email">Email</label>
-                                    <input id="ca-email" type="email" name="email" value="{{ $val($panel, 'email') }}" autocomplete="email" required maxlength="254">
-                                    @if ($e = $err($panel, 'email'))<span class="err">{{ $e }}</span>@endif
-                                </div>
-                                <div @class(['s-field', 'has-err' => $err($panel, 'phone')])>
-                                    <label for="ca-phone">Mobile number</label>
-                                    <input id="ca-phone" type="tel" name="phone" value="{{ $val($panel, 'phone') }}" placeholder="09171234567" autocomplete="tel-national" inputmode="numeric" required maxlength="11">
-                                    @if ($e = $err($panel, 'phone'))<span class="err">{{ $e }}</span>@endif
-                                </div>
+                            <div @class(['s-field', 'has-err' => $err($panel, 'last_name')])>
+                                <label for="ca-last-name">Last Name</label>
+                                <input id="ca-last-name" type="text" name="last_name" value="{{ $val($panel, 'last_name') }}" placeholder="Dela Cruz" autocomplete="family-name" autocapitalize="words" required maxlength="{{ \App\Http\Requests\Rules::NAME_PART_MAX }}">
+                                @if ($e = $err($panel, 'last_name'))<span class="err">{{ $e }}</span>@endif
+                            </div>
+                            <div @class(['s-field', 'has-err' => $err($panel, 'phone')])>
+                                <label for="ca-phone">Mobile Number</label>
+                                <input id="ca-phone" type="tel" name="phone" value="{{ $val($panel, 'phone') }}" placeholder="09171234567" autocomplete="tel-national" inputmode="numeric" required maxlength="11" aria-describedby="ca-phone-hint">
+                                <span class="hint" id="ca-phone-hint">11 digits. Used for order updates.</span>
+                                @if ($e = $err($panel, 'phone'))<span class="err">{{ $e }}</span>@endif
+                            </div>
+
+                            {{-- Sign-in details: email and password, with the live strength check. --}}
+                            <p class="ca-group">Sign-in details</p>
+                            <div @class(['s-field', 'has-err' => $err($panel, 'email')])>
+                                <label for="ca-email">Email Address</label>
+                                <input id="ca-email" type="email" name="email" value="{{ $val($panel, 'email') }}" placeholder="you@example.com" autocomplete="email" required maxlength="254" aria-describedby="ca-email-hint">
+                                <span class="hint" id="ca-email-hint">Used to sign in and to verify your account.</span>
+                                @if ($e = $err($panel, 'email'))<span class="err">{{ $e }}</span>@endif
                             </div>
                             <div @class(['s-field', 'has-err' => $err($panel, 'password')])>
                                 <label for="ca-password">Password</label>
                                 <div class="s-pw">
-                                    <input id="ca-password" type="password" name="password" autocomplete="new-password" required maxlength="64" aria-describedby="ca-pw-rules">
-                                    <button type="button" data-show-pw="ca-password" aria-pressed="false">Show</button>
+                                    <input id="ca-password" type="password" name="password" placeholder="Create a password" autocomplete="new-password" required maxlength="64" aria-describedby="ca-pw-rules">
+                                    <button type="button" class="s-pw-eye" data-show-pw="ca-password" aria-pressed="false" aria-label="Show password">
+                                        <x-icon name="eye" :size="22" class="when-hidden" /><x-icon name="eye-off" :size="22" class="when-shown" />
+                                    </button>
                                 </div>
-                                <ul class="s-rules" id="ca-pw-rules" data-pw-rules="ca-password">
-                                    <li data-rule="length">8 to 64 characters</li>
-                                    <li data-rule="upper">An uppercase letter</li>
-                                    <li data-rule="digit">A number</li>
-                                    <li data-rule="special">A symbol (!@#…)</li>
-                                </ul>
                                 @if ($e = $err($panel, 'password'))<span class="err">{{ $e }}</span>@endif
                             </div>
+                            {{-- Password Strength Check: ticks as each rule is met; the badge counts them (shop.js). --}}
+                            <div class="ca-strength" id="ca-pw-rules" data-pw-rules="ca-password" data-level="0">
+                                <div class="ca-strength-head">
+                                    <b>Password Strength Check</b>
+                                    <span class="ca-badge" data-pw-badge aria-live="polite">Weak (0/4)</span>
+                                </div>
+                                <ul>
+                                    <li data-rule="length">At least 8 characters</li>
+                                    <li data-rule="upper">At least 1 uppercase letter (A-Z)</li>
+                                    <li data-rule="digit">At least 1 number (0-9)</li>
+                                    <li data-rule="special">At least 1 special character (!@#$_)</li>
+                                </ul>
+                            </div>
                             <div @class(['s-field', 'has-err' => $err($panel, 'password_confirmation')])>
-                                <label for="ca-password2">Confirm password</label>
-                                <input id="ca-password2" type="password" name="password_confirmation" autocomplete="new-password" required maxlength="64">
+                                <label for="ca-password2">Confirm Password</label>
+                                <div class="s-pw">
+                                    <input id="ca-password2" type="password" name="password_confirmation" placeholder="Type your password again" autocomplete="new-password" required maxlength="64">
+                                    <button type="button" class="s-pw-eye" data-show-pw="ca-password2" aria-pressed="false" aria-label="Show password">
+                                        <x-icon name="eye" :size="22" class="when-hidden" /><x-icon name="eye-off" :size="22" class="when-shown" />
+                                    </button>
+                                </div>
                                 @if ($e = $err($panel, 'password_confirmation'))<span class="err">{{ $e }}</span>@endif
                             </div>
                             <label @class(['s-check', 'has-err' => $err($panel, 'terms')])>
@@ -157,6 +186,7 @@
                         <div class="s-dlg-foot">
                             <p>Already have an account? <a href="{{ AuthPanel::url(AuthPanel::SIGN_IN) }}" data-panel-open="{{ AuthPanel::SIGN_IN }}">Sign in</a></p>
                         </div>
+                        </div>{{-- .ca-sheet --}}
                     @break
 
                     {{-- Reset password --------------------------------------------------------------- --}}

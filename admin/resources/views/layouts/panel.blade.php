@@ -21,6 +21,7 @@
             ['products', 'Products', route('section', 'products'), 's/products', 'products', null],
             ['customers', 'Customers / Loyalty', route('loyalty.index'), 'loyalty*', 'users', null],
             $live ? ['cards', 'Loyalty cards', route('cards.index'), 'cards*', 'id-card', null] : null,
+            $isAdmin && $live ? ['reviews', 'Product reviews', route('admin.reviews.index'), 'admin/reviews*', 'message', null] : null,
             $isAdmin ? ['team', 'All users', route('admin.users.index'), 'admin/users*', 'shield', null] : null,
             $isAdmin ? ['logs', 'Activity logs', route('admin.logs'), 'admin/activity-logs*', 'scroll', null] : null,
         ])),

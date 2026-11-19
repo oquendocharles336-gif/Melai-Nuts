@@ -59,7 +59,7 @@ class CheckoutController extends ShopController
         $data = $request->validate([
             // half / full = the first-order choice (paid online); the server checks it is allowed.
             'payment' => ['required', 'in:online,counter,half,full'],
-            'notes' => ['nullable', 'string', 'max:'.Rules::NOTE_MAX],
+            'notes' => Rules::orderNotes(),
             'phone' => $needsPhone ? Rules::phone(true) : ['nullable'],
         ]);
 

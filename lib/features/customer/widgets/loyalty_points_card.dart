@@ -6,19 +6,28 @@ import '../../../core/theme/app_text_styles.dart';
 /// The "Golden Kernel Member" hero card — styled like a physical membership
 /// card (matches the prototype's Loyalty Dashboard / Tap Card screens),
 /// rather than a generic stats banner.
+///
+/// The RFID status comes from the customer's real linked card
+/// ([cardNumber] = customer_profiles.rfid_card_number, which the database
+/// keeps equal to the label of their ACTIVE card and clears when there is none
+/// or it is blocked). "RFID ACTIVE" only with a linked card; otherwise
+/// "NO CARD LINKED" and a "Link a card" hint.
 class LoyaltyPointsCard extends StatelessWidget {
   final int points;
   final String status;
-  final String cardNumber;
+  final String? cardNumber;
   final VoidCallback? onTap;
 
   const LoyaltyPointsCard({
     super.key,
     required this.points,
     required this.status,
-    this.cardNumber = 'MLN-RFID-5419',
+    this.cardNumber,
     this.onTap,
   });
+
+  /// A card is registered to this account.
+  bool get hasCard => (cardNumber?.trim() ?? '').isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -60,10 +69,10 @@ class LoyaltyPointsCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.contactless_rounded, size: 13, color: Colors.white),
+                      Icon(hasCard ? Icons.contactless_rounded : Icons.link_off_rounded, size: 13, color: Colors.white),
                       const SizedBox(width: 4),
                       Text(
-                        'RFID ACTIVE',
+                        hasCard ? 'RFID ACTIVE' : 'NO CARD LINKED',
                         style: AppTextStyles.labelSm.copyWith(color: Colors.white),
                       ),
                     ],
@@ -90,10 +99,10 @@ class LoyaltyPointsCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        cardNumber,
+                        hasCard ? cardNumber!.trim() : 'Not linked yet',
                         style: AppTextStyles.titleMd.copyWith(
-                          color: Colors.white,
-                          letterSpacing: 1.2,
+                          color: hasCard ? Colors.white : Colors.white70,
+                          letterSpacing: hasCard ? 1.2 : 0,
                         ),
                       ),
                     ],
@@ -108,10 +117,10 @@ class LoyaltyPointsCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.qr_code_2_rounded, size: 14, color: AppColors.primary),
+                      Icon(hasCard ? Icons.qr_code_2_rounded : Icons.add_link_rounded, size: 14, color: AppColors.primary),
                       const SizedBox(width: 4),
                       Text(
-                        'POS Ready',
+                        hasCard ? 'POS Ready' : 'Link a card',
                         style: AppTextStyles.labelSm.copyWith(color: AppColors.primary),
                       ),
                     ],

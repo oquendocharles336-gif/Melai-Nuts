@@ -1,5 +1,6 @@
 import 'dart:math' show min;
 
+import '../moderation/blocked_words.dart';
 import 'phone_utils.dart';
 
 /// Maximum lengths shared by the app forms, the admin website's FormRequests
@@ -74,7 +75,17 @@ class ValidationUtils {
     if (!_letterOrDigit.hasMatch(text)) {
       return 'Your review must contain words, not only emoji or symbols.';
     }
+    if (BlockedWords.contains(text)) return BlockedWords.message;
     return null;
+  }
+
+  /// Special instructions on an order ("Pasalubong / Packing"): like
+  /// [validateText], and no offensive or cursed words (BlockedWords, the same
+  /// list as the website and the database, which refuses them too).
+  static String? validateSpecialInstructions(String? value) {
+    final error = validateText(value, fieldName: 'Special instructions');
+    if (error != null) return error;
+    return BlockedWords.contains(value) ? BlockedWords.message : null;
   }
 
   // Any letter in any alphabet (Ñ, ñ, é, ü …) plus combining marks, spaces,

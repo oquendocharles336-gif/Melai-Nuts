@@ -13,6 +13,13 @@
   /// real points balance. The physical card is read by the in-store reader at
   /// the counter, not by this phone, so this screen does not simulate a tap,
   /// fake reader diagnostics or auto-navigate anywhere.
+  ///
+  /// The status is "Active" ONLY when a card is registered to this account:
+  /// `customer_profiles.rfid_card_number` is set by the database to the label of
+  /// the customer's ACTIVE card (loyalty_cards, migration 20261011000000) and
+  /// cleared when there is none or it was blocked. Otherwise the screen says
+  /// "Inactive · No card linked" and shows how to get one linked (staff register
+  /// cards at the counter; customers cannot link a card themselves).
   class RfidTapScreen extends StatelessWidget {
     const RfidTapScreen({super.key});
 
@@ -86,7 +93,7 @@
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('MELAI GOLDEN KERNEL', style: AppTextStyles.labelSm.copyWith(color: Colors.white)),
-                          const Icon(Icons.contactless_rounded, size: 16, color: Colors.white),
+                          Icon(hasCard ? Icons.contactless_rounded : Icons.link_off_rounded, size: 16, color: Colors.white),
                         ],
                       ),
                       const SizedBox(height: 18),
@@ -98,6 +105,8 @@
                   ),
                 ),
               ),
+              const SizedBox(height: AppSpacing.md),
+              _CardStatusTile(hasCard: hasCard),
               const SizedBox(height: AppSpacing.md),
               Text(
                 hasCard ? 'Present your card at the counter' : 'No loyalty card linked yet',
@@ -118,7 +127,10 @@
                   icon: Icons.vpn_key_outlined,
                   title: 'Linked to your account',
                   text: 'This card is linked to your account, so purchases at the counter earn points to your balance.',
-                ),
+                )
+              else ...[
+                _LinkCardSteps(email: profile?.email ?? AuthService.instance.currentFirebaseUser?.email, phone: profile?.phone),
+              ],
               const SizedBox(height: AppSpacing.sm),
               _StatTile(label: 'YOUR BALANCE', value: '$points Kernel Points', icon: Icons.card_giftcard_rounded),
             ],
@@ -156,6 +168,109 @@
                 ],
               ),
             ),
+          ],
+        ),
+      );
+    }
+  }
+
+  /// "Card status": Active only with a registered card, otherwise Inactive.
+  class _CardStatusTile extends StatelessWidget {
+    final bool hasCard;
+
+    const _CardStatusTile({required this.hasCard});
+
+    @override
+    Widget build(BuildContext context) {
+      final color = hasCard ? AppColors.success : AppColors.textMuted;
+      return Semantics(
+        label: hasCard ? 'Card status: active' : 'Card status: inactive, no card linked',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Icon(hasCard ? Icons.verified_rounded : Icons.link_off_rounded, size: 18, color: color),
+              const SizedBox(width: 10),
+              Expanded(child: Text('Card status', style: AppTextStyles.labelLg)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  hasCard ? 'Active' : 'Inactive · No card linked',
+                  style: AppTextStyles.labelMd.copyWith(color: color),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  /// How to get a card linked: staff register it at the counter (the database
+  /// only lets active staff register cards), so the customer brings their
+  /// account details. Shown only while no card is linked.
+  class _LinkCardSteps extends StatelessWidget {
+    final String? email;
+    final String? phone;
+
+    const _LinkCardSteps({this.email, this.phone});
+
+    @override
+    Widget build(BuildContext context) {
+      final who = [
+        if ((phone ?? '').trim().isNotEmpty) phone!.trim(),
+        if ((email ?? '').trim().isNotEmpty) email!.trim(),
+      ].join(' or ');
+      final steps = [
+        'Visit any Melai Nuts branch and ask for a Golden Kernel Club card.',
+        who.isEmpty
+            ? 'Give the staff your mobile number or email so they can find your account.'
+            : 'Give the staff your account: $who.',
+        'They tap the card on the reader to link it. This screen then shows "Active".',
+      ];
+      return Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.primaryContainer.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+          border: Border.all(color: AppColors.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.add_link_rounded, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Text('Link a card', style: AppTextStyles.titleMd.copyWith(color: AppColors.primaryDark)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            for (var i = 0; i < steps.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 11,
+                      backgroundColor: AppColors.primary,
+                      child: Text('${i + 1}', style: AppTextStyles.labelSm.copyWith(color: Colors.white)),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(steps[i], style: AppTextStyles.bodyMd)),
+                  ],
+                ),
+              ),
           ],
         ),
       );

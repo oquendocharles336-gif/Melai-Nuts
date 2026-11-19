@@ -13,6 +13,13 @@ return [
         // whose email equals ADMIN_EMAIL is used instead.
         'staff_uid' => env('ADMIN_STAFF_UID'),
     ],
+    // Blocked words for product reviews and order special instructions (App\Support\BlockedWords).
+    // ONE list shared with the app and the database: moderation/blocked_words.json at the project
+    // root (see moderation/README.md). Point MELAI_BLOCKED_WORDS_FILE elsewhere only if the website
+    // is deployed without the rest of the project.
+    'moderation' => [
+        'words_file' => env('MELAI_BLOCKED_WORDS_FILE') ?: base_path('../moderation/blocked_words.json'),
+    ],
     // Terms and Conditions / Privacy Policy shown at /terms and /privacy (same text as the app's
     // lib/features/legal). Bump the version when the wording changes; registration records it.
     // Same versions as the app (lib/core/config/legal_config.dart); bump both together.

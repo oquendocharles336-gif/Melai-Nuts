@@ -1,0 +1,23 @@
+{
+  "_readme": "Checked against every copy of the filter (PHP, JavaScript, SQL, the Python reference) by scripts/test_blocked_words.py. Add a line here whenever you add a tricky word.",
+  "blocked": [
+    "fuck", "FUCK this", "Fuuuuuck", "f u c k", "f.u.c.k", "f-u-c-k you", "f*u*c*k", "fvck", "motherfucker", "fucking slow delivery",
+    "this is shit", "sh1t", "$hit", "5h1t", "S H I T", "shiiiit", "bullsh1t",
+    "you are an ass", "a$$", "@ss", "a55hole", "asshole", "dumb ass", "bitch", "b1tch", "biiitch", "son of a bitch",
+    "what the wtf", "stfu", "dick", "d1ck", "cunt",
+    "putangina", "putang ina mo", "PUTANG INA", "put@ng ina", "tangina", "tang1na", "tang ina", "t a n g i n a",
+    "gago", "gagoooo", "g@go", "gago!", "ulol", "ul0l", "bobo ka", "b0b0", "tanga", "tarantado", "punyeta", "puñeta",
+    "pakyu", "kupal", "leche ka gago", "anak ng puta", "puta", "p u t a", "kingina mo", "hinayupak", "olol"
+  ],
+  "allowed": [
+    "Great nuts, will order again!", "Please pack as pasalubong for my mom.", "Pickup at 3pm please",
+    "Order #455 please add 5 packs", "4 5 5", "I will assess the taste later", "First class packaging",
+    "Bass guitar", "Pass the cashews", "Dickens would love these", "The cocktail mix is great",
+    "Shiitake chips next time?", "Delivered to Batangas", "Computation of the total was wrong", "Great reputation",
+    "Pistachio is my favorite", "Scunthorpe", "spice level", "ang sarap!", "Salamat po",
+    "leche flan flavor please", "Ina, please call me", "The hoe-down party", "Its a must try",
+    "I am happy", "a b c", "assessment", "tangan ko na", "massage chair", "shut up and take my money",
+    "", "   ", "Dear Ma'am, pa-wrap po as gift. Thanks!", "Inamoy ko, ang bango", "classic garlic",
+    "Bob's order", "has", "as is"
+  ]
+}

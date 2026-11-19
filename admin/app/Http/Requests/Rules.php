@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\BlockedWords;
 use Closure;
 
 /**
@@ -226,7 +227,27 @@ final class Rules
      */
     public static function reviewComment(): array
     {
-        return self::text(self::REVIEW_MAX);
+        return [...self::text(self::REVIEW_MAX), self::respectful()];
+    }
+
+    /** Order special instructions ("Notes for the branch"): optional, at most NOTE_MAX, no blocked words. */
+    public static function orderNotes(): array
+    {
+        return ['nullable', 'string', 'max:'.self::NOTE_MAX, self::respectful()];
+    }
+
+    /**
+     * No offensive or cursed words (English and Filipino), checked with the shared list in
+     * moderation/blocked_words.json (App\Support\BlockedWords). The database checks the same
+     * list again, so the API cannot be used to get around it.
+     */
+    public static function respectful(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) {
+            if (is_string($value) && BlockedWords::contains($value)) {
+                $fail(BlockedWords::message());
+            }
+        };
     }
 
     /** @return array<int, mixed> */

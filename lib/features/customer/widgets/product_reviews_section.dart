@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/moderation/blocked_words.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -350,8 +351,25 @@ class _ReviewFormState extends State<_ReviewForm> {
   bool _saving = false;
   String? _ratingError;
 
+  /// The comment contains a blocked word: the button stays disabled (the
+  /// field shows "Please keep your message respectful." as they type).
+  bool _blocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _blocked = BlockedWords.contains(_comment.text);
+    _comment.addListener(_onCommentChanged);
+  }
+
+  void _onCommentChanged() {
+    final blocked = BlockedWords.contains(_comment.text);
+    if (blocked != _blocked && mounted) setState(() => _blocked = blocked);
+  }
+
   @override
   void dispose() {
+    _comment.removeListener(_onCommentChanged);
     _comment.dispose();
     super.dispose();
   }
@@ -443,7 +461,7 @@ class _ReviewFormState extends State<_ReviewForm> {
                 label: widget.existing == null ? 'Post review' : 'Save changes',
                 icon: Icons.check_rounded,
                 loading: _saving,
-                onPressed: _save,
+                onPressed: _blocked ? null : _save,
               ),
             ],
           ),

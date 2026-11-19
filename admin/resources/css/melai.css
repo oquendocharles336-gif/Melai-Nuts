@@ -781,3 +781,4 @@ details.explain p { margin: 10px 0 0; color: var(--ink-2); font-size: 13px; line
     .pp-foot-note { width: 100%; }
 }
 @media (max-width: 380px) { .pp-grid { grid-template-columns: 1fr; } .pp-consent-actions .btn { flex: 1 1 100%; } }
+tr.is-muted > td { opacity: .62; }   /* hidden product reviews (admin/reviews) */

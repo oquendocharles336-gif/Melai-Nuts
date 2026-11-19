@@ -31,6 +31,9 @@ class FakeSupabase extends SupabaseGateway
     /** uid => customer_profiles row with its order figures (owner_all_users shape) */
     public array $customers = [];
 
+    /** Product reviews (admin_list_product_reviews row shape, plus is_hidden); staff_moderate_product_review changes them. */
+    public array $reviews = [];
+
     /** admin_portal_products rows (with `images`); the owner_*_product_image functions change them. */
     public array $products = [];
 
@@ -246,8 +249,51 @@ class FakeSupabase extends SupabaseGateway
             'admin_portal_products' => array_values($this->products),
             'owner_add_product_image', 'owner_remove_product_image', 'owner_set_product_image_order' => $me['role'] === 'owner'
                 ? $this->productImages($fn, $bindings) : throw new BackendActionException('Only an active owner can do this.'),
+            // 20261119040000 / 20261119020000: any active staff member or owner (is_active_staff()).
+            'admin_list_product_reviews' => $this->reviewList($bindings),
+            'staff_moderate_product_review' => $this->moderateReview((string) $bindings[0], (string) $bindings[1]),
             default => throw new BackendUnavailableException("FakeSupabase has no answer for {$fn}()."),
         };
+    }
+
+    /** Same filters, search and sort as admin_list_product_reviews(). */
+    private function reviewList(array $b): array
+    {
+        [$q, $product, $status, $sort, $limit, $offset] = $b + [null, null, 'all', 'newest', 50, 0];
+        $q = $q === null ? null : mb_strtolower(trim((string) $q));
+        $rows = array_values(array_filter($this->reviews, fn ($r) => ($product === null || $r['product_id'] === $product)
+            && ($status === 'all' || ($status === 'hidden') === $r['is_hidden'])
+            && ($q === null || $q === '' || str_contains(mb_strtolower($r['product_name'].' '.$r['customer_name'].' '.($r['customer_email'] ?? '').' '.$r['comment']), $q))));
+        usort($rows, fn ($x, $y) => match ($sort) {
+            'oldest' => strcmp($x['created_at'], $y['created_at']),
+            'rating_high' => [$y['rating'], $y['created_at']] <=> [$x['rating'], $x['created_at']],
+            'rating_low' => [$x['rating'], $y['created_at']] <=> [$y['rating'], $x['created_at']],
+            default => strcmp($y['created_at'], $x['created_at']),
+        });
+        $products = [];
+        foreach ($this->reviews as $r) {
+            $products[$r['product_id']] ??= ['id' => $r['product_id'], 'name' => $r['product_name'], 'review_count' => 0];
+            $products[$r['product_id']]['review_count']++;
+        }
+        $visible = array_filter($this->reviews, fn ($r) => ! $r['is_hidden']);
+
+        return ['total' => count($rows), 'rows' => array_slice($rows, (int) $offset, (int) $limit), 'products' => array_values($products),
+            'summary' => ['total' => count($this->reviews), 'hidden' => count($this->reviews) - count($visible),
+                'average_rating' => $visible ? round(array_sum(array_column($visible, 'rating')) / count($visible), 1) : null, 'last_30_days' => count($this->reviews)]];
+    }
+
+    private function moderateReview(string $id, string $action): array
+    {
+        if (! isset($this->reviews[$id])) {
+            throw new BackendActionException('This review no longer exists.');
+        }
+        if ($action === 'delete') {
+            unset($this->reviews[$id]);
+        } else {
+            $this->reviews[$id]['is_hidden'] = $action === 'hide';
+        }
+
+        return ['id' => $id, 'action' => $action];
     }
 
     /** Same rules as the SQL functions in 20261117000000_product_photo_management.sql. */

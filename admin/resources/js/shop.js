@@ -2,6 +2,8 @@
 // shop works without JavaScript; this adds in-place "Add to cart", quantity buttons, the location
 // prompt for the pickup branch, the password checklist and the payment-status check.
 
+import { makeBlockedWordsChecker } from './blocked-words.js';
+
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
 function toast(message, { tone = 'ok', link = null } = {}) {
@@ -187,7 +189,19 @@ document.querySelectorAll('[data-pw-rules]').forEach((list) => {
         digit: (v) => /[0-9]/.test(v),
         special: (v) => /[^A-Za-z0-9\s]/.test(v),
     };
-    const update = () => list.querySelectorAll('[data-rule]').forEach((li) => li.classList.toggle('ok', tests[li.dataset.rule](input.value)));
+    // The sign-up's "Password Strength Check" badge: Weak (0-1 of 4), Fair (2), Good (3), Strong (4).
+    const badge = list.querySelector('[data-pw-badge]');
+    const LEVELS = ['Weak', 'Weak', 'Fair', 'Good', 'Strong'];
+    const update = () => {
+        let met = 0;
+        list.querySelectorAll('[data-rule]').forEach((li) => {
+            const ok = tests[li.dataset.rule](input.value);
+            li.classList.toggle('ok', ok);
+            if (ok) met += 1;
+        });
+        list.dataset.level = String(met);
+        if (badge) badge.textContent = `${LEVELS[met]} (${met}/4)`;
+    };
     input.addEventListener('input', update);
     update();
 });
@@ -197,7 +211,9 @@ document.addEventListener('click', (e) => {
     const input = document.getElementById(b.dataset.showPw);
     const show = input.type === 'password';
     input.type = show ? 'text' : 'password';
-    b.textContent = show ? 'Hide' : 'Show';
+    // Eye-icon buttons swap their icon through aria-pressed (CSS); text buttons say Show / Hide.
+    if (b.classList.contains('s-pw-eye')) b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    else b.textContent = show ? 'Hide' : 'Show';
     b.setAttribute('aria-pressed', String(show));
 });
 
@@ -763,6 +779,70 @@ document.querySelectorAll('form[data-review-form]').forEach((form) => {
         }
     }, true);
 });
+
+// ---- Respectful messages: reviews and order special instructions (fields marked data-moderate) ----
+// Same list and rules as the server (moderation/blocked_words.json). While the text contains a
+// blocked word: a friendly message under the field and the form's submit button(s) are disabled.
+// The server and the database check again, so this is only earlier feedback.
+(() => {
+    const src = document.getElementById('melai-blocked-words');
+    const fields = [...document.querySelectorAll('[data-moderate]')];
+    if (!src || !fields.length) return;
+    let list;
+    try { list = JSON.parse(src.textContent); } catch { return; }
+    const contains = makeBlockedWordsChecker(list);
+    const message = list.message || 'Please keep your message respectful.';
+    const bad = new WeakMap();   // form -> Set of fields with blocked words
+    const submitsOf = (form) => [...form.querySelectorAll('button[type=submit]'),
+        ...(form.id ? document.querySelectorAll(`button[type=submit][form="${CSS.escape(form.id)}"]`) : [])];
+
+    const update = (field) => {
+        const form = field.form;
+        const wrap = field.closest('.s-field') || field.parentElement;
+        let msg = wrap.querySelector('[data-moderate-msg]');
+        if (!msg) {
+            msg = document.createElement('span');
+            msg.className = 'err';
+            msg.dataset.moderateMsg = '';
+            msg.id = `${field.id || field.name}-respect`;
+            msg.setAttribute('role', 'alert');
+            msg.hidden = true;
+            wrap.appendChild(msg);
+        }
+        const blocked = contains(field.value);
+        msg.textContent = blocked ? message : '';
+        msg.hidden = !blocked;
+        wrap.classList.toggle('has-err', blocked || !!wrap.querySelector('.err:not([data-moderate-msg]):not([hidden])')?.textContent);
+        const ids = new Set((field.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+        if (blocked) { ids.add(msg.id); field.setAttribute('aria-invalid', 'true'); } else { ids.delete(msg.id); field.removeAttribute('aria-invalid'); }
+        if (ids.size) field.setAttribute('aria-describedby', [...ids].join(' ')); else field.removeAttribute('aria-describedby');
+        if (!form) return;
+        if (!bad.has(form)) bad.set(form, new Set());
+        const set = bad.get(form);
+        if (blocked) set.add(field); else set.delete(field);
+        submitsOf(form).forEach((b) => {
+            if (set.size) {
+                if (!b.disabled) { b.disabled = true; b.dataset.respectDisabled = '1'; }
+            } else if (b.dataset.respectDisabled) {
+                b.disabled = false;
+                delete b.dataset.respectDisabled;
+            }
+        });
+    };
+    fields.forEach((field) => {
+        field.addEventListener('input', () => update(field));
+        update(field);
+    });
+    // Enter in a text field, or an old browser ignoring "disabled": never send it.
+    document.addEventListener('submit', (e) => {
+        const set = bad.get(e.target);
+        if (set && set.size) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            [...set][0].focus();
+        }
+    }, true);
+})();
 
 // Delete-my-review (and any shop form marked data-confirm): ask first.
 document.addEventListener('submit', (e) => {

@@ -471,6 +471,29 @@ class SupabaseRepository
         $this->call('select public.staff_set_product_active(?::uuid, ?::boolean)::text as r', [$productId, $active ? 'true' : 'false']);
     }
 
+    // ---- Product reviews (migrations 20261119020000 and 20261119040000) -------------------------
+
+    /**
+     * Every customer review, hidden ones included (admin_list_product_reviews: active staff /
+     * owner only; RLS shows nobody else all of them). $status all | visible | hidden,
+     * $sort newest | oldest | rating_high | rating_low.
+     *
+     * @return array{total: int, rows: list<array>, products: list<array>, summary: array}
+     */
+    public function productReviews(?string $query, ?string $productId, string $status, string $sort, int $limit, int $offset): array
+    {
+        $r = $this->call('select public.admin_list_product_reviews(?::text, ?::uuid, ?::text, ?::text, ?::int, ?::int)::text as r',
+            [$query, $productId, $status, $sort, $limit, $offset]) ?? [];
+
+        return ['total' => (int) ($r['total'] ?? 0), 'rows' => $r['rows'] ?? [], 'products' => $r['products'] ?? [], 'summary' => $r['summary'] ?? []];
+    }
+
+    /** Hide, show or delete one review (staff_moderate_product_review, written to the app's audit log). */
+    public function moderateReview(string $reviewId, string $action): array
+    {
+        return $this->call('select public.staff_moderate_product_review(?::uuid, ?::text)::text as r', [$reviewId, $action]) ?? [];
+    }
+
     // ---- Product photos (owner only; migration 20261117000000_product_photo_management.sql) -----
     // Each returns ['product_id', 'images' => [urls, main photo first], 'removed' => [urls no longer used]].
 

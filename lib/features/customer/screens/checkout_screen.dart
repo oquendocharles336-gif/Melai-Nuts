@@ -16,6 +16,7 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/customer_data_store.dart';
 import '../../../core/services/device_location.dart';
 import '../../../core/services/geocoding_service.dart';
+import '../../../core/moderation/blocked_words.dart';
 import '../../../core/utils/app_error.dart';
 import '../../../core/utils/geo_utils.dart';
 import '../../../core/utils/phone_utils.dart';
@@ -102,6 +103,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   PaymentSettings _paymentSettings = PaymentSettings.unknown;
   bool get _onlineAllowed => _paymentSettings.onlineAllowed;
   final _notesController = TextEditingController();
+  /// The special instructions contain a blocked word: Place Order stays disabled.
+  bool _notesBlocked = false;
+  void _onNotesChanged() {
+    final blocked = BlockedWords.contains(_notesController.text);
+    if (blocked != _notesBlocked && mounted) setState(() => _notesBlocked = blocked);
+  }
   final _addressController = TextEditingController();
   final _contactController = TextEditingController();
   bool _placingOrder = false;
@@ -143,6 +150,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (address != null) _useAddress(address);
     unawaited(_loadPaymentSettings());
     BranchController.instance.addListener(_onBranchChanged);
+    _notesController.addListener(_onNotesChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(refreshCustomerBranch());
     });
@@ -248,6 +256,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void dispose() {
     BranchController.instance.removeListener(_onBranchChanged);
     BranchController.instance.pauseRefresh = false;
+    _notesController.removeListener(_onNotesChanged);
     _notesController.dispose();
     _addressController.dispose();
     _contactController.dispose();
@@ -1081,7 +1090,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 maxLengthEnforcement: MaxLengthEnforcement.enforced,
                 minLines: 1,
                 maxLines: 3,
-                validator: (v) => ValidationUtils.validateText(v, fieldName: 'Special instructions'),
+                // No offensive words (also refused by the database); checked as they type.
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                validator: ValidationUtils.validateSpecialInstructions,
               ),
               const SizedBox(height: AppSpacing.lg),
               Container(
@@ -1236,7 +1247,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     icon: Icons.arrow_forward_rounded,
                     loading: _placingOrder,
                     // Waits for the first-order answer; a blocked first order cannot be placed.
-                    onPressed: cart.lines.isEmpty || locating || branch == null || firstQuote == null || firstBlocked
+                    // ...and while the special instructions hold an offensive word.
+                    onPressed: cart.lines.isEmpty || locating || branch == null || firstQuote == null || firstBlocked || _notesBlocked
                         ? null
                         : _placeOrder,
                   ),
