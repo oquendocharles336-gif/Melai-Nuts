@@ -20,10 +20,12 @@
 /// with the "Allow NFC" button: Terms 11, Privacy 2, 8 and 13) wait for the
 /// owner, who also fills in
 /// the business name and address marked "TO BE FILLED IN BY THE OWNER".
+/// Terms 2026-11-20: the loyalty PIN bullet of Terms 11 (PIN for every use of
+/// points), approved by the owner; the rest of Terms 11 still waits.
 class LegalConfig {
   LegalConfig._();
 
-  static const String termsVersion = '2026-11-19.2';
+  static const String termsVersion = '2026-11-20';
   static const String privacyVersion = '2026-11-19.2';
 
   /// Section numbers whose wording still needs the owner's confirmation.
